@@ -124,19 +124,4 @@ public/images
 
 To replace an image:
 1. Add your new image in `public/images`
-2. Update the path in `data/site.ts` or the relevant page/component file
-
-## Important notes
-- Contact and application forms are currently in **demo mode**.
-- They are good for UI testing now.
-- Later, you can connect them to email using Formspree, Resend, Nodemailer, or your own backend.
-- Phone, WhatsApp, and email in `data/site.ts` still need your final real details.
-- Some fees and admin details can still be refined without changing the full structure.
-
-## Suggested next edits after running
-1. Replace placeholder phone, WhatsApp, and email
-2. Confirm final fee wording
-3. Replace or add more course images
-4. Add real partner logos if needed
-5. Connect forms to real email
-6. Deploy to Vercel later
+2. Update the path in `data/site.ts` or the relevant page/component 
