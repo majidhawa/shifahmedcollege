@@ -22,8 +22,8 @@ export const site = {
   tagline: 'Gateway to Prosperity',
   intake: 'May 2026 Intake Ongoing',
   location: 'Ambwere Plaza, 2nd Floor, Kitale Town',
-  phone: '+254 720 267045',
-  whatsapp: '+254 755 147452',
+  phone: '+254 142 068933',
+  whatsapp: '+254 142 068933',
   email: 'admissionssmtc@gmail.com',
   heroSlides: [
     {

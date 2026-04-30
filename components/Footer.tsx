@@ -38,7 +38,6 @@ export function Footer() {
           <div className="mt-4 space-y-3 text-sm text-white/80">
             <p>{site.location}</p>
             <p>{site.phone}</p>
-            <p>{site.whatsapp} (WhatsApp)</p>
             <p>{site.email}</p>
           </div>
         </div>
