@@ -7,7 +7,10 @@ import { site } from '@/data/site';
 
 export const metadata: Metadata = {
   title: `${site.shortName} | Healthcare Training in Kitale`,
-  description: 'A modern informational website for a medical training college focused on admissions, courses, and institutional credibility.'
+  description: 'A modern informational website for a medical training college focused on admissions, courses, and institutional credibility.',
+  verification: {
+    google: 'UcpAtuqKJzDagBTSLtMFzB-cWeRP9TDO1SdcjEJi7QI',
+  },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
