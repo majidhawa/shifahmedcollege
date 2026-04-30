@@ -28,34 +28,27 @@ export function Navbar() {
 
   return (
     <header className="sticky top-0 z-40 w-full">
-      {/* TOP BAR */}
       <div className="bg-brand-dark">
         <div className="container-shell flex items-center justify-between py-2">
           <p className="text-[11px] tracking-widest text-white/50 uppercase">Gateway to Prosperity</p>
           <div className="flex items-center gap-2">
-            <Link href="https://www.facebook.com/people/Shifah-Medical-Training-College/61588805690949/" target="_blank" rel="noreferrer" aria-label="Facebook"
-              className="group flex h-7 w-7 items-center justify-center rounded-full border border-white/10 text-white/40 transition-all duration-300 hover:border-brand-gold/50 hover:text-brand-gold hover:scale-110">
+            <Link href="https://www.facebook.com/people/Shifah-Medical-Training-College/61588805690949/" target="_blank" rel="noreferrer" aria-label="Facebook" className="group flex h-7 w-7 items-center justify-center rounded-full border border-white/10 text-white/40 transition-all duration-300 hover:border-brand-gold/50 hover:text-brand-gold hover:scale-110">
               <svg width="12" height="12" fill="currentColor" viewBox="0 0 24 24"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/></svg>
             </Link>
-            <Link href="https://www.instagram.com/shifahmedicalcollege?igsh=MWMwcDVvazdqdmIzZQ%3D%3D&utm_source=qr" target="_blank" rel="noreferrer" aria-label="Instagram"
-              className="group flex h-7 w-7 items-center justify-center rounded-full border border-white/10 text-white/40 transition-all duration-300 hover:border-brand-gold/50 hover:text-brand-gold hover:scale-110">
+            <Link href="https://www.instagram.com/shifahmedicalcollege?igsh=MWMwcDVvazdqdmIzZQ%3D%3D&utm_source=qr" target="_blank" rel="noreferrer" aria-label="Instagram" className="group flex h-7 w-7 items-center justify-center rounded-full border border-white/10 text-white/40 transition-all duration-300 hover:border-brand-gold/50 hover:text-brand-gold hover:scale-110">
               <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/></svg>
             </Link>
-            <Link href="https://x.com/shifahmtc" target="_blank" rel="noreferrer" aria-label="X"
-              className="group flex h-7 w-7 items-center justify-center rounded-full border border-white/10 text-white/40 transition-all duration-300 hover:border-brand-gold/50 hover:text-brand-gold hover:scale-110">
+            <Link href="https://x.com/shifahmtc" target="_blank" rel="noreferrer" aria-label="X" className="group flex h-7 w-7 items-center justify-center rounded-full border border-white/10 text-white/40 transition-all duration-300 hover:border-brand-gold/50 hover:text-brand-gold hover:scale-110">
               <svg width="12" height="12" fill="currentColor" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
             </Link>
           </div>
         </div>
       </div>
 
-      {/* MAIN BAR */}
       <div className={`transition-all duration-300 ${scrolled ? 'bg-white shadow-lg shadow-black/8' : 'bg-white shadow-sm'}`}>
-        {/* Logo + contact row */}
         <div className="container-shell flex items-center justify-between border-b border-slate-100 py-3">
           <Link href="/" className="group flex items-center gap-3">
-            <img src="/images/logo.png" alt="Shifah Medical Training College"
-              className="h-16 w-auto object-contain transition-all duration-300 group-hover:scale-105 group-hover:brightness-110" />
+            <img src="/images/logo.png" alt="Shifah Medical Training College" className="h-16 w-auto object-contain transition-all duration-300 group-hover:scale-105 group-hover:brightness-110" />
             <div className="hidden sm:block leading-tight">
               <p className="text-base font-bold text-brand-green tracking-tight">Shifah Medical</p>
               <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-slate-400">Training College</p>
@@ -77,14 +70,12 @@ export function Navbar() {
           </div>
         </div>
 
-        {/* Nav row */}
         <div className="container-shell flex items-center justify-between">
           <nav className="hidden lg:flex items-center">
             {links.map((link) => {
               const active = pathname === link.href;
               return (
-                <Link key={link.href} href={link.href}
-                  className={`group relative px-4 py-4 text-sm font-medium transition-colors duration-200 ${active ? 'text-brand-green' : 'text-slate-600 hover:text-brand-green'}`}>
+                <Link key={link.href} href={link.href} className={`group relative px-4 py-4 text-sm font-medium transition-colors duration-200 ${active ? 'text-brand-green' : 'text-slate-600 hover:text-brand-green'}`}>
                   {link.label}
                   <span className={`absolute bottom-0 left-3 right-3 h-[2px] rounded-full bg-brand-gold transition-all duration-300 ${active ? 'opacity-100 scale-x-100' : 'opacity-0 scale-x-0 group-hover:opacity-60 group-hover:scale-x-100'}`} />
                 </Link>
@@ -92,13 +83,11 @@ export function Navbar() {
             })}
           </nav>
           <div className="flex items-center gap-3 py-2">
-            <Link href="/apply"
-              className="hidden md:inline-flex items-center gap-2 rounded-full bg-brand-green px-6 py-2.5 text-sm font-semibold text-white shadow-md shadow-brand-green/25 transition-all duration-300 hover:bg-brand-dark hover:shadow-lg hover:shadow-brand-green/20 hover:-translate-y-0.5 active:translate-y-0">
+            <Link href="/apply" className="hidden md:inline-flex items-center gap-2 rounded-full bg-brand-green px-6 py-2.5 text-sm font-semibold text-white shadow-md shadow-brand-green/25 transition-all duration-300 hover:bg-brand-dark hover:shadow-lg hover:shadow-brand-green/20 hover:-translate-y-0.5 active:translate-y-0">
               Apply Now
               <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
             </Link>
-            <button onClick={() => setMenuOpen((o) => !o)} aria-label="Toggle menu"
-              className="flex lg:hidden flex-col justify-center items-center w-10 h-10 gap-[5px] rounded-xl border border-slate-200 hover:border-brand-green/30 hover:bg-slate-50 transition-all duration-200">
+            <button onClick={() => setMenuOpen((o) => !o)} aria-label="Toggle menu" className="flex lg:hidden flex-col justify-center items-center w-10 h-10 gap-[5px] rounded-xl border border-slate-200 hover:border-brand-green/30 hover:bg-slate-50 transition-all duration-200">
               <span className={`block h-[2px] w-5 rounded bg-slate-700 transition-all duration-300 origin-center ${menuOpen ? 'rotate-45 translate-y-[7px]' : ''}`} />
               <span className={`block h-[2px] w-5 rounded bg-slate-700 transition-all duration-300 ${menuOpen ? 'opacity-0 scale-x-0' : ''}`} />
               <span className={`block h-[2px] w-5 rounded bg-slate-700 transition-all duration-300 origin-center ${menuOpen ? '-rotate-45 -translate-y-[7px]' : ''}`} />
@@ -107,16 +96,13 @@ export function Navbar() {
         </div>
       </div>
 
-      {/* MOBILE MENU */}
       <div className={`lg:hidden overflow-hidden transition-all duration-400 ease-in-out ${menuOpen ? 'max-h-[500px]' : 'max-h-0'}`}>
         <div className="border-t border-slate-100 bg-white shadow-xl">
           <nav className="container-shell flex flex-col py-4 gap-1">
             {links.map((link, i) => {
               const active = pathname === link.href;
               return (
-                <Link key={link.href} href={link.href}
-                  style={{ transitionDelay: menuOpen ? `${i * 40}ms` : '0ms' }}
-                  className={`flex items-center justify-between rounded-xl px-4 py-3 text-sm font-medium transition-all duration-200 ${active ? 'bg-brand-green/8 text-brand-green' : 'text-slate-700 hover:bg-slate-50 hover:text-brand-green'}`}>
+                <Link key={link.href} href={link.href} style={{ transitionDelay: menuOpen ? `${i * 40}ms` : '0ms' }} className={`flex items-center justify-between rounded-xl px-4 py-3 text-sm font-medium transition-all duration-200 ${active ? 'bg-brand-green/8 text-brand-green' : 'text-slate-700 hover:bg-slate-50 hover:text-brand-green'}`}>
                   {link.label}
                   {active && <span className="h-1.5 w-1.5 rounded-full bg-brand-gold" />}
                 </Link>

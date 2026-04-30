@@ -28,17 +28,17 @@ export const site = {
   heroSlides: [
     {
       image: '/images/hero1.jpeg',
-      title: 'Train for a meaningful career in healthcare.',
+      title: 'Best Medical Training College in Kitale, Kenya.',
       text: 'Modern, clean, and practical medical training designed to prepare students for real-world service and professional growth.'
     },
     {
       image: '/images/hero4.jpeg',
-      title: 'Hands-on learning that builds confidence.',
+      title: 'Phlebotomy & Caregiving Courses in Kenya — Apply Today.',
       text: 'From safe phlebotomy to clinical support skills, our programs focus on practical competence and professional readiness.'
     },
     {
       image: '/images/hero3.jpeg',
-      title: 'A trusted institution for skill, discipline, and impact.',
+      title: 'Accredited Healthcare Training — Kitale, Kenya.',
       text: 'Explore healthcare-focused training supported by strong values, industry alignment, and a clear admissions pathway.'
     }
   ],
