@@ -105,9 +105,9 @@ export const courses: Course[] = [
   {
     slug: 'caregiving',
     title: 'CNA & Caregiving',
-    cardTitle: 'Caregiving',
+    cardTitle: 'Caregiving level 4',
     duration: '6 Months',
-    fee: 'KSh 65,000',
+    fee: 'KSh 75,000',
     entry: 'KCSE D- and above',
     heroImage: '/images/hero9.jpeg',
     summary: 'Gain hands-on skills in patient care, hygiene, mobility and elderly support. Start your healthcare career at Shifah Medical Training College today.',
@@ -129,8 +129,8 @@ export const courses: Course[] = [
     slug: 'phlebotomy',
     title: 'Safe Phlebotomy',
     cardTitle: 'Safe Phlebotomy',
-    duration: '2 Months',
-    fee: 'KSh 30,000',
+    duration: '8 Weeks',
+    fee: 'KSh 38,000',
     entry: 'KCSE D- and above',
     heroImage: '/images/hero10.jpeg',
     summary: 'Foundational knowledge and hands-on skills in phlebotomy, preparing healthcare workers to perform safe, ethical, and accurate blood specimen collection.',
@@ -154,6 +154,46 @@ export const courses: Course[] = [
     entryRequirements: [
       'KCSE Certificate (Grade D or D- for current healthcare students)',
       'Healthcare background or current practice in a medical field preferred'
+    ],
+    technicalRequirements: 'Basic computer skills for online learning components'
+  },
+  {
+    slug: 'EMT',
+    title: 'Emergency Medical Technology(EMT)',
+    cardTitle: 'Emergency Medical Technology(EMT)',
+    duration: '6 Months',
+    fee: 'KSh 55,000',
+    entry: 'KCSE D- and above',
+    heroImage: '/images/hero10.jpeg',
+    summary: 'The Emergency Medical Technology (EMT) program equips students with the essential knowledge and practical skills required to provide immediate life-saving care during medical emergencies.',
+    overview: [
+      'Students are trained to assess patients, stabilize injuries, administer first aid, perform CPR, and safely transport patients to healthcare facilities. The course combines classroom learning with 
+      'hands-on practical sessions and emergency response simulations to prepare graduates for real-world emergency situations.'
+    ],
+    highlights: [
+      'Basic Life Support (BLS)',
+      'Cardiopulmonary Resuscitation (CPR)',
+      'Patient Assessment and Emergency Care',
+      'Trauma and First Aid Management',
+      'Airway Management',
+      'Ambulance Operations and Patient Transport',
+      'Disaster Preparedness and Mass Casualty Response',
+      'Infection Prevention and Patient Safety'
+    ],
+    targetAudience: [
+      'KCSE graduates interested in healthcare careers',
+      'Individuals aspiring to work in ambulance services',
+      'Fire and rescue personnel',
+      'Security officers',
+      'Community first responders',
+      'NGO and humanitarian workers',
+      'Individuals seeking a career in emergency medicine'
+    ],
+    entryRequirements: [
+      'KCSE Mean Grade D- and Above',
+'Passion for emergency medical care',
+'Good communication and interpersonal skills',
+'Physically and mentally fit to undertake practical emergency training'
     ],
     technicalRequirements: 'Basic computer skills for online learning components'
   },
