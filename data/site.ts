@@ -158,7 +158,7 @@ export const courses: Course[] = [
     technicalRequirements: 'Basic computer skills for online learning components'
   },
   {
-    slug: 'EMT',
+    slug: 'emt',
     title: 'Emergency Medical Technology(EMT)',
     cardTitle: 'Emergency Medical Technology(EMT)',
     duration: '6 Months',
@@ -167,7 +167,7 @@ export const courses: Course[] = [
     heroImage: '/images/hero10.jpeg',
     summary: 'The Emergency Medical Technology (EMT) program equips students with the essential knowledge and practical skills required to provide immediate life-saving care during medical emergencies.',
     overview: [
-      'Students are trained to assess patients, stabilize injuries, administer first aid, perform CPR, and safely transport patients to healthcare facilities. The course combines classroom learning with 
+      'Students are trained to assess patients, stabilize injuries, administer first aid, perform CPR, and safely transport patients to healthcare facilities. The course combines classroom learning with.', 
       'hands-on practical sessions and emergency response simulations to prepare graduates for real-world emergency situations.'
     ],
     highlights: [
@@ -196,6 +196,47 @@ export const courses: Course[] = [
 'Physically and mentally fit to undertake practical emergency training'
     ],
     technicalRequirements: 'Basic computer skills for online learning components'
+  },
+  {
+    slug: 'german',
+    title: 'German Language',
+    cardTitle: 'Certificate in German Language',
+    duration: '3 Months',
+    fee: 'KSh 17,500 for A1&A2 And 20,000 for B1&B2',
+    entry: 'Open to all',
+    heroImage: '/images/hero10.jpeg',
+    summary: 'The German Language program equips learners with practical communication skills for study, employment, and migration opportunities in Germany, Austria, and Switzerland.',
+    overview: [
+      'The course develops proficiency in speaking, listening, reading, and writing while introducing learners to German culture.',
+      'workplace communication, and healthcare terminology. Students are prepared for internationally recognized German language examinations from A1 through B2.'
+    ],
+    highlights: [
+      'level A1 2 Months duration',
+      'level A2 2 Months duration',
+      'level B1 3 Months duration',
+      'level B2 3 Months duration'
+    ],
+    targetAudience: [
+      'Healthcare professionals',
+'Caregivers',
+'Nursing students',
+'Medical students',
+'Individuals planning to study abroad',
+'Job seekers targeting Germany and other German-speaking countries',
+'Anyone interested in learning German'
+    ],
+    entryRequirements: [
+      'National ID or Passport',
+'Minimum age of 18 years (recommended)',
+'No prior knowledge of German required for A1 level',
+'Commitment to complete the selected language level'
+    ],
+    technicalRequirements: 'Laptop, tablet, or smartphone',
+'Reliable internet connection (for online sessions)',
+'Headset with microphone',
+'Email address',
+'Notebook and writing materials',
+'Access to online learning resources'
   },
   {
     slug: 'dialysis',
