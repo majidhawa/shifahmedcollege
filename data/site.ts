@@ -1,5 +1,5 @@
 export type Course = {
-  slug: 'caregiving' | 'phlebotomy' | 'dialysis';
+  slug: 'caregiving' | 'phlebotomy' | 'dialysis'|'emt'|'german'|'paramedicine';
   title: string;
   cardTitle: string;
   duration: string;
@@ -13,7 +13,7 @@ export type Course = {
   careerPaths?: string[];
   targetAudience?: string[];
   entryRequirements?: string[];
-  technicalRequirements?: string;
+  technicalRequirements?: string | string[];
 };
 
 export const site = {
@@ -155,7 +155,7 @@ export const courses: Course[] = [
       'KCSE Certificate (Grade D or D- for current healthcare students)',
       'Healthcare background or current practice in a medical field preferred'
     ],
-    technicalRequirements: 'Basic computer skills for online learning components'
+    technicalRequirements: 'Basic computer skills for online learning components',
   },
   {
     slug: 'emt',
@@ -231,12 +231,14 @@ export const courses: Course[] = [
 'No prior knowledge of German required for A1 level',
 'Commitment to complete the selected language level'
     ],
-    technicalRequirements: 'Laptop, tablet, or smartphone',
-'Reliable internet connection (for online sessions)',
-'Headset with microphone',
-'Email address',
-'Notebook and writing materials',
-'Access to online learning resources'
+    technicalRequirements: [
+      'Laptop, tablet, or smartphone',
+      'Reliable internet connection (for online sessions)',
+      'Headset with microphone',
+      'Email address',
+      'Notebook and writing materials',
+      'Access to online learning resources'
+    ]
   },
   {
     slug: 'paramedicine',
@@ -278,13 +280,15 @@ export const courses: Course[] = [
 'Minimum C in Chemistry, Physics, or Mathematics',
 'Certificate in Emergency Medical Technology (EMT) from a recognized institution',
     ],
-    technicalRequirements: 'National ID or Passport',
-'Laptop (recommended)',
-'Basic computer literacy',
-'Internet access for e-learning activities',
-'Medical examination report',
-'Clinical uniform/PPE for practical training',
-'Notebook and scientific calculator (recommended)',
+    technicalRequirements: [
+      'National ID or Passport',
+      'Laptop (recommended)',
+      'Basic computer literacy',
+      'Internet access for e-learning activities',
+      'Medical examination report',
+      'Clinical uniform/PPE for practical training',
+      'Notebook and scientific calculator (recommended)'
+    ],
   },
   {
     slug: 'dialysis',
