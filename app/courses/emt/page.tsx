@@ -3,9 +3,11 @@ import { Container } from '@/components/Container';
 import { courses } from '@/data/site';
 
 const course = courses.find((c) => c.slug === 'dialysis')!;
+
 export default function DialysisPage() {
   return (
     <main>
+      {/* Hero */}
       <section className="relative overflow-hidden bg-brand-dark py-20 text-white">
         <img src={course.heroImage} alt={course.title} className="absolute inset-0 h-full w-full object-cover opacity-20" />
         <div className="absolute inset-0 bg-gradient-to-r from-brand-dark/95 via-brand-dark/80 to-transparent" />
