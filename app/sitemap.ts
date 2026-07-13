@@ -10,5 +10,7 @@ export default function sitemap() {
     { url: 'https://shifahmedicalcollege.co.ke/departments', lastModified: new Date() },
     { url: 'https://shifahmedicalcollege.co.ke/contact', lastModified: new Date() },
     { url: 'https://shifahmedicalcollege.co.ke/apply', lastModified: new Date() },
+    { url: 'https://shifahmedicalcollege.co.ke/downloads', lastModified: new Date() },
+    { url: 'https://shifahmedicalcollege.co.ke/announcements', lastModified: new Date() },
   ];
 }
