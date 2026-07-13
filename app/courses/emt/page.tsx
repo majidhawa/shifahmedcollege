@@ -2,9 +2,9 @@ import Link from 'next/link';
 import { Container } from '@/components/Container';
 import { courses } from '@/data/site';
 
-const course = courses.find((c) => c.slug === 'dialysis')!;
+const course = courses.find((c) => c.slug === 'emt')!;
 
-export default function DialysisPage() {
+export default function EMTPage() {
   return (
     <main>
       {/* Hero */}
