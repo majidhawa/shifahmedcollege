@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import { downloads } from "@/data/downloads";
 
 import DownloadCard from "./DownloadCard";
-import { PageHero } from "./PageHero";
+import PageHero from "./PageHero";
 import SearchBar from "./SearchBar";
 
 export default function Downloads() {
@@ -42,9 +42,9 @@ export default function Downloads() {
     <>
 
       <PageHero
-        eyebrow="Downloads"
+        badge="Downloads"
         title="Fee Structures & Admission Forms"
-        text="All documents are provided as PDF. Click any file to download."
+        description="All documents are provided as PDF. Click any file to download."
       />
 
       <section className="container-shell py-16">
