@@ -1,54 +1,148 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { PageHero, SiteLayout } from "@/components/SiteLayout";
 import { Download, FileText } from "lucide-react";
-// Fallback local downloads list. Replace with proper import when '@/lib/courses' is available.
-const downloads: { title: string; url: string; description?: string; category: string }[] = [];
+import { PageHero, SiteLayout } from "@/components/SiteLayout";
+
+const downloads = [
+  {
+    title: "Certificate Caregiver Fee Structure",
+    url: "/assets/fee-caregiver.pdf",
+    description: "Fee structure for Certificate Caregiver program.",
+    category: "Fee Structure",
+  },
+  {
+    title: "Diploma in Clinical Medicine Fee Structure",
+    url: "/downloads/clinical-medicine-fees.pdf",
+    description: "Fee structure for Diploma in Clinical Medicine.",
+    category: "Fee Structure",
+  },
+  {
+    title: "Medical Assessment Form",
+    url: "/downloads/medical-assessment-form.pdf",
+    description: "Medical examination form for new students.",
+    category: "Form",
+  },
+  {
+    title: "Application Letter Template",
+    url: "/downloads/application-letter-template.pdf",
+    description: "Template for student application letter.",
+    category: "Application",
+  },
+];
+
 export const Route = createFileRoute("/downloads")({
   head: () => ({
     meta: [
-      { title: "Downloads — Shifah Medical Training College" },
-      { name: "description", content: "Download fee structures for all courses, the medical assessment form and the application letter template as PDFs." },
-      { property: "og:title", content: "Downloads — Fee Structures & Forms" },
-      { property: "og:description", content: "Grab the PDFs you need to apply." },
+      {
+        title: "Downloads | Shifah Medical Training College",
+      },
+      {
+        name: "description",
+        content:
+          "Download fee structures, admission forms and application documents.",
+      },
     ],
   }),
   component: DownloadsPage,
 });
+
 function DownloadsPage() {
   const groups = ["Fee Structure", "Form", "Application"] as const;
+
   return (
     <SiteLayout>
-      <PageHero eyebrow="Downloads" title="Fee structures & admission forms" subtitle="All documents are provided as PDF. Click any file to download." />
-      <section className="container-page py-16 space-y-12">
-        {groups.map((g) => {
-          const items = downloads.filter((d) => d.category === g);
-          if (!items.length) return null;
-          return (
-            <div key={g}>
-              <h2 className="font-display text-2xl mb-6 flex items-center gap-3">
-                <span className="h-8 w-1.5 rounded-full bg-gradient-brand" />
-                {g === "Fee Structure" ? "Course Fee Structures" : g === "Form" ? "Forms" : "Application Documents"}
-              </h2>
-              <div className="grid md:grid-cols-2 gap-4">
-                {items.map((d) => (
-                  <a key={d.title} href={d.url} download
-                    className="group flex items-center gap-4 rounded-2xl border border-border bg-card p-5 hover:border-brand hover:shadow-card transition">
-                    <div className="h-12 w-12 rounded-xl bg-brand-soft grid place-items-center text-brand shrink-0">
-                      <FileText className="h-6 w-6" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-slate-ink group-hover:text-brand truncate">{d.title}</div>
-                      <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{d.description}</p>
-                    </div>
-                    <div className="h-10 w-10 rounded-full bg-gradient-brand text-brand-foreground grid place-items-center shrink-0">
-                      <Download className="h-4 w-4" />
-                    </div>
-                  </a>
-                ))}
+      {/* HERO */}
+      <PageHero
+        eyebrow="Downloads"
+        title="Download Forms & Fee Structures"
+        subtitle="Access all admission documents, application forms and fee structures in PDF format."
+      />
+
+      {/* DOWNLOADS */}
+      <section className="container-page py-20">
+        <div className="grid gap-12">
+          {groups.map((group) => {
+            const items = downloads.filter(
+              (item) => item.category === group
+            );
+
+            return (
+              <div key={group}>
+                <h2 className="mb-6 text-2xl font-bold">
+                  {group === "Fee Structure"
+                    ? "Course Fee Structures"
+                    : group === "Form"
+                    ? "Admission Forms"
+                    : "Application Documents"}
+                </h2>
+
+                <div className="grid gap-5 md:grid-cols-2">
+                  {items.map((item) => (
+                    <a
+                      key={item.title}
+                      href={item.url}
+                      download
+                      className="group flex items-center gap-4 rounded-2xl border border-border bg-card p-6 transition hover:border-primary hover:shadow-lg"
+                    >
+                      <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-primary/10">
+                        <FileText className="h-7 w-7 text-primary" />
+                      </div>
+
+                      <div className="flex-1">
+                        <h3 className="font-semibold group-hover:text-primary">
+                          {item.title}
+                        </h3>
+
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          {item.description}
+                        </p>
+                      </div>
+
+                      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                        <Download className="h-5 w-5" />
+                      </div>
+                    </a>
+                  ))}
+                </div>
               </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* CTA */}
+      <section className="container-page pb-20">
+        <div className="overflow-hidden rounded-3xl bg-brand px-10 py-14 text-white">
+          <div className="max-w-2xl">
+            <p className="text-sm font-semibold uppercase tracking-widest opacity-80">
+              Need More Information?
+            </p>
+
+            <h2 className="mt-3 text-4xl font-bold">
+              Ready to begin your medical career?
+            </h2>
+
+            <p className="mt-4 text-white/80">
+              Download the required documents and complete your application
+              today. Contact our admissions office if you need any assistance.
+            </p>
+
+            <div className="mt-8 flex gap-4">
+              <a
+                href="/apply"
+                className="rounded-full bg-white px-8 py-3 font-semibold text-brand transition hover:opacity-90"
+              >
+                Apply Now
+              </a>
+
+              <a
+                href="/contact"
+                className="rounded-full border border-white/40 px-8 py-3 font-semibold hover:bg-white/10"
+              >
+                Contact Us
+              </a>
             </div>
-          );
-        })}
+          </div>
+        </div>
       </section>
     </SiteLayout>
   );
