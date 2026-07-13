@@ -11,8 +11,6 @@ const links = [
   { href: '/admissions', label: 'Admissions' },
   { href: '/departments', label: 'Departments' },
   { href: '/contact', label: 'Contact' },
-  { href: '/downloads', label: 'Downloads' },
-  { href: '/announcements', label: 'Announcements' },
 ];
 
 export function Navbar() {
