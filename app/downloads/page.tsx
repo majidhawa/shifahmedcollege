@@ -2,13 +2,13 @@ import Link from 'next/link';
 import { Container } from '@/components/Container';
 import { site } from '@/data/site';
 
-export default function AdmissionsPage() {
+export default function DownloadsPage() {
   return (
     <main>
 
       {/* ── HERO ── */}
       <section className="relative overflow-hidden bg-brand-dark py-24 text-white">
-        <img src="/images/girl2.jpeg" alt="Admissions" className="absolute inset-0 h-full w-full object-cover opacity-20" />
+        <img src="/images/girl2.jpeg" alt="Downloads" className="absolute inset-0 h-full w-full object-cover opacity-20" />
         <div className="absolute inset-0 bg-gradient-to-r from-brand-dark/95 via-brand-dark/80 to-transparent" />
         <div className="absolute left-0 top-0 h-full w-1 bg-gradient-to-b from-brand-green via-brand-gold to-transparent" />
         <Container className="relative">
