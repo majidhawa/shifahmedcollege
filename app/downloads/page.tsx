@@ -4,7 +4,7 @@ import Downloads from "@/components/Downloads";
 export const metadata: Metadata = {
   title: "Downloads | Shifah Medical Training College",
   description:
-    "Download fee structures, admission forms, application documents and other official publications from Shifah Medical Training College.",
+    "Download fee structures, admission forms, application documents and other official publications from Shifah Medical Training College for students and applicants.",
 };
 
 export default function DownloadsPage() {
