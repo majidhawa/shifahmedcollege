@@ -76,12 +76,12 @@ export const downloads: DownloadItem[] = [
       "To be completed by a registered medical practitioner and submitted with your application.",
     category: "Forms",
     file: "/downloads/medical-assessment-form.pdf",
-    size: "3.20 KB",
+    size: "155 KB",
     updated: "September 2026",
   },
   {
     id: 8,
-    title: "Application Letter Template",
+    title: "Application Letter",
     description:
       "Ready-to-fill admission application letter addressed to the Registrar.",
     category: "Admission",
