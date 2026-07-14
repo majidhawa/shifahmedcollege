@@ -24,7 +24,7 @@ export const site = {
   location: 'Ambwere Plaza, 2nd Floor, Kitale Town',
   phone: '+254 142 068933',
   whatsapp: '+254 142 068933',
-  email: 'admissionssmtc@gmail.com/info@shifahmedicalcollege.co.ke',
+  email: 'admin@shifahmedicalcollege.co.ke/info@shifahmedicalcollege.co.ke',
   heroSlides: [
     {
       image: '/images/hero1.jpeg',
