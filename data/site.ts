@@ -104,7 +104,7 @@ export const site = {
 export const courses: Course[] = [
   {
     slug: 'caregiving',
-    title: 'CNA & Caregiving',
+    title: 'Caregiving',
     cardTitle: 'Caregiving level 4',
     duration: '6 Months',
     fee: 'KSh 75,000',
@@ -296,7 +296,7 @@ export const courses: Course[] = [
     cardTitle: 'Dialysis Technology',
     duration: '3 Months',
     fee: 'Contact admissions for final fee guidance',
-    entry: 'KCSE D- and above / Healthcare providers',
+    entry: 'Background in health related courses',
     heroImage: '/images/dialysis.png',
     summary: 'A technical programme introducing students to dialysis processes, machine handling, patient monitoring, and clinical response in renal care settings.',
     overview: [
@@ -312,7 +312,7 @@ export const courses: Course[] = [
       'Post-dialysis documentation and patient care'
     ],
     entryRequirements: [
-      'KCSE mean grade of D- and above',
+      'Background in health-related courses',
       'Healthcare providers are also eligible'
     ]
   }

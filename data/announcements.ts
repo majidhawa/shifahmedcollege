@@ -11,11 +11,11 @@ export const announcements: Announcement[] = [
   {
     id: 1,
     pinned: true,
-    date: "1 September 2026",
+    date: "7 July to September 2026",
     category: "Intake",
     title: "September Intake — Applications Open",
     content:
-      "Applications are now open for all diploma and certificate programs. Early applicants receive priority interview slots and a 5% registration discount.",
+      "Applications are now open for all diploma and certificate programs. Early applicants receive priority interview slots.",
   },
   {
     id: 2,
@@ -30,27 +30,27 @@ export const announcements: Announcement[] = [
     id: 3,
     pinned: false,
     date: "5 August 2026",
-    category: "Partnerships",
-    title: "Clinical Placements Confirmed with 5 Regional Hospitals",
+    category: "Clinical Training",
+    title: "Clinical Attachment Begins",
     content:
-      "Shifah has confirmed new clinical placement partnerships with five hospitals across the North Rift, expanding capacity for paramedicine and EMT students.",
+      "Students scheduled for clinical attachment are advised to report to the Academic Office for placement letters and orientation before reporting to their assigned healthcare facilities.",
   },
   {
     id: 4,
     pinned: false,
-    date: "15 July 2026",
-    category: "Community",
-    title: "Free CPR Community Day — Saturday",
+    date: "1 August 2026",
+    category: "Attachment",
+    title: "Attachment Requirements",
     content:
-      "Join our EMT students and tutors for a free community CPR & First Aid demonstration this Saturday from 9am at Ambwere Plaza.",
+      "Students must have the following requirements for clinical attachment: College introductory letter, attachment letter, attachment objectives, Memorandum of Understanding (MoU).",
   },
   {
     id: 5,
     pinned: false,
-    date: "30 June 2026",
-    category: "Events",
-    title: "Graduation Ceremony — Class of 2026",
+    date: "8 July 2026",
+    category: "Courses",
+    title: "Programme Duration & Tuition",
     content:
-      "Congratulations to our Class of 2026! Photos and highlights are available on the Videos page.",
+      "Students will undertake 3 Terms of classwork in EMT + 3 Months of clinical placements, for Diploma in paramedicine, the student will have classes for 5 Terms + 3 months clinicals with a tuition of 45,000 per term while for Safe Phlebotomy, the student will have classes for 2 months + 1 month practicals.",
   },
 ];

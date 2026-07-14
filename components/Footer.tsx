@@ -30,6 +30,8 @@ export function Footer() {
             <Link href="/admissions">Admissions</Link>
             <Link href="/departments">Departments</Link>
             <Link href="/apply">Apply Now</Link>
+             <Link href="/downloads">Downloads</Link>
+              <Link href="/announcements">Announcements</Link>
           </div>
         </div>
 
