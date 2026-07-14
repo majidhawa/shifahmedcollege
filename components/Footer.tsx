@@ -60,7 +60,7 @@ export function Footer() {
 
   {/* TikTok */}
   <a
-    href="https://www.tiktok.com/@shifahmedical.tr"
+    href="https://www.tiktok.com/@shifah.medical.tr"
     target="_blank"
     rel="noreferrer"
     aria-label="TikTok"

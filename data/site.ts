@@ -20,11 +20,11 @@ export const site = {
   name: 'Shifah Medical Training College',
   shortName: 'Shifah Medical College',
   tagline: 'Gateway to Prosperity',
-  intake: 'May 2026 Intake Ongoing',
+  intake: 'July to September 2026 Intake Ongoing',
   location: 'Ambwere Plaza, 2nd Floor, Kitale Town',
   phone: '+254 142 068933',
   whatsapp: '+254 142 068933',
-  email: 'admissionssmtc@gmail.com',
+  email: 'admissionssmtc@gmail.com/info@shifahmedicalcollege.co.ke',
   heroSlides: [
     {
       image: '/images/hero1.jpeg',

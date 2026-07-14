@@ -34,15 +34,47 @@ export function Navbar() {
         <div className="container-shell flex items-center justify-between py-2">
           <p className="text-[11px] tracking-widest text-white/50 uppercase">Gateway to Prosperity</p>
           <div className="flex items-center gap-2">
-            <Link href="https://www.facebook.com/people/Shifah-Medical-Training-College/61588805690949/" target="_blank" rel="noreferrer" aria-label="Facebook" className="group flex h-7 w-7 items-center justify-center rounded-full border border-white/10 text-white/40 transition-all duration-300 hover:border-brand-gold/50 hover:text-brand-gold hover:scale-110">
+            <Link href="https://www.facebook.com/profile.php?id=61589605739657" target="_blank" rel="noreferrer" aria-label="Facebook" className="group flex h-7 w-7 items-center justify-center rounded-full border border-white/10 text-white/40 transition-all duration-300 hover:border-brand-gold/50 hover:text-brand-gold hover:scale-110">
               <svg width="12" height="12" fill="currentColor" viewBox="0 0 24 24"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/></svg>
             </Link>
-            <Link href="https://www.instagram.com/shifahmedicalcollege?igsh=MWMwcDVvazdqdmIzZQ%3D%3D&utm_source=qr" target="_blank" rel="noreferrer" aria-label="Instagram" className="group flex h-7 w-7 items-center justify-center rounded-full border border-white/10 text-white/40 transition-all duration-300 hover:border-brand-gold/50 hover:text-brand-gold hover:scale-110">
+            <Link href="https://www.instagram.com/shifahmedicalcollege/" target="_blank" rel="noreferrer" aria-label="Instagram" className="group flex h-7 w-7 items-center justify-center rounded-full border border-white/10 text-white/40 transition-all duration-300 hover:border-brand-gold/50 hover:text-brand-gold hover:scale-110">
               <svg width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/></svg>
             </Link>
-            <Link href="https://x.com/shifahmtc" target="_blank" rel="noreferrer" aria-label="X" className="group flex h-7 w-7 items-center justify-center rounded-full border border-white/10 text-white/40 transition-all duration-300 hover:border-brand-gold/50 hover:text-brand-gold hover:scale-110">
-              <svg width="12" height="12" fill="currentColor" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
-            </Link>
+             <Link
+    href="https://www.tiktok.com/@shifah.medical.tr"
+    target="_blank"
+    rel="noreferrer"
+    aria-label="TikTok"
+    className="group flex h-7 w-7 items-center justify-center rounded-full border border-white/10 text-white/40 transition-all duration-300 hover:border-white hover:text-white hover:scale-110"
+  >
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="12"
+      height="12"
+      fill="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.35h-3.4v13.29a2.89 2.89 0 1 1-2.89-2.89c.28 0 .55.04.81.11V9.39a6.3 6.3 0 0 0-.81-.05A6.29 6.29 0 1 0 15.82 15V8.57a8.24 8.24 0 0 0 4.77 1.52V6.69z"/>
+    </svg>
+  </Link>
+   {/* WhatsApp */}
+  <Link
+    href="https://wa.me/254142068933"
+    target="_blank"
+    rel="noreferrer"
+    aria-label="WhatsApp"
+    className="group flex h-7 w-7 items-center justify-center rounded-full border border-white/10 text-white/40 transition-all duration-300 hover:border-[#25D366] hover:text-[#25D366] hover:scale-110"
+  >
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="12"
+      height="12"
+      fill="currentColor"
+      viewBox="0 0 24 24"
+    >
+      <path d="M20.52 3.48A11.86 11.86 0 0 0 12.04 0C5.42 0 .04 5.38.04 12c0 2.11.55 4.17 1.6 6L0 24l6.19-1.62A11.95 11.95 0 0 0 12.04 24C18.66 24 24 18.62 24 12c0-3.19-1.24-6.19-3.48-8.52zM12.04 21.84c-1.83 0-3.62-.49-5.19-1.42l-.37-.22-3.67.96.98-3.58-.24-.37A9.8 9.8 0 1 1 12.04 21.84zm5.4-7.36c-.3-.15-1.79-.88-2.06-.98-.28-.1-.48-.15-.69.15-.2.3-.79.98-.96 1.18-.18.2-.35.23-.65.08-.3-.15-1.26-.46-2.39-1.47-.88-.79-1.48-1.76-1.66-2.06-.17-.3-.02-.46.13-.61.13-.13.3-.35.45-.53.15-.18.2-.3.3-.5.1-.2.05-.38-.03-.53-.08-.15-.69-1.66-.95-2.27-.25-.6-.5-.52-.69-.53h-.59c-.2 0-.53.08-.81.38-.28.3-1.07 1.05-1.07 2.56 0 1.5 1.1 2.95 1.25 3.15.15.2 2.16 3.3 5.23 4.62.73.32 1.3.51 1.74.65.73.23 1.39.2 1.91.12.58-.09 1.79-.73 2.04-1.44.25-.71.25-1.32.18-1.44-.08-.12-.28-.2-.58-.35z"/>
+    </svg>
+  </Link>
           </div>
         </div>
       </div>
