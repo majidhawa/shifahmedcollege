@@ -86,7 +86,7 @@ export const downloads: DownloadItem[] = [
       "Ready-to-fill admission application letter addressed to the Registrar.",
     category: "Admission",
     file: "/downloads/application-letter.pdf",
-    size: "3.08 KB",
+    size: "106 KB",
     updated: "September 2026",
   },
 ];
