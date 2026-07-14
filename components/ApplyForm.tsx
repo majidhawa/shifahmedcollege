@@ -167,7 +167,7 @@ export function ApplyForm() {
           href="mailto:admissionssmtc@gmail.com"
           className="text-brand-green hover:underline"
         >
-          admissionssmtc@gmail.com
+          admin@shifahmedicalcollege.co.ke
         </a>
       </p>
 
