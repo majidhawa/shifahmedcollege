@@ -79,8 +79,18 @@ export const downloads: DownloadItem[] = [
     size: "155 KB",
     updated: "September 2026",
   },
-  {
+   {
     id: 8,
+    title: "Consent Form",
+    description:
+      "To be completed by a registered medical practitioner and submitted with your application.",
+    category: "Forms",
+    file: "/downloads/consent-form.pdf",
+    size: "256 KB",
+    updated: "September 2026",
+  },
+  {
+    id: 9,
     title: "Application Letter",
     description:
       "Ready-to-fill admission application letter addressed to the Registrar.",

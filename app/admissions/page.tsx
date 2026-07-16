@@ -71,7 +71,7 @@ export default function AdmissionsPage() {
               <p className="text-xs font-bold uppercase tracking-[0.25em] text-brand-gold">How to Apply</p>
             </div>
             <h2 className="text-2xl font-extrabold text-brand-dark md:text-3xl">
-              5 simple <span className="text-brand-green">steps.</span>
+              8 simple <span className="text-brand-green">steps.</span>
             </h2>
             <p className="mt-3 text-sm leading-7 text-slate-500">From choosing your course to receiving your offer — here's exactly what to expect.</p>
 
@@ -94,6 +94,69 @@ export default function AdmissionsPage() {
           </div>
         </Container>
       </section>
+{/* MPESA */}
+    <div className="rounded-xl border bg-white p-5 shadow-sm">
+
+      <div className="flex items-center gap-4">
+
+        <img
+          src="/images/mpesa-logo.png"
+          alt="M-PESA"
+          className="h-12 w-auto object-contain"
+        />
+
+        <div>
+          <h4 className="font-bold text-brand-dark">
+            M-PESA
+          </h4>
+
+          <p className="text-sm text-slate-600">
+            <span className="font-semibold">Paybill Number:</span> 247247
+          </p>
+
+          <p className="text-sm text-slate-600">
+            <span className="font-semibold">Account Number:</span>
+            {" "}0330287421280
+          </p>
+        </div>
+
+      </div>
+
+    </div>
+
+    {/* Equity */}
+    <div className="rounded-xl border bg-white p-5 shadow-sm">
+
+      <div className="flex items-center gap-4">
+
+        <img
+          src="/images/equity-bank-logo.png"
+          alt="Equity Bank"
+          className="h-12 w-auto object-contain"
+        />
+
+        <div>
+
+          <h4 className="font-bold text-brand-dark">
+            Equity Bank
+          </h4>
+
+          <p className="text-sm text-slate-600">
+            <span className="font-semibold">Bank:</span>
+            {" "}Equity Bank
+          </p>
+
+          <p className="text-sm text-slate-600">
+            <span className="font-semibold">Account Number:</span>
+            {" "}0330287421280
+          </p>
+
+        </div>
+
+      </div>
+
+    </div>
+
 
       {/* ── FEES ── */}
       <section className="py-24 bg-brand-dark text-white">
@@ -129,7 +192,7 @@ export default function AdmissionsPage() {
           </div>
 
           <div className="mt-10 text-center">
-            <p className="text-sm text-white/50">For specific fee details per programme, contact the admissions office directly.</p>
+            <p className="text-sm text-white/50">For specific fee details per programme, Go to downloads to access the fee structures.</p>
             <Link href="/contact" className="mt-4 inline-flex items-center gap-2 rounded-full border border-white/20 px-6 py-3 text-sm font-semibold text-white transition hover:bg-white/10">
               Contact Admissions →
             </Link>
@@ -149,7 +212,7 @@ export default function AdmissionsPage() {
                 Ready to take the first step?
               </h2>
               <p className="mt-4 text-base leading-8 text-white/75">
-                Applications are open now. Complete the form online and our admissions team will guide you through the rest.
+                Applications are open now. Complete the form online and follow the details after submission or just download the application form, fill it out, and submit it through our official email then pay the application fee.
               </p>
               <div className="mt-8 flex flex-wrap gap-4">
                 <Link href="/apply" className="inline-flex items-center gap-2 rounded-full bg-white px-7 py-3 text-sm font-bold text-brand-green transition-all hover:bg-brand-cream hover:-translate-y-0.5">

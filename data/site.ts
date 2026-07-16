@@ -86,15 +86,19 @@ export const site = {
   admissionsSteps: [
     'Choose your preferred course.',
     'Complete the online application form.',
-    'Submit your academic details and contact information.',
+    'Download the application form, consent form, and medical assessment form from downloads in the website.',
+    'Fill out and submit the forms via the official email admin@shifahmedcollege.ac.ke.',
+    'For medical assessment form, make sure you take the tests from Shifah Hospital or any other accredited Hospital facility.',
+    'Pay the application fee of Ksh.1500 Through the official payment channels Below.',
     'Wait for admissions review and guidance from the college.',
-    'Receive the next steps on reporting, fees, and orientation.'
+    'Receive the next steps on reporting, fees, and Classes.'
   ],
   requirements: [
     'KCSE mean grade of D- and above.',
     'Healthcare providers may also qualify for selected programmes.',
     'Applicants should provide accurate contact and academic details during application.'
   ],
+  
   feeNotes: [
     'Confirmed flyer fees captured below for the available highlighted programmes.',
     'Some additional charges such as exams, insurance, uniforms, or ID may apply and should be confirmed with the college administration.'
