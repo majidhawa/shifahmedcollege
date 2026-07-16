@@ -94,6 +94,22 @@ export default function AdmissionsPage() {
           </div>
         </Container>
       </section>
+
+
+
+      {/* ── FEES ── */}
+      <section className="py-24 bg-brand-dark text-white">
+        <Container>
+          <div className="text-center max-w-2xl mx-auto mb-14">
+            <div className="flex items-center justify-center gap-2 mb-4">
+              <span className="h-px w-8 bg-brand-gold" />
+              <p className="text-xs font-bold uppercase tracking-[0.25em] text-brand-gold">Fees Guidance</p>
+              <span className="h-px w-8 bg-brand-gold" />
+            </div>
+            <h2 className="text-3xl font-extrabold leading-tight tracking-tight md:text-4xl">
+              Transparent <span className="text-brand-gold">fee information.</span>
+            </h2>
+          </div>
 {/* MPESA */}
     <div className="rounded-xl border bg-white p-5 shadow-sm">
 
@@ -156,22 +172,6 @@ export default function AdmissionsPage() {
       </div>
 
     </div>
-
-
-      {/* ── FEES ── */}
-      <section className="py-24 bg-brand-dark text-white">
-        <Container>
-          <div className="text-center max-w-2xl mx-auto mb-14">
-            <div className="flex items-center justify-center gap-2 mb-4">
-              <span className="h-px w-8 bg-brand-gold" />
-              <p className="text-xs font-bold uppercase tracking-[0.25em] text-brand-gold">Fees Guidance</p>
-              <span className="h-px w-8 bg-brand-gold" />
-            </div>
-            <h2 className="text-3xl font-extrabold leading-tight tracking-tight md:text-4xl">
-              Transparent <span className="text-brand-gold">fee information.</span>
-            </h2>
-          </div>
-
           <div className="grid gap-6 md:grid-cols-2">
             {site.feeNotes.map((item, i) => (
               <div
