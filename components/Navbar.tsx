@@ -59,7 +59,7 @@ export function Navbar() {
   </Link>
    {/* WhatsApp */}
   <Link
-    href="https://wa.me/254142068933"
+    href="https://wa.me/254794882948"
     target="_blank"
     rel="noreferrer"
     aria-label="WhatsApp"

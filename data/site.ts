@@ -23,8 +23,8 @@ export const site = {
   intake: 'July to September 2026 Intake Ongoing',
   location: 'Ambwere Plaza, 2nd Floor, Kitale Town',
   phone: '+254 142 068933',
-  whatsapp: '+254 142 068933',
-  email: 'admin@shifahmedicalcollege.co.ke/info@shifahmedicalcollege.co.ke',
+  whatsapp: '+254 794882948',
+  email: 'admin@shifahmedicalcollege.co.ke',
   heroSlides: [
     {
       image: '/images/hero1.jpeg',
