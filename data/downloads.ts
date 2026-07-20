@@ -73,7 +73,7 @@ export const downloads: DownloadItem[] = [
     id: 7,
     title: "General — Fee Structure",
     description:
-      "Indicative fees and payment plan for the General courses program.",
+      "Indicative fees and payment plan for all the courses combined.",
     category: "Fee Structure",
     file: "/downloads/Shifah_College_Fee_Structure.pdf",
     size: "208 KB",
