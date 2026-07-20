@@ -26,7 +26,7 @@ export default function AboutPage() {
             <p className="text-xs font-bold uppercase tracking-[0.25em] text-brand-gold">About Shifah</p>
           </div>
           <h1 className="max-w-3xl text-4xl font-extrabold leading-tight tracking-tight md:text-6xl">
-            Where ambition meets <span className="text-brand-gold">purpose.</span>
+            health through <span className="text-brand-gold">innovation and research</span>
           </h1>
           <div className="mt-4 h-1 w-16 rounded-full bg-brand-gold" />
           <p className="mt-6 max-w-2xl text-base leading-8 text-white/70 md:text-lg">

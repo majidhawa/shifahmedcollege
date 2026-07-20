@@ -19,7 +19,7 @@ export type Course = {
 export const site = {
   name: 'Shifah Medical Training College',
   shortName: 'Shifah Medical College',
-  tagline: 'Gateway to Prosperity',
+  tagline: 'Health through innovation and research',
   intake: 'July to September 2026 Intake Ongoing',
   location: 'Ambwere Plaza, 2nd Floor, Kitale Town',
   phone: '+254 142 068933',
@@ -50,7 +50,7 @@ export const site = {
   ],
   vision: 'To be a centre of quality training and professional excellence in healthcare education.',
   mission: 'To strive to equip students with the knowledge, practical skills, and ethical values needed to excel in their professional roles.',
-  motto: 'Gateway to Prosperity',
+  motto: 'Health through innovation and research',
   about:
     'Shifah Medical Training College is positioned as a career-focused medical training institution in Kitale, committed to equipping learners with practical healthcare skills, ethical values, and a strong foundation for professional growth.',
   values: [

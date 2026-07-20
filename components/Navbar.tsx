@@ -32,7 +32,7 @@ export function Navbar() {
     <header className="sticky top-0 z-40 w-full">
       <div className="bg-brand-dark">
         <div className="container-shell flex items-center justify-between py-2">
-          <p className="text-[11px] tracking-widest text-white/50 uppercase">Gateway to Prosperity</p>
+          <p className="text-[11px] tracking-widest text-white/50 uppercase">Health through innovation and research</p>
           <div className="flex items-center gap-2">
             <Link href="https://www.facebook.com/profile.php?id=61589605739657" target="_blank" rel="noreferrer" aria-label="Facebook" className="group flex h-7 w-7 items-center justify-center rounded-full border border-white/10 text-white/40 transition-all duration-300 hover:border-brand-gold/50 hover:text-brand-gold hover:scale-110">
               <svg width="12" height="12" fill="currentColor" viewBox="0 0 24 24"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/></svg>
