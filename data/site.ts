@@ -62,15 +62,12 @@ export const site = {
     { title: 'Innovation', text: 'We embrace creativity, adaptability, and continuous improvement in learning and service.' }
   ],
   departments: [
-    'Nursing Sciences',
-    'Emergency Medical Sciences',
-    'Orthopaedic & Physiotherapy',
-    'Theatre Sciences',
-    'Public Health Sciences',
-    'Mortuary Sciences',
-    'Medical Education',
-    'Laboratory Sciences'
-  ],
+  'Department of Emergency Medical Services',
+  'Department of Renal Care and Medical Technology',
+  'Department of Laboratory and Diagnostic Support Services',
+  'Department of Nursing Support and Community Healthcare',
+  'Department of Languages and International Studies'
+],
   partners: [
     { name: 'NITA', image: '/images/NITA.jpeg' },
     { name: 'TVET / CDACC', image: '/images/TVET CDACC.jpeg' },
