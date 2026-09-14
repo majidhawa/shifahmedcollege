@@ -1,85 +1,317 @@
 import { NextResponse } from 'next/server';
 import pool from '@/lib/db';
+import { requireLecturer } from '@/lib/lecturer-auth';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 /* =========================================================
-   GET LECTURER GRADES
-
-   GET /api/lecturer/grades
-
-   Returns:
-   - Quiz results
-   - Assignment results
-   - Summary statistics
-
-   The response matches the existing Lecturer Grades page.
+TYPES
 ========================================================= */
 
-export async function GET(request: Request) {
+type GradeRow = {
+  id: number;
+  student_id: number;
+  student_name: string | null;
+  admission_number: string | null;
+  program_name: string | null;
+  unit_name: string | null;
+  unit_code: string | null;
+  assessment_name: string | null;
+  assessment_type: string | null;
+  score: number | string | null;
+  total_marks: number | string | null;
+  percentage: number | string | null;
+  passing_score: number | string | null;
+  grade: string | null;
+  grade_point: number | string | null;
+  status: string | null;
+  submitted_at: string | Date | null;
+};
+
+type NormalizedGrade = {
+  id: number;
+  studentId: number;
+  studentName: string;
+  admissionNumber: string;
+  programName: string;
+  unitName: string;
+  unitCode: string;
+  assessmentName: string;
+  assessmentType: string;
+  score: number;
+  totalMarks: number;
+  percentage: number;
+  grade: string;
+  gradePoint: number;
+  status: string;
+  submittedAt: string | null;
+};
+
+/* =========================================================
+HELPERS
+========================================================= */
+
+function toNumber(value: unknown): number {
+  const parsed = Number(value);
+
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+/* =========================================================
+GRADE CALCULATION
+========================================================= */
+
+function calculateGrade(percentage: number): string {
+  if (percentage >= 80) return 'A';
+  if (percentage >= 75) return 'A-';
+  if (percentage >= 70) return 'B+';
+  if (percentage >= 65) return 'B';
+  if (percentage >= 60) return 'B-';
+  if (percentage >= 55) return 'C+';
+  if (percentage >= 50) return 'C';
+  if (percentage >= 45) return 'C-';
+  if (percentage >= 40) return 'D+';
+  if (percentage >= 35) return 'D';
+  if (percentage >= 30) return 'D-';
+
+  return 'E';
+}
+
+function calculateGradePoint(percentage: number): number {
+  if (percentage >= 80) return 4.0;
+  if (percentage >= 75) return 3.7;
+  if (percentage >= 70) return 3.3;
+  if (percentage >= 65) return 3.0;
+  if (percentage >= 60) return 2.7;
+  if (percentage >= 55) return 2.3;
+  if (percentage >= 50) return 2.0;
+  if (percentage >= 45) return 1.7;
+  if (percentage >= 40) return 1.3;
+  if (percentage >= 35) return 1.0;
+  if (percentage >= 30) return 0.7;
+
+  return 0.0;
+}
+
+/* =========================================================
+STATUS NORMALIZATION
+========================================================= */
+
+function normalizeStatus(status: unknown): string {
+  const value = String(status ?? '')
+    .trim()
+    .toLowerCase();
+
+  if (value === 'graded') {
+    return 'Graded';
+  }
+
+  if (
+    value === 'submitted' ||
+    value === 'pending'
+  ) {
+    return 'Pending Grading';
+  }
+
+  if (value === 'passed') {
+    return 'Passed';
+  }
+
+  if (value === 'failed') {
+    return 'Failed';
+  }
+
+  return value
+    ? value.charAt(0).toUpperCase() + value.slice(1)
+    : 'Pending Grading';
+}
+
+/* =========================================================
+ASSESSMENT TYPE NORMALIZATION
+========================================================= */
+
+function normalizeAssessmentType(
+  assessmentType: unknown
+): string {
+  const value = String(assessmentType ?? '')
+    .trim()
+    .toLowerCase();
+
+  if (value === 'exam') {
+    return 'Final Examination';
+  }
+
+  if (value === 'quiz') {
+    return 'CAT';
+  }
+
+  if (value === 'assignment') {
+    return 'Assignment';
+  }
+
+  return value
+    ? value.charAt(0).toUpperCase() + value.slice(1)
+    : 'Assessment';
+}
+
+/* =========================================================
+PERCENTAGE CALCULATION
+========================================================= */
+
+function calculatePercentage(
+  score: number,
+  totalMarks: number,
+  storedPercentage: unknown
+): number {
+  const storedPercentageNumber =
+    Number(storedPercentage);
+
+  /*
+    Prefer the stored percentage when it is valid.
+    Otherwise calculate it from score / total marks.
+  */
+
+  if (
+    Number.isFinite(
+      storedPercentageNumber
+    )
+  ) {
+    return Math.max(
+      0,
+      Math.min(
+        100,
+        Number(
+          storedPercentageNumber.toFixed(2)
+        )
+      )
+    );
+  }
+
+  if (totalMarks <= 0) {
+    return 0;
+  }
+
+  return Math.max(
+    0,
+    Math.min(
+      100,
+      Number(
+        (
+          (score / totalMarks) *
+          100
+        ).toFixed(2)
+      )
+    )
+  );
+}
+
+/* =========================================================
+FINALIZED STATUS
+========================================================= */
+
+function isFinalizedStatus(
+  status: string
+): boolean {
+  const value = status
+    .trim()
+    .toLowerCase();
+
+  return (
+    value === 'graded' ||
+    value === 'passed' ||
+    value === 'failed'
+  );
+}
+
+/* =========================================================
+GET LECTURER GRADES
+
+GET /api/lecturer/grades
+
+Returns:
+
+- Quiz/CAT results
+- Final Examination results
+- Assignment results
+- Summary statistics
+
+Only results belonging to programs assigned to the
+authenticated lecturer are returned.
+========================================================= */
+
+export async function GET() {
   const client = await pool.connect();
 
   try {
     /* =====================================================
-       1. GET LECTURER SESSION
+    1. AUTHENTICATE LECTURER
     ===================================================== */
 
-    /*
-      We use the same lecturer authentication endpoint
-      already used by the lecturer portal.
-
-      If your lecturer authentication is stored in a cookie,
-      replace this section with the exact session helper used
-      by your other lecturer APIs.
-    */
-
-    const cookieHeader = request.headers.get('cookie') || '';
+    const lecturer = await requireLecturer();
 
     /*
-      Try common lecturer cookie names.
-      This keeps the route compatible with the existing
-      lecturer portal authentication.
+      requireLecturer() may return null when there is
+      no valid lecturer session.
+
+      We MUST check this before accessing lecturer.id.
     */
 
-    const lecturerIdMatch =
-      cookieHeader.match(
-        /lecturer_id=([^;]+)/
+    if (!lecturer) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            'Unauthorized. Lecturer authentication required.',
+          grades: [],
+          summary: {
+            totalStudents: 0,
+            totalAssessments: 0,
+            totalGraded: 0,
+            averageScore: 0,
+            passRate: 0,
+          },
+        },
+        {
+          status: 401,
+        }
       );
+    }
 
-    const userIdMatch =
-      cookieHeader.match(
-        /user_id=([^;]+)/
+    const lecturerId = Number(
+      lecturer.id
+    );
+
+    if (
+      !Number.isInteger(lecturerId) ||
+      lecturerId <= 0
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: 'Invalid lecturer session.',
+          grades: [],
+          summary: {
+            totalStudents: 0,
+            totalAssessments: 0,
+            totalGraded: 0,
+            averageScore: 0,
+            passRate: 0,
+          },
+        },
+        {
+          status: 401,
+        }
       );
-
-    const lecturerId = lecturerIdMatch
-      ? Number(
-          decodeURIComponent(
-            lecturerIdMatch[1]
-          )
-        )
-      : userIdMatch
-      ? Number(
-          decodeURIComponent(
-            userIdMatch[1]
-          )
-        )
-      : null;
-
-    /*
-      We do not immediately reject the request here because
-      your existing /api/lecturer/me endpoint may be handling
-      authentication through a different session mechanism.
-
-      The queries below therefore retrieve lecturer-accessible
-      LMS results.
-    */
+    }
 
     /* =====================================================
-       2. QUIZ RESULTS
+    2. QUIZ / CAT / FINAL EXAMINATION RESULTS
     ===================================================== */
 
     /*
-      Quiz relationship:
+      Curriculum relationship:
 
       lms_quiz_attempts
           ↓ quiz_id
@@ -93,784 +325,631 @@ export async function GET(request: Request) {
           ↓ program_id
       lms_programs
 
-      Student:
+      Lecturer access is checked through:
 
-      lms_quiz_attempts.student_id
-          ↓
-      applications.id
-
-      IMPORTANT:
-      If student_id in your database references another student
-      table rather than applications.id, this JOIN can be changed
-      once that table is confirmed.
+      lms_lecturer_programs
     */
 
-    const quizResult = await client.query(
-      `
-      SELECT
-        qa.id,
+    const quizResult =
+      await client.query<GradeRow>(
+        `
+        SELECT DISTINCT ON (qa.id)
 
-        qa.student_id,
+          qa.id,
 
-        CONCAT_WS(
-          ' ',
-          a.first_name,
-          a.middle_name,
-          a.surname
-        ) AS student_name,
+          qa.student_id,
 
-        a.admission_number,
+          CONCAT_WS(
+            ' ',
+            a.first_name,
+            a.middle_name,
+            a.surname
+          ) AS student_name,
 
-        p.name AS program_name,
+          a.admission_number,
 
-        u.name AS unit_name,
-        u.code AS unit_code,
+          p.name AS program_name,
 
-        q.title AS assessment_name,
+          u.name AS unit_name,
 
-        'Quiz' AS assessment_type,
+          u.code AS unit_code,
 
-        qa.score,
-        qa.total_marks,
+          q.title AS assessment_name,
 
-        qa.percentage,
+          q.assessment_type,
 
-        CASE
-          WHEN qa.percentage >= 80 THEN 'A'
-          WHEN qa.percentage >= 75 THEN 'A-'
-          WHEN qa.percentage >= 70 THEN 'B+'
-          WHEN qa.percentage >= 65 THEN 'B'
-          WHEN qa.percentage >= 60 THEN 'B-'
-          WHEN qa.percentage >= 55 THEN 'C+'
-          WHEN qa.percentage >= 50 THEN 'C'
-          WHEN qa.percentage >= 45 THEN 'C-'
-          WHEN qa.percentage >= 40 THEN 'D+'
-          WHEN qa.percentage >= 35 THEN 'D'
-          WHEN qa.percentage >= 30 THEN 'D-'
-          ELSE 'E'
-        END AS grade,
+          COALESCE(
+            qa.score,
+            0
+          ) AS score,
 
-        CASE
-          WHEN qa.percentage >= 80 THEN 4.0
-          WHEN qa.percentage >= 75 THEN 3.7
-          WHEN qa.percentage >= 70 THEN 3.3
-          WHEN qa.percentage >= 65 THEN 3.0
-          WHEN qa.percentage >= 60 THEN 2.7
-          WHEN qa.percentage >= 55 THEN 2.3
-          WHEN qa.percentage >= 50 THEN 2.0
-          WHEN qa.percentage >= 45 THEN 1.7
-          WHEN qa.percentage >= 40 THEN 1.3
-          WHEN qa.percentage >= 35 THEN 1.0
-          WHEN qa.percentage >= 30 THEN 0.7
-          ELSE 0.0
-        END AS grade_point,
+          COALESCE(
+            qa.total_marks,
+            0
+          ) AS total_marks,
 
-        CASE
-          WHEN qa.percentage >= COALESCE(
+          CASE
+            WHEN COALESCE(
+              qa.total_marks,
+              0
+            ) > 0
+            THEN ROUND(
+              (
+                COALESCE(
+                  qa.score,
+                  0
+                )::numeric
+                /
+                qa.total_marks::numeric
+              ) * 100,
+              2
+            )
+            ELSE 0
+          END AS percentage,
+
+          COALESCE(
             q.passing_score,
             50
+          ) AS passing_score,
+
+          NULL::text AS grade,
+
+          NULL::numeric AS grade_point,
+
+          COALESCE(
+            qa.status,
+            'submitted'
+          ) AS status,
+
+          qa.submitted_at
+
+        FROM lms_quiz_attempts qa
+
+        INNER JOIN lms_quizzes q
+          ON q.id = qa.quiz_id
+
+        INNER JOIN lms_lessons l
+          ON l.id = q.lesson_id
+
+        INNER JOIN lms_topics t
+          ON t.id = l.topic_id
+
+        INNER JOIN lms_units u
+          ON u.id = t.unit_id
+
+        INNER JOIN lms_programs p
+          ON p.id = u.program_id
+
+        LEFT JOIN applications a
+          ON a.id = qa.student_id
+
+        WHERE
+          qa.submitted_at IS NOT NULL
+
+          AND EXISTS (
+            SELECT 1
+            FROM lms_lecturer_programs lp
+            WHERE
+              lp.program_id = p.id
+              AND lp.lecturer_id = $1
           )
-          THEN 'Passed'
-          ELSE 'Failed'
-        END AS status,
 
-        qa.submitted_at
-
-      FROM lms_quiz_attempts qa
-
-      INNER JOIN lms_quizzes q
-        ON q.id = qa.quiz_id
-
-      INNER JOIN lms_lessons l
-        ON l.id = q.lesson_id
-
-      INNER JOIN lms_topics t
-        ON t.id = l.topic_id
-
-      INNER JOIN lms_units u
-        ON u.id = t.unit_id
-
-      INNER JOIN lms_programs p
-        ON p.id = u.program_id
-
-      LEFT JOIN applications a
-        ON a.id = qa.student_id
-
-      WHERE
-        qa.submitted_at IS NOT NULL
-
-      ORDER BY
-        qa.submitted_at DESC
-      `
-    );
+        ORDER BY
+          qa.id,
+          qa.submitted_at DESC
+        `,
+        [lecturerId]
+      );
 
     /* =====================================================
-       3. ASSIGNMENT RESULTS
+    3. ASSIGNMENT RESULTS
     ===================================================== */
 
-    /*
-      Assignment relationship:
+    const assignmentResult =
+      await client.query<GradeRow>(
+        `
+        SELECT
 
-      lms_assignment_submissions
-          ↓ assignment_id
-      lms_assignments
-          ↓ lesson_id
-      lms_lessons
-          ↓ topic_id
-      lms_topics
-          ↓ unit_id
-      lms_units
-          ↓ program_id
-      lms_programs
+          s.id,
 
-      Student:
+          s.application_id AS student_id,
 
-      lms_assignment_submissions.application_id
-          ↓
-      applications.id
-    */
+          CONCAT_WS(
+            ' ',
+            a.first_name,
+            a.middle_name,
+            a.surname
+          ) AS student_name,
 
-    const assignmentResult = await client.query(
-      `
-      SELECT
-        s.id,
+          a.admission_number,
 
-        s.application_id AS student_id,
+          p.name AS program_name,
 
-        CONCAT_WS(
-          ' ',
-          a.first_name,
-          a.middle_name,
-          a.surname
-        ) AS student_name,
+          u.name AS unit_name,
 
-        a.admission_number,
+          u.code AS unit_code,
 
-        p.name AS program_name,
+          ass.title AS assessment_name,
 
-        u.name AS unit_name,
-        u.code AS unit_code,
+          'Assignment' AS assessment_type,
 
-        ass.title AS assessment_name,
+          COALESCE(
+            s.marks_awarded,
+            0
+          ) AS score,
 
-        'Assignment' AS assessment_type,
-
-        COALESCE(
-          s.marks_awarded,
-          0
-        ) AS score,
-
-        COALESCE(
-          s.total_marks,
-          ass.total_marks,
-          0
-        ) AS total_marks,
-
-        CASE
-          WHEN COALESCE(
+          COALESCE(
             s.total_marks,
             ass.total_marks,
             0
-          ) > 0
-          THEN ROUND(
-            (
-              COALESCE(
-                s.marks_awarded,
-                0
-              )::numeric
-              /
-              COALESCE(
-                s.total_marks,
-                ass.total_marks,
-                1
-              )::numeric
-            ) * 100,
-            2
-          )
-          ELSE 0
-        END AS percentage,
+          ) AS total_marks,
 
-        CASE
-          WHEN
-            COALESCE(
+          CASE
+            WHEN COALESCE(
               s.total_marks,
               ass.total_marks,
               0
             ) > 0
-            AND
-            (
-              COALESCE(
-                s.marks_awarded,
-                0
-              )::numeric
-              /
-              COALESCE(
-                s.total_marks,
-                ass.total_marks,
-                1
-              )::numeric
-            ) * 100 >= 80
-          THEN 'A'
 
-          WHEN
-            (
-              COALESCE(
-                s.marks_awarded,
-                0
-              )::numeric
-              /
-              NULLIF(
+            THEN ROUND(
+              (
+                COALESCE(
+                  s.marks_awarded,
+                  0
+                )::numeric
+                /
                 COALESCE(
                   s.total_marks,
                   ass.total_marks,
-                  0
-                ),
-                0
-              )::numeric
-            ) * 100 >= 75
-          THEN 'A-'
+                  1
+                )::numeric
+              ) * 100,
+              2
+            )
 
-          WHEN
-            (
-              COALESCE(
-                s.marks_awarded,
-                0
-              )::numeric
-              /
-              NULLIF(
-                COALESCE(
-                  s.total_marks,
-                  ass.total_marks,
-                  0
-                ),
-                0
-              )::numeric
-            ) * 100 >= 70
-          THEN 'B+'
+            ELSE 0
+          END AS percentage,
 
-          WHEN
-            (
-              COALESCE(
-                s.marks_awarded,
-                0
-              )::numeric
-              /
-              NULLIF(
-                COALESCE(
-                  s.total_marks,
-                  ass.total_marks,
-                  0
-                ),
-                0
-              )::numeric
-            ) * 100 >= 65
-          THEN 'B'
+          50 AS passing_score,
 
-          WHEN
-            (
-              COALESCE(
-                s.marks_awarded,
-                0
-              )::numeric
-              /
-              NULLIF(
-                COALESCE(
-                  s.total_marks,
-                  ass.total_marks,
-                  0
-                ),
-                0
-              )::numeric
-            ) * 100 >= 60
-          THEN 'B-'
+          NULL::text AS grade,
 
-          WHEN
-            (
-              COALESCE(
-                s.marks_awarded,
-                0
-              )::numeric
-              /
-              NULLIF(
-                COALESCE(
-                  s.total_marks,
-                  ass.total_marks,
-                  0
-                ),
-                0
-              )::numeric
-            ) * 100 >= 55
-          THEN 'C+'
+          NULL::numeric AS grade_point,
 
-          WHEN
-            (
-              COALESCE(
-                s.marks_awarded,
-                0
-              )::numeric
-              /
-              NULLIF(
-                COALESCE(
-                  s.total_marks,
-                  ass.total_marks,
-                  0
-                ),
-                0
-              )::numeric
-            ) * 100 >= 50
-          THEN 'C'
+          CASE
+            WHEN
+              s.status = 'graded'
+              OR s.graded_at IS NOT NULL
+            THEN 'graded'
 
-          WHEN
-            (
-              COALESCE(
-                s.marks_awarded,
-                0
-              )::numeric
-              /
-              NULLIF(
-                COALESCE(
-                  s.total_marks,
-                  ass.total_marks,
-                  0
-                ),
-                0
-              )::numeric
-            ) * 100 >= 45
-          THEN 'C-'
+            ELSE 'submitted'
+          END AS status,
 
-          WHEN
-            (
-              COALESCE(
-                s.marks_awarded,
-                0
-              )::numeric
-              /
-              NULLIF(
-                COALESCE(
-                  s.total_marks,
-                  ass.total_marks,
-                  0
-                ),
-                0
-              )::numeric
-            ) * 100 >= 40
-          THEN 'D+'
+          s.submitted_at
 
-          WHEN
-            (
-              COALESCE(
-                s.marks_awarded,
-                0
-              )::numeric
-              /
-              NULLIF(
-                COALESCE(
-                  s.total_marks,
-                  ass.total_marks,
-                  0
-                ),
-                0
-              )::numeric
-            ) * 100 >= 35
-          THEN 'D'
+        FROM lms_assignment_submissions s
 
-          WHEN
-            (
-              COALESCE(
-                s.marks_awarded,
-                0
-              )::numeric
-              /
-              NULLIF(
-                COALESCE(
-                  s.total_marks,
-                  ass.total_marks,
-                  0
-                ),
-                0
-              )::numeric
-            ) * 100 >= 30
-          THEN 'D-'
+        INNER JOIN lms_assignments ass
+          ON ass.id = s.assignment_id
 
-          ELSE 'E'
-        END AS grade,
+        INNER JOIN lms_lessons l
+          ON l.id = ass.lesson_id
 
-        CASE
-          WHEN
-            (
-              COALESCE(
-                s.marks_awarded,
-                0
-              )::numeric
-              /
-              NULLIF(
-                COALESCE(
-                  s.total_marks,
-                  ass.total_marks,
-                  0
-                ),
-                0
-              )::numeric
-            ) * 100 >= 80
-          THEN 4.0
+        INNER JOIN lms_topics t
+          ON t.id = l.topic_id
 
-          WHEN
-            (
-              COALESCE(
-                s.marks_awarded,
-                0
-              )::numeric
-              /
-              NULLIF(
-                COALESCE(
-                  s.total_marks,
-                  ass.total_marks,
-                  0
-                ),
-                0
-              )::numeric
-            ) * 100 >= 75
-          THEN 3.7
+        INNER JOIN lms_units u
+          ON u.id = t.unit_id
 
-          WHEN
-            (
-              COALESCE(
-                s.marks_awarded,
-                0
-              )::numeric
-              /
-              NULLIF(
-                COALESCE(
-                  s.total_marks,
-                  ass.total_marks,
-                  0
-                ),
-                0
-              )::numeric
-            ) * 100 >= 70
-          THEN 3.3
+        INNER JOIN lms_programs p
+          ON p.id = u.program_id
 
-          WHEN
-            (
-              COALESCE(
-                s.marks_awarded,
-                0
-              )::numeric
-              /
-              NULLIF(
-                COALESCE(
-                  s.total_marks,
-                  ass.total_marks,
-                  0
-                ),
-                0
-              )::numeric
-            ) * 100 >= 65
-          THEN 3.0
+        INNER JOIN applications a
+          ON a.id = s.application_id
 
-          WHEN
-            (
-              COALESCE(
-                s.marks_awarded,
-                0
-              )::numeric
-              /
-              NULLIF(
-                COALESCE(
-                  s.total_marks,
-                  ass.total_marks,
-                  0
-                ),
-                0
-              )::numeric
-            ) * 100 >= 60
-          THEN 2.7
+        WHERE
+          s.submitted_at IS NOT NULL
 
-          WHEN
-            (
-              COALESCE(
-                s.marks_awarded,
-                0
-              )::numeric
-              /
-              NULLIF(
-                COALESCE(
-                  s.total_marks,
-                  ass.total_marks,
-                  0
-                ),
-                0
-              )::numeric
-            ) * 100 >= 55
-          THEN 2.3
+          AND EXISTS (
+            SELECT 1
+            FROM lms_lecturer_programs lp
+            WHERE
+              lp.program_id = p.id
+              AND lp.lecturer_id = $1
+          )
 
-          WHEN
-            (
-              COALESCE(
-                s.marks_awarded,
-                0
-              )::numeric
-              /
-              NULLIF(
-                COALESCE(
-                  s.total_marks,
-                  ass.total_marks,
-                  0
-                ),
-                0
-              )::numeric
-            ) * 100 >= 50
-          THEN 2.0
+        ORDER BY
+          s.submitted_at DESC,
+          s.id DESC
+        `,
+        [lecturerId]
+      );
 
-          WHEN
-            (
-              COALESCE(
-                s.marks_awarded,
-                0
-              )::numeric
-              /
-              NULLIF(
-                COALESCE(
-                  s.total_marks,
-                  ass.total_marks,
-                  0
-                ),
-                0
-              )::numeric
-            ) * 100 >= 45
-          THEN 1.7
+    /* =====================================================
+    4. NORMALIZE QUIZ RESULTS
+    ===================================================== */
 
-          WHEN
-            (
-              COALESCE(
-                s.marks_awarded,
-                0
-              )::numeric
-              /
-              NULLIF(
-                COALESCE(
-                  s.total_marks,
-                  ass.total_marks,
-                  0
-                ),
-                0
-              )::numeric
-            ) * 100 >= 40
-          THEN 1.3
+    const quizGrades: NormalizedGrade[] =
+      quizResult.rows.map(
+        (
+          row: GradeRow
+        ): NormalizedGrade => {
+          const score =
+            toNumber(row.score);
 
-          WHEN
-            (
-              COALESCE(
-                s.marks_awarded,
-                0
-              )::numeric
-              /
-              NULLIF(
-                COALESCE(
-                  s.total_marks,
-                  ass.total_marks,
-                  0
-                ),
-                0
-              )::numeric
-            ) * 100 >= 35
-          THEN 1.0
+          const totalMarks =
+            toNumber(
+              row.total_marks
+            );
 
-          WHEN
-            (
-              COALESCE(
-                s.marks_awarded,
-                0
-              )::numeric
-              /
-              NULLIF(
-                COALESCE(
-                  s.total_marks,
-                  ass.total_marks,
-                  0
-                ),
-                0
-              )::numeric
-            ) * 100 >= 30
-          THEN 0.7
+          const percentage =
+            calculatePercentage(
+              score,
+              totalMarks,
+              row.percentage
+            );
 
-          ELSE 0.0
-        END AS grade_point,
+          const passingScore =
+            Math.max(
+              0,
+              Math.min(
+                100,
+                toNumber(
+                  row.passing_score
+                )
+              )
+            );
 
-        CASE
-          WHEN
-            (
-              COALESCE(
-                s.marks_awarded,
-                0
-              )::numeric
-              /
-              NULLIF(
-                COALESCE(
-                  s.total_marks,
-                  ass.total_marks,
-                  0
-                ),
-                0
-              )::numeric
-            ) * 100 >= 50
-          THEN 'Passed'
-          ELSE 'Failed'
-        END AS status,
+          const rawStatus =
+            String(
+              row.status ??
+                'submitted'
+            )
+              .trim()
+              .toLowerCase();
 
-        s.submitted_at
+          const isGraded =
+            rawStatus === 'graded';
 
-      FROM lms_assignment_submissions s
+          let finalStatus: string;
 
-      INNER JOIN lms_assignments ass
-        ON ass.id = s.assignment_id
+          if (!isGraded) {
+            finalStatus =
+              'Pending Grading';
+          } else if (
+            percentage >=
+            passingScore
+          ) {
+            finalStatus =
+              'Passed';
+          } else {
+            finalStatus =
+              'Failed';
+          }
 
-      INNER JOIN lms_lessons l
-        ON l.id = ass.lesson_id
+          return {
+            id: Number(row.id),
 
-      INNER JOIN lms_topics t
-        ON t.id = l.topic_id
+            studentId:
+              Number(
+                row.student_id
+              ) || 0,
 
-      INNER JOIN lms_units u
-        ON u.id = t.unit_id
+            studentName:
+              row.student_name ||
+              'Unknown Student',
 
-      INNER JOIN lms_programs p
-        ON p.id = u.program_id
+            admissionNumber:
+              row.admission_number ||
+              '',
 
-      INNER JOIN applications a
-        ON a.id = s.application_id
+            programName:
+              row.program_name ||
+              'Unknown Program',
 
-      WHERE
-        s.status = 'graded'
-        OR s.graded_at IS NOT NULL
+            unitName:
+              row.unit_name ||
+              'Unknown Unit',
 
-      ORDER BY
-        s.graded_at DESC NULLS LAST,
-        s.submitted_at DESC
-      `
+            unitCode:
+              row.unit_code ||
+              '',
+
+            assessmentName:
+              row.assessment_name ||
+              'Assessment',
+
+            assessmentType:
+              normalizeAssessmentType(
+                row.assessment_type
+              ),
+
+            score,
+
+            totalMarks,
+
+            percentage,
+
+            grade:
+              isGraded
+                ? calculateGrade(
+                    percentage
+                  )
+                : '-',
+
+            gradePoint:
+              isGraded
+                ? calculateGradePoint(
+                    percentage
+                  )
+                : 0,
+
+            status:
+              finalStatus,
+
+            submittedAt:
+              row.submitted_at
+                ? new Date(
+                    row.submitted_at
+                  ).toISOString()
+                : null,
+          };
+        }
+      );
+
+    /* =====================================================
+    5. NORMALIZE ASSIGNMENT RESULTS
+    ===================================================== */
+
+    const assignmentGrades: NormalizedGrade[] =
+      assignmentResult.rows.map(
+        (
+          row: GradeRow
+        ): NormalizedGrade => {
+          const score =
+            toNumber(row.score);
+
+          const totalMarks =
+            toNumber(
+              row.total_marks
+            );
+
+          const percentage =
+            calculatePercentage(
+              score,
+              totalMarks,
+              row.percentage
+            );
+
+          const passingScore =
+            toNumber(
+              row.passing_score
+            ) || 50;
+
+          const rawStatus =
+            String(
+              row.status ?? ''
+            )
+              .trim()
+              .toLowerCase();
+
+          const isGraded =
+            rawStatus === 'graded' ||
+            rawStatus === 'passed' ||
+            rawStatus === 'failed';
+
+          let finalStatus: string;
+
+          if (!isGraded) {
+            finalStatus =
+              'Pending Grading';
+          } else if (
+            percentage >=
+            passingScore
+          ) {
+            finalStatus =
+              'Passed';
+          } else {
+            finalStatus =
+              'Failed';
+          }
+
+          return {
+            id: Number(row.id),
+
+            studentId:
+              Number(
+                row.student_id
+              ) || 0,
+
+            studentName:
+              row.student_name ||
+              'Unknown Student',
+
+            admissionNumber:
+              row.admission_number ||
+              '',
+
+            programName:
+              row.program_name ||
+              'Unknown Program',
+
+            unitName:
+              row.unit_name ||
+              'Unknown Unit',
+
+            unitCode:
+              row.unit_code ||
+              '',
+
+            assessmentName:
+              row.assessment_name ||
+              'Assignment',
+
+            assessmentType:
+              'Assignment',
+
+            score,
+
+            totalMarks,
+
+            percentage,
+
+            grade:
+              isGraded
+                ? calculateGrade(
+                    percentage
+                  )
+                : '-',
+
+            gradePoint:
+              isGraded
+                ? calculateGradePoint(
+                    percentage
+                  )
+                : 0,
+
+            status:
+              finalStatus,
+
+            submittedAt:
+              row.submitted_at
+                ? new Date(
+                    row.submitted_at
+                  ).toISOString()
+                : null,
+          };
+        }
+      );
+
+    /* =====================================================
+    6. COMBINE AND SORT RESULTS
+    ===================================================== */
+
+    const grades: NormalizedGrade[] = [
+      ...quizGrades,
+      ...assignmentGrades,
+    ].sort(
+      (
+        first: NormalizedGrade,
+        second: NormalizedGrade
+      ) => {
+        const firstTime =
+          first.submittedAt
+            ? new Date(
+                first.submittedAt
+              ).getTime()
+            : 0;
+
+        const secondTime =
+          second.submittedAt
+            ? new Date(
+                second.submittedAt
+              ).getTime()
+            : 0;
+
+        return (
+          secondTime -
+          firstTime
+        );
+      }
     );
 
     /* =====================================================
-       4. COMBINE RESULTS
+    7. SUMMARY STATISTICS
     ===================================================== */
 
-    const grades = [
-      ...quizResult.rows,
-      ...assignmentResult.rows,
-    ]
-      .map((row) => ({
-        id: Number(row.id),
+    const finalizedGrades =
+      grades.filter(
+        (
+          grade: NormalizedGrade
+        ) =>
+          isFinalizedStatus(
+            grade.status
+          )
+      );
 
-        studentId:
-          Number(row.student_id) || 0,
+    /* -----------------------------------------------------
+       UNIQUE STUDENTS
+    ----------------------------------------------------- */
 
-        studentName:
-          row.student_name || 'Unknown Student',
+    const studentIds =
+      new Set<number>();
 
-        admissionNumber:
-          row.admission_number || '',
-
-        programName:
-          row.program_name || 'Unknown Program',
-
-        unitName:
-          row.unit_name || 'Unknown Unit',
-
-        unitCode:
-          row.unit_code || '',
-
-        assessmentName:
-          row.assessment_name || 'Assessment',
-
-        assessmentType:
-          row.assessment_type || 'Assessment',
-
-        score:
-          Number(row.score) || 0,
-
-        totalMarks:
-          Number(row.total_marks) || 0,
-
-        percentage:
-          Number(row.percentage) || 0,
-
-        grade:
-          row.grade || 'E',
-
-        gradePoint:
-          Number(row.grade_point) || 0,
-
-        status:
-          row.status || 'Pending',
-
-        submittedAt:
-          row.submitted_at || null,
-      }))
-      .sort((a, b) => {
-        const dateA = a.submittedAt
-          ? new Date(a.submittedAt).getTime()
-          : 0;
-
-        const dateB = b.submittedAt
-          ? new Date(b.submittedAt).getTime()
-          : 0;
-
-        return dateB - dateA;
-      });
-
-    /* =====================================================
-       5. SUMMARY
-    ===================================================== */
-
-    const studentIds = new Set(
-      grades
-        .map((grade) => grade.studentId)
-        .filter(Boolean)
-    );
+    for (
+      const grade of grades
+    ) {
+      if (
+        grade.studentId > 0
+      ) {
+        studentIds.add(
+          grade.studentId
+        );
+      }
+    }
 
     const totalStudents =
       studentIds.size;
 
+    /* -----------------------------------------------------
+       TOTAL RESULTS
+    ----------------------------------------------------- */
+
     const totalAssessments =
       grades.length;
 
+    /* -----------------------------------------------------
+       TOTAL GRADED
+    ----------------------------------------------------- */
+
     const totalGraded =
-      grades.filter(
-        (grade) =>
-          grade.status?.toLowerCase() ===
-            'passed' ||
-          grade.status?.toLowerCase() ===
-            'failed'
-      ).length;
+      finalizedGrades.length;
+
+    /* -----------------------------------------------------
+       AVERAGE SCORE
+    ----------------------------------------------------- */
 
     const averageScore =
-      totalAssessments > 0
-        ? grades.reduce(
-            (sum, grade) =>
-              sum +
-              Number(
-                grade.percentage
-              ),
+      totalGraded > 0
+        ? finalizedGrades.reduce(
+            (
+              total: number,
+              grade: NormalizedGrade
+            ) =>
+              total +
+              grade.percentage,
             0
-          ) / totalAssessments
+          ) / totalGraded
         : 0;
 
+    /* -----------------------------------------------------
+       PASSED
+    ----------------------------------------------------- */
+
     const passed =
-      grades.filter(
-        (grade) =>
-          grade.status?.toLowerCase() ===
+      finalizedGrades.filter(
+        (
+          grade: NormalizedGrade
+        ) =>
+          grade.status
+            .toLowerCase() ===
           'passed'
       ).length;
 
+    /* -----------------------------------------------------
+       PASS RATE
+    ----------------------------------------------------- */
+
     const passRate =
-      totalAssessments > 0
-        ? (passed /
-            totalAssessments) *
-          100
+      totalGraded > 0
+        ? (
+            passed /
+            totalGraded
+          ) * 100
         : 0;
 
     /* =====================================================
-       6. RESPONSE
+    8. RESPONSE
     ===================================================== */
 
     return NextResponse.json(
@@ -881,37 +960,75 @@ export async function GET(request: Request) {
 
         summary: {
           totalStudents,
+
           totalAssessments,
+
           totalGraded,
 
           averageScore:
             Number(
-              averageScore.toFixed(2)
+              averageScore.toFixed(
+                2
+              )
             ),
 
           passRate:
             Number(
-              passRate.toFixed(2)
+              passRate.toFixed(
+                2
+              )
             ),
         },
       },
       {
         status: 200,
+
+        headers: {
+          'Cache-Control':
+            'no-store, no-cache, must-revalidate, proxy-revalidate',
+
+          Pragma:
+            'no-cache',
+
+          Expires:
+            '0',
+        },
       }
     );
-  } catch (error: any) {
+  } catch (error: unknown) {
+    /* =====================================================
+    ERROR HANDLING
+    ===================================================== */
+
     console.error(
       'GET /api/lecturer/grades ERROR:',
       error
     );
 
+    const message =
+      error instanceof Error
+        ? error.message
+        : 'Failed to load lecturer grades.';
+
+    const normalizedMessage =
+      message.toLowerCase();
+
+    const isUnauthorized =
+      normalizedMessage.includes(
+        'unauthorized'
+      ) ||
+      normalizedMessage.includes(
+        'authentication'
+      );
+
     return NextResponse.json(
       {
         success: false,
-        message:
-          error?.message ||
-          'Failed to load lecturer grades.',
+
+        message,
+
         grades: [],
+
         summary: {
           totalStudents: 0,
           totalAssessments: 0,
@@ -921,7 +1038,10 @@ export async function GET(request: Request) {
         },
       },
       {
-        status: 500,
+        status:
+          isUnauthorized
+            ? 401
+            : 500,
       }
     );
   } finally {

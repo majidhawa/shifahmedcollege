@@ -4,6 +4,8 @@ import { redirect } from 'next/navigation';
 import {
   ArrowLeft,
   ClipboardList,
+  CalendarClock,
+  ShieldCheck,
 } from 'lucide-react';
 
 import pool from '@/lib/db';
@@ -55,7 +57,7 @@ async function getPageData(
 ): Promise<QuizCreatePageData> {
   /* =======================================================
      PROGRAMS
-     
+
      Only programs assigned to the lecturer.
   ======================================================= */
 
@@ -80,6 +82,8 @@ async function getPageData(
 
   /* =======================================================
      UNITS
+
+     Only units belonging to lecturer-assigned programs.
   ======================================================= */
 
   const unitsResult =
@@ -94,8 +98,7 @@ async function getPageData(
         FROM lms_units u
 
         INNER JOIN lms_lecturer_programs lp
-          ON lp.program_id =
-             u.program_id
+          ON lp.program_id = u.program_id
 
         WHERE lp.lecturer_id = $1
 
@@ -109,6 +112,8 @@ async function getPageData(
 
   /* =======================================================
      TOPICS
+
+     Only topics belonging to lecturer-assigned programs.
   ======================================================= */
 
   const topicsResult =
@@ -125,8 +130,7 @@ async function getPageData(
           ON u.id = t.unit_id
 
         INNER JOIN lms_lecturer_programs lp
-          ON lp.program_id =
-             u.program_id
+          ON lp.program_id = u.program_id
 
         WHERE lp.lecturer_id = $1
 
@@ -139,6 +143,8 @@ async function getPageData(
 
   /* =======================================================
      LESSONS
+
+     Only lessons belonging to lecturer-assigned programs.
   ======================================================= */
 
   const lessonsResult =
@@ -158,8 +164,7 @@ async function getPageData(
           ON u.id = t.unit_id
 
         INNER JOIN lms_lecturer_programs lp
-          ON lp.program_id =
-             u.program_id
+          ON lp.program_id = u.program_id
 
         WHERE lp.lecturer_id = $1
 
@@ -246,7 +251,7 @@ export default async function CreateQuizPage() {
       );
   } catch (error) {
     console.error(
-      'CREATE QUIZ PAGE DATA ERROR:',
+      'CREATE ASSESSMENT PAGE DATA ERROR:',
       error
     );
 
@@ -278,7 +283,7 @@ export default async function CreateQuizPage() {
             className="inline-flex items-center gap-2 text-sm font-semibold text-slate-500 transition hover:text-brand-green"
           >
             <ArrowLeft className="h-4 w-4" />
-            Back to Quizzes & Exams
+            Back to Assessments
           </Link>
 
         </div>
@@ -297,26 +302,129 @@ export default async function CreateQuizPage() {
 
                 <ClipboardList className="h-4 w-4" />
 
-                Create Assessment
+                Lecturer Assessment Centre
 
               </div>
 
               <h1 className="mt-5 text-2xl font-bold text-white sm:text-3xl">
-                Create Quiz or Exam
+                Create Assessment
               </h1>
 
               <p className="mt-3 max-w-2xl text-sm leading-6 text-white/70">
-                Create an assessment for one of your assigned
-                lessons. Select the program, unit, topic and
-                lesson in order, then configure the assessment
-                settings.
+                Create a Quiz, CAT or Examination for one of
+                your assigned lessons. Select the program,
+                unit, topic and lesson, then configure the
+                assessment settings including scoring,
+                attempts, availability and assessment
+                behaviour.
               </p>
+
+              {/* =================================================
+                  ASSESSMENT TYPES
+              ================================================= */}
+
+              <div className="mt-6 grid gap-3 sm:grid-cols-2">
+
+                <div className="flex items-center gap-3 rounded-2xl bg-white/10 p-4">
+
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/10">
+
+                    <ClipboardList className="h-5 w-5 text-brand-gold" />
+
+                  </div>
+
+                  <div>
+
+                    <p className="text-sm font-bold text-white">
+                      Quiz / CAT
+                    </p>
+
+                    <p className="mt-0.5 text-xs text-white/60">
+                      Continuous assessment
+                    </p>
+
+                  </div>
+
+                </div>
+
+                <div className="flex items-center gap-3 rounded-2xl bg-white/10 p-4">
+
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/10">
+
+                    <ShieldCheck className="h-5 w-5 text-brand-gold" />
+
+                  </div>
+
+                  <div>
+
+                    <p className="text-sm font-bold text-white">
+                      Examination
+                    </p>
+
+                    <p className="mt-0.5 text-xs text-white/60">
+                      Formal course examination
+                    </p>
+
+                  </div>
+
+                </div>
+
+              </div>
 
             </div>
 
             <div className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full border-[45px] border-brand-gold/10" />
 
             <div className="pointer-events-none absolute -bottom-32 right-24 h-60 w-60 rounded-full border-[35px] border-white/5" />
+
+          </div>
+
+        </section>
+
+        {/* ==================================================
+            AVAILABILITY INFORMATION
+        ================================================== */}
+
+        <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+
+          <div className="flex items-start gap-4">
+
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-brand-green/10 text-brand-green">
+
+              <CalendarClock className="h-5 w-5" />
+
+            </div>
+
+            <div>
+
+              <h2 className="text-lg font-bold text-slate-900">
+                Availability Schedule
+              </h2>
+
+              <p className="mt-1 text-sm leading-6 text-slate-500">
+                You can schedule when students are allowed to
+                access this assessment. Leave the dates blank
+                if you want the assessment to have no time
+                restriction.
+              </p>
+
+            </div>
+
+          </div>
+
+          <div className="mt-5 rounded-2xl bg-slate-50 p-4">
+
+            <p className="text-sm font-medium text-slate-700">
+              The availability dates are configured inside the
+              assessment form below.
+            </p>
+
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+              Use <strong>Available From</strong> to specify when
+              students can start the assessment and
+              <strong> Available Until</strong> to specify when
+              the assessment closes.
+            </p>
 
           </div>
 

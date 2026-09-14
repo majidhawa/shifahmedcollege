@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
-const targetDate = new Date('2026-09-07T23:59:59+03:00').getTime();
+const targetDate = new Date('2026-09-20T23:59:59+03:00').getTime();
 
 export function AdmissionsCountdown() {
   const [timeLeft, setTimeLeft] = useState({
@@ -95,68 +95,140 @@ export function AdmissionsCountdown() {
         backdrop-blur-xl
       "
     >
-
       {/* ================= DECORATIVE GLOW ================= */}
 
-      <div className="pointer-events-none absolute -right-20 -top-20 h-52 w-52 rounded-full bg-brand-green/20 blur-3xl" />
+      <div
+        className="
+          pointer-events-none
+          absolute
+          -right-20
+          -top-20
+          h-52
+          w-52
+          rounded-full
+          bg-brand-green/20
+          blur-3xl
+        "
+      />
 
-      <div className="pointer-events-none absolute -bottom-20 -left-20 h-52 w-52 rounded-full bg-brand-gold/10 blur-3xl" />
-
+      <div
+        className="
+          pointer-events-none
+          absolute
+          -bottom-20
+          -left-20
+          h-52
+          w-52
+          rounded-full
+          bg-brand-gold/10
+          blur-3xl
+        "
+      />
 
       {/* ================= TOP ACCENT ================= */}
 
-      <div className="absolute left-0 right-0 top-0 h-1 bg-gradient-to-r from-brand-green via-brand-gold to-brand-green" />
-
+      <div
+        className="
+          absolute
+          left-0
+          right-0
+          top-0
+          h-1
+          bg-gradient-to-r
+          from-brand-green
+          via-brand-gold
+          to-brand-green
+        "
+      />
 
       {/* ================= CONTENT ================= */}
 
       <div className="relative p-6 md:p-7">
 
-        {/* Admissions Alert */}
+        {/* ================= ADMISSIONS ALERT ================= */}
 
         <div className="flex items-center gap-2">
 
           <span className="relative flex h-2.5 w-2.5">
 
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand-gold opacity-60" />
+            <span
+              className="
+                absolute
+                inline-flex
+                h-full
+                w-full
+                animate-ping
+                rounded-full
+                bg-brand-gold
+                opacity-60
+              "
+            />
 
-            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-brand-gold" />
+            <span
+              className="
+                relative
+                inline-flex
+                h-2.5
+                w-2.5
+                rounded-full
+                bg-brand-gold
+              "
+            />
 
           </span>
 
-          <p className="text-[10px] font-extrabold uppercase tracking-[0.25em] text-brand-gold">
+          <p
+            className="
+              text-[10px]
+              font-extrabold
+              uppercase
+              tracking-[0.25em]
+              text-brand-gold
+            "
+          >
             Admissions Alert
           </p>
 
         </div>
 
-
         {/* ================= TITLE ================= */}
 
-        <h3 className="mt-4 text-2xl font-black leading-[1.1] tracking-tight text-white md:text-[27px]">
-
+        <h3
+          className="
+            mt-4
+            text-2xl
+            font-black
+            leading-[1.1]
+            tracking-tight
+            text-white
+            md:text-[27px]
+          "
+        >
           September Intake
 
           <span className="mt-1 block text-white">
             Admissions Ongoing
           </span>
-
         </h3>
 
+        {/* ================= DESCRIPTION ================= */}
 
-        {/* Description */}
-
-        <p className="mt-4 text-sm leading-6 text-white/60">
+        <p
+          className="
+            mt-4
+            text-sm
+            leading-6
+            text-white/60
+          "
+        >
           Building the next generation of healthcare
           professionals through quality training,
           practical skills and innovation.
         </p>
 
-
-        {/* Divider */}
+        {/* ================= DIVIDER ================= */}
 
         <div className="my-5 h-px bg-white/10" />
-
 
         {/* ================= DEADLINE ================= */}
 
@@ -164,7 +236,15 @@ export function AdmissionsCountdown() {
 
           <div>
 
-            <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-brand-gold">
+            <p
+              className="
+                text-[10px]
+                font-extrabold
+                uppercase
+                tracking-[0.18em]
+                text-brand-gold
+              "
+            >
               Application Deadline
             </p>
 
@@ -174,17 +254,30 @@ export function AdmissionsCountdown() {
 
           </div>
 
-
-          <div className="shrink-0 rounded-full border border-brand-gold/20 bg-brand-gold/10 px-3 py-1.5">
-
-            <p className="text-[9px] font-bold tracking-wider text-brand-gold">
-              07 SEP 2026
+          <div
+            className="
+              shrink-0
+              rounded-full
+              border
+              border-brand-gold/20
+              bg-brand-gold/10
+              px-3
+              py-1.5
+            "
+          >
+            <p
+              className="
+                text-[9px]
+                font-bold
+                tracking-wider
+                text-brand-gold
+              "
+            >
+              20 SEP 2026
             </p>
-
           </div>
 
         </div>
-
 
         {/* ================= COUNTDOWN ================= */}
 
@@ -200,19 +293,35 @@ export function AdmissionsCountdown() {
 
         </div>
 
-
         {/* ================= COUNTDOWN STATUS ================= */}
 
         <div className="mt-4 flex items-center justify-center gap-2">
 
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand-green" />
+          <span
+            className="
+              h-1.5
+              w-1.5
+              animate-pulse
+              rounded-full
+              bg-brand-green
+            "
+          />
 
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-white/50">
-            Enrollment closes soon
+          <p
+            className="
+              text-[10px]
+              font-semibold
+              uppercase
+              tracking-widest
+              text-white/50
+            "
+          >
+            {timeLeft.days > 0
+              ? `${timeLeft.days} Day${timeLeft.days === 1 ? '' : 's'} To Go`
+              : 'Enrollment Closes Soon'}
           </p>
 
         </div>
-
 
         {/* ================= CTA ================= */}
 
@@ -241,7 +350,6 @@ export function AdmissionsCountdown() {
             hover:text-brand-dark
           "
         >
-
           Secure Your Place
 
           <svg
@@ -258,10 +366,18 @@ export function AdmissionsCountdown() {
 
         </Link>
 
-
         {/* ================= FOOTER ================= */}
 
-        <p className="mt-3 text-center text-[9px] font-medium leading-5 text-white/35">
+        <p
+          className="
+            mt-3
+            text-center
+            text-[9px]
+            font-medium
+            leading-5
+            text-white/35
+          "
+        >
           Start your healthcare career with
           Shifah Medical Training College.
         </p>
@@ -271,3 +387,4 @@ export function AdmissionsCountdown() {
     </div>
   );
 }
+

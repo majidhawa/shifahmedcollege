@@ -3,47 +3,76 @@ import pool from '@/lib/db';
 import { requireLecturer } from '@/lib/lecturer-auth';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 /* =========================================================
    HELPERS
 ========================================================= */
 
+/**
+ * Parse a quiz ID from the dynamic route.
+ */
 function parseId(value: string) {
   const id = Number(value);
 
-  if (!Number.isInteger(id) || id <= 0) {
+  if (
+    !Number.isInteger(id) ||
+    id <= 0
+  ) {
     return null;
   }
 
   return id;
 }
 
-function cleanString(value: unknown) {
-  if (value === undefined || value === null) {
+/**
+ * Convert an unknown value into a nullable trimmed string.
+ */
+function cleanString(
+  value: unknown
+) {
+  if (
+    value === undefined ||
+    value === null
+  ) {
     return null;
   }
 
-  const text = String(value).trim();
+  const text =
+    String(value).trim();
 
-  return text.length > 0 ? text : null;
+  return text.length > 0
+    ? text
+    : null;
 }
 
+/**
+ * Parse boolean values coming from JSON or form-like clients.
+ */
 function parseBoolean(
   value: unknown,
   fallback: boolean
 ) {
-  if (value === undefined || value === null) {
+  if (
+    value === undefined ||
+    value === null
+  ) {
     return fallback;
   }
 
-  if (typeof value === 'boolean') {
+  if (
+    typeof value === 'boolean'
+  ) {
     return value;
   }
 
-  if (typeof value === 'string') {
-    const normalized = value
-      .trim()
-      .toLowerCase();
+  if (
+    typeof value === 'string'
+  ) {
+    const normalized =
+      value
+        .trim()
+        .toLowerCase();
 
     if (
       normalized === 'true' ||
@@ -64,15 +93,107 @@ function parseBoolean(
     }
   }
 
-  if (typeof value === 'number') {
+  if (
+    typeof value === 'number'
+  ) {
     return value === 1;
   }
 
   return fallback;
 }
 
+/**
+ * Parse an optional availability date.
+ *
+ * Blank / null / undefined:
+ *   => null
+ *
+ * Valid date:
+ *   => Date
+ *
+ * Invalid date:
+ *   => invalid = true
+ */
+function parseOptionalDate(
+  value: unknown
+): {
+  date: Date | null;
+  invalid: boolean;
+} {
+  if (
+    value === undefined ||
+    value === null
+  ) {
+    return {
+      date: null,
+      invalid: false,
+    };
+  }
+
+  const text =
+    String(value).trim();
+
+  if (!text) {
+    return {
+      date: null,
+      invalid: false,
+    };
+  }
+
+  const date =
+    new Date(text);
+
+  if (
+    Number.isNaN(
+      date.getTime()
+    )
+  ) {
+    return {
+      date: null,
+      invalid: true,
+    };
+  }
+
+  return {
+    date,
+    invalid: false,
+  };
+}
+
+/**
+ * Convert PostgreSQL timestamp values into ISO strings
+ * for the JSON response.
+ */
+function toISOStringOrNull(
+  value: unknown
+): string | null {
+  if (
+    value === undefined ||
+    value === null
+  ) {
+    return null;
+  }
+
+  const date =
+    new Date(
+      String(value)
+    );
+
+  if (
+    Number.isNaN(
+      date.getTime()
+    )
+  ) {
+    return null;
+  }
+
+  return date.toISOString();
+}
+
 /* =========================================================
    GET SINGLE QUIZ
+
+   GET /api/lecturer/quizzes/[id]
 ========================================================= */
 
 export async function GET(
@@ -88,13 +209,15 @@ export async function GET(
        AUTHENTICATION
     ===================================================== */
 
-    const lecturer = await requireLecturer();
+    const lecturer =
+      await requireLecturer();
 
     if (!lecturer) {
       return NextResponse.json(
         {
           success: false,
-          message: 'Authentication required.',
+          message:
+            'Authentication required.',
         },
         { status: 401 }
       );
@@ -104,15 +227,18 @@ export async function GET(
        QUIZ ID
     ===================================================== */
 
-    const { id } = await context.params;
+    const { id } =
+      await context.params;
 
-    const quizId = parseId(id);
+    const quizId =
+      parseId(id);
 
     if (!quizId) {
       return NextResponse.json(
         {
           success: false,
-          message: 'Invalid quiz ID.',
+          message:
+            'Invalid quiz ID.',
         },
         { status: 400 }
       );
@@ -120,77 +246,83 @@ export async function GET(
 
     /* =====================================================
        GET QUIZ
-       
+
        Lecturer can only access quizzes belonging to
        programs assigned to them.
     ===================================================== */
 
-    const result = await pool.query(
-      `
-        SELECT
-          q.id,
-          q.lesson_id,
-          q.title,
-          q.description,
-          q.instructions,
+    const result =
+      await pool.query(
+        `
+          SELECT
+            q.id,
+            q.lesson_id,
+            q.title,
+            q.description,
+            q.instructions,
 
-          q.total_marks,
-          q.time_limit_minutes,
-          q.attempts_allowed,
-          q.passing_score,
+            q.total_marks,
+            q.time_limit_minutes,
+            q.attempts_allowed,
+            q.passing_score,
 
-          q.status,
+            q.status,
 
-          q.shuffle_questions,
-          q.shuffle_options,
-          q.show_results,
-          q.show_correct_answers,
+            q.shuffle_questions,
+            q.shuffle_options,
+            q.show_results,
+            q.show_correct_answers,
 
-          q.available_from,
-          q.available_until,
+            q.available_from,
+            q.available_until,
 
-          q.created_at,
-          q.updated_at,
+            q.created_at,
+            q.updated_at,
 
-          l.id AS lesson_id_ref,
-          l.title AS lesson_title,
+            l.id AS lesson_id_ref,
+            l.title AS lesson_title,
 
-          t.id AS topic_id,
-          t.title AS topic_title,
+            t.id AS topic_id,
+            t.title AS topic_title,
 
-          u.id AS unit_id,
-          u.code AS unit_code,
-          u.name AS unit_name,
+            u.id AS unit_id,
+            u.code AS unit_code,
+            u.name AS unit_name,
 
-          p.id AS program_id,
-          p.name AS program_name
+            p.id AS program_id,
+            p.name AS program_name
 
-        FROM lms_quizzes q
+          FROM lms_quizzes q
 
-        INNER JOIN lms_lessons l
-          ON l.id = q.lesson_id
+          INNER JOIN lms_lessons l
+            ON l.id = q.lesson_id
 
-        INNER JOIN lms_topics t
-          ON t.id = l.topic_id
+          INNER JOIN lms_topics t
+            ON t.id = l.topic_id
 
-        INNER JOIN lms_units u
-          ON u.id = t.unit_id
+          INNER JOIN lms_units u
+            ON u.id = t.unit_id
 
-        INNER JOIN lms_programs p
-          ON p.id = u.program_id
+          INNER JOIN lms_programs p
+            ON p.id = u.program_id
 
-        INNER JOIN lms_lecturer_programs lp
-          ON lp.program_id = p.id
-          AND lp.lecturer_id = $2
+          INNER JOIN lms_lecturer_programs lp
+            ON lp.program_id = p.id
+            AND lp.lecturer_id = $2
 
-        WHERE q.id = $1
+          WHERE q.id = $1
 
-        LIMIT 1
-      `,
-      [quizId, lecturer.id]
-    );
+          LIMIT 1
+        `,
+        [
+          quizId,
+          lecturer.id,
+        ]
+      );
 
-    if (result.rows.length === 0) {
+    if (
+      result.rows.length === 0
+    ) {
       return NextResponse.json(
         {
           success: false,
@@ -201,7 +333,8 @@ export async function GET(
       );
     }
 
-    const row = result.rows[0];
+    const row =
+      result.rows[0];
 
     /* =====================================================
        RESPONSE
@@ -211,45 +344,67 @@ export async function GET(
       success: true,
 
       quiz: {
-        id: Number(row.id),
+        id:
+          Number(row.id),
 
-        lessonId: Number(row.lesson_id),
+        lessonId:
+          Number(
+            row.lesson_id
+          ),
 
-        title: row.title,
+        title:
+          row.title,
 
         description:
-          row.description ?? null,
+          row.description ??
+          null,
 
         instructions:
-          row.instructions ?? null,
+          row.instructions ??
+          null,
 
         totalMarks:
-          Number(row.total_marks) || 0,
+          Number(
+            row.total_marks
+          ) || 0,
 
         timeLimitMinutes:
-          Number(row.time_limit_minutes) || 0,
+          Number(
+            row.time_limit_minutes
+          ) || 0,
 
         attemptsAllowed:
-          Number(row.attempts_allowed) || 1,
+          Number(
+            row.attempts_allowed
+          ) || 1,
 
         passingScore:
-          Number(row.passing_score) || 0,
+          Number(
+            row.passing_score
+          ) || 0,
 
         status:
-          row.status ?? 'draft',
+          row.status ??
+          'draft',
 
         /* =========================================
            SHUFFLE / RESULT SETTINGS
         ========================================= */
 
         shuffleQuestions:
-          Boolean(row.shuffle_questions),
+          Boolean(
+            row.shuffle_questions
+          ),
 
         shuffleOptions:
-          Boolean(row.shuffle_options),
+          Boolean(
+            row.shuffle_options
+          ),
 
         showResults:
-          Boolean(row.show_results),
+          Boolean(
+            row.show_results
+          ),
 
         showCorrectAnswers:
           Boolean(
@@ -261,28 +416,39 @@ export async function GET(
         ========================================= */
 
         availableFrom:
-          row.available_from ?? null,
+          toISOStringOrNull(
+            row.available_from
+          ),
 
         availableUntil:
-          row.available_until ?? null,
+          toISOStringOrNull(
+            row.available_until
+          ),
 
         /* =========================================
            TIMESTAMPS
         ========================================= */
 
         createdAt:
-          row.created_at ?? null,
+          row.created_at ??
+          null,
 
         updatedAt:
-          row.updated_at ?? null,
+          row.updated_at ??
+          null,
 
         /* =========================================
            LESSON
         ========================================= */
 
         lesson: {
-          id: Number(row.lesson_id_ref),
-          title: row.lesson_title,
+          id:
+            Number(
+              row.lesson_id_ref
+            ),
+
+          title:
+            row.lesson_title,
         },
 
         /* =========================================
@@ -290,8 +456,13 @@ export async function GET(
         ========================================= */
 
         topic: {
-          id: Number(row.topic_id),
-          title: row.topic_title,
+          id:
+            Number(
+              row.topic_id
+            ),
+
+          title:
+            row.topic_title,
         },
 
         /* =========================================
@@ -299,9 +470,16 @@ export async function GET(
         ========================================= */
 
         unit: {
-          id: Number(row.unit_id),
-          code: row.unit_code,
-          name: row.unit_name,
+          id:
+            Number(
+              row.unit_id
+            ),
+
+          code:
+            row.unit_code,
+
+          name:
+            row.unit_name,
         },
 
         /* =========================================
@@ -309,8 +487,13 @@ export async function GET(
         ========================================= */
 
         program: {
-          id: Number(row.program_id),
-          name: row.program_name,
+          id:
+            Number(
+              row.program_id
+            ),
+
+          name:
+            row.program_name,
         },
       },
     });
@@ -323,7 +506,8 @@ export async function GET(
     return NextResponse.json(
       {
         success: false,
-        message: 'Failed to load quiz.',
+        message:
+          'Failed to load quiz.',
       },
       { status: 500 }
     );
@@ -332,6 +516,31 @@ export async function GET(
 
 /* =========================================================
    PUT - UPDATE QUIZ
+
+   PUT /api/lecturer/quizzes/[id]
+
+   Supports:
+
+   title
+   description
+   instructions
+
+   totalMarks
+   timeLimitMinutes
+   attemptsAllowed
+   passingScore
+
+   status
+
+   shuffleQuestions
+   shuffleOptions
+   showResults
+   showCorrectAnswers
+
+   availableFrom
+   availableUntil
+
+   Also supports snake_case versions.
 ========================================================= */
 
 export async function PUT(
@@ -347,13 +556,15 @@ export async function PUT(
        AUTHENTICATION
     ===================================================== */
 
-    const lecturer = await requireLecturer();
+    const lecturer =
+      await requireLecturer();
 
     if (!lecturer) {
       return NextResponse.json(
         {
           success: false,
-          message: 'Authentication required.',
+          message:
+            'Authentication required.',
         },
         { status: 401 }
       );
@@ -363,15 +574,18 @@ export async function PUT(
        QUIZ ID
     ===================================================== */
 
-    const { id } = await context.params;
+    const { id } =
+      await context.params;
 
-    const quizId = parseId(id);
+    const quizId =
+      parseId(id);
 
     if (!quizId) {
       return NextResponse.json(
         {
           success: false,
-          message: 'Invalid quiz ID.',
+          message:
+            'Invalid quiz ID.',
         },
         { status: 400 }
       );
@@ -384,12 +598,14 @@ export async function PUT(
     let body: any;
 
     try {
-      body = await request.json();
+      body =
+        await request.json();
     } catch {
       return NextResponse.json(
         {
           success: false,
-          message: 'Invalid JSON request body.',
+          message:
+            'Invalid JSON request body.',
         },
         { status: 400 }
       );
@@ -397,10 +613,9 @@ export async function PUT(
 
     /* =====================================================
        FIND EXISTING QUIZ
-       
-       Also loads the current shuffle settings so that
-       older clients which do not send them do not
-       accidentally disable them.
+
+       This also verifies that the lecturer is assigned
+       to the program containing the quiz.
     ===================================================== */
 
     const existingResult =
@@ -414,6 +629,9 @@ export async function PUT(
             q.shuffle_options,
             q.show_results,
             q.show_correct_answers,
+
+            q.available_from,
+            q.available_until,
 
             l.title AS lesson_title,
 
@@ -449,10 +667,15 @@ export async function PUT(
 
           LIMIT 1
         `,
-        [quizId, lecturer.id]
+        [
+          quizId,
+          lecturer.id,
+        ]
       );
 
-    if (existingResult.rows.length === 0) {
+    if (
+      existingResult.rows.length === 0
+    ) {
       return NextResponse.json(
         {
           success: false,
@@ -486,7 +709,9 @@ export async function PUT(
       );
     }
 
-    if (title.length > 255) {
+    if (
+      title.length > 255
+    ) {
       return NextResponse.json(
         {
           success: false,
@@ -498,39 +723,53 @@ export async function PUT(
     }
 
     const description =
-      cleanString(body.description);
+      cleanString(
+        body.description
+      );
 
     const instructions =
-      cleanString(body.instructions);
+      cleanString(
+        body.instructions
+      );
 
     /* =====================================================
        NUMERIC SETTINGS
     ===================================================== */
 
-    const totalMarks = Number(
-      body.totalMarks ??
-        body.total_marks
-    );
+    const totalMarks =
+      Number(
+        body.totalMarks ??
+          body.total_marks
+      );
 
-    const timeLimitMinutes = Number(
-      body.timeLimitMinutes ??
-        body.time_limit_minutes ??
-        0
-    );
+    const timeLimitMinutes =
+      Number(
+        body.timeLimitMinutes ??
+          body.time_limit_minutes ??
+          0
+      );
 
-    const attemptsAllowed = Number(
-      body.attemptsAllowed ??
-        body.attempts_allowed ??
-        1
-    );
+    const attemptsAllowed =
+      Number(
+        body.attemptsAllowed ??
+          body.attempts_allowed ??
+          1
+      );
 
-    const passingScore = Number(
-      body.passingScore ??
-        body.passing_score
-    );
+    const passingScore =
+      Number(
+        body.passingScore ??
+          body.passing_score
+      );
+
+    /* =====================================================
+       VALIDATE TOTAL MARKS
+    ===================================================== */
 
     if (
-      !Number.isFinite(totalMarks) ||
+      !Number.isFinite(
+        totalMarks
+      ) ||
       totalMarks < 1
     ) {
       return NextResponse.json(
@@ -543,8 +782,14 @@ export async function PUT(
       );
     }
 
+    /* =====================================================
+       VALIDATE TIME
+    ===================================================== */
+
     if (
-      !Number.isFinite(timeLimitMinutes) ||
+      !Number.isFinite(
+        timeLimitMinutes
+      ) ||
       timeLimitMinutes < 0
     ) {
       return NextResponse.json(
@@ -557,8 +802,14 @@ export async function PUT(
       );
     }
 
+    /* =====================================================
+       VALIDATE ATTEMPTS
+    ===================================================== */
+
     if (
-      !Number.isFinite(attemptsAllowed) ||
+      !Number.isFinite(
+        attemptsAllowed
+      ) ||
       attemptsAllowed < 1
     ) {
       return NextResponse.json(
@@ -571,8 +822,14 @@ export async function PUT(
       );
     }
 
+    /* =====================================================
+       VALIDATE PASSING SCORE
+    ===================================================== */
+
     if (
-      !Number.isFinite(passingScore) ||
+      !Number.isFinite(
+        passingScore
+      ) ||
       passingScore < 0 ||
       passingScore > 100
     ) {
@@ -588,12 +845,11 @@ export async function PUT(
 
     /* =====================================================
        SHUFFLE / RESULT SETTINGS
-       
-       IMPORTANT:
+
        If the edit page sends a value, use it.
-       
-       If the edit page does not send a value, preserve
-       the existing database value.
+
+       If it does not send a value, preserve the existing
+       database value.
     ===================================================== */
 
     const shuffleQuestions =
@@ -659,13 +915,167 @@ export async function PUT(
         : 'draft';
 
     /* =====================================================
+       AVAILABILITY SCHEDULE
+
+       IMPORTANT:
+
+       We deliberately check whether the property exists.
+
+       This means:
+
+       {
+         title: "CAT 1"
+       }
+
+       will preserve the existing availability.
+
+       But:
+
+       {
+         availableFrom: "",
+         availableUntil: ""
+       }
+
+       will CLEAR the availability.
+
+       This makes the API safe for older clients.
+    ===================================================== */
+
+    const hasAvailableFrom =
+      Object.prototype.hasOwnProperty.call(
+        body,
+        'availableFrom'
+      ) ||
+      Object.prototype.hasOwnProperty.call(
+        body,
+        'available_from'
+      );
+
+    const hasAvailableUntil =
+      Object.prototype.hasOwnProperty.call(
+        body,
+        'availableUntil'
+      ) ||
+      Object.prototype.hasOwnProperty.call(
+        body,
+        'available_until'
+      );
+
+    /* =====================================================
+       DETERMINE AVAILABILITY VALUES
+    ===================================================== */
+
+    let availableFrom: Date | null;
+
+    let availableUntil: Date | null;
+
+    if (hasAvailableFrom) {
+      const rawAvailableFrom =
+        body.availableFrom ??
+        body.available_from;
+
+      const parsed =
+        parseOptionalDate(
+          rawAvailableFrom
+        );
+
+      if (parsed.invalid) {
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              'Available From contains an invalid date or time.',
+          },
+          { status: 400 }
+        );
+      }
+
+      availableFrom =
+        parsed.date;
+    } else {
+      /*
+       * Older clients do not send this field.
+       * Preserve the existing value.
+       */
+      availableFrom =
+        existing.available_from
+          ? new Date(
+              existing.available_from
+            )
+          : null;
+    }
+
+    if (hasAvailableUntil) {
+      const rawAvailableUntil =
+        body.availableUntil ??
+        body.available_until;
+
+      const parsed =
+        parseOptionalDate(
+          rawAvailableUntil
+        );
+
+      if (parsed.invalid) {
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              'Available Until contains an invalid date or time.',
+          },
+          { status: 400 }
+        );
+      }
+
+      availableUntil =
+        parsed.date;
+    } else {
+      /*
+       * Older clients do not send this field.
+       * Preserve the existing value.
+       */
+      availableUntil =
+        existing.available_until
+          ? new Date(
+              existing.available_until
+            )
+          : null;
+    }
+
+    /* =====================================================
+       VALIDATE AVAILABILITY RANGE
+
+       If both dates exist:
+
+       Available Until
+             >
+       Available From
+    ===================================================== */
+
+    if (
+      availableFrom &&
+      availableUntil &&
+      availableUntil.getTime() <=
+        availableFrom.getTime()
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            'Available Until must be later than Available From.',
+        },
+        { status: 400 }
+      );
+    }
+
+    /* =====================================================
        DUPLICATE TITLE
     ===================================================== */
 
     const duplicateResult =
       await pool.query(
         `
-          SELECT id
+          SELECT
+            id
 
           FROM lms_quizzes
 
@@ -679,14 +1089,17 @@ export async function PUT(
           LIMIT 1
         `,
         [
-          Number(existing.lesson_id),
+          Number(
+            existing.lesson_id
+          ),
           title,
           quizId,
         ]
       );
 
     if (
-      duplicateResult.rows.length > 0
+      duplicateResult.rows.length >
+      0
     ) {
       return NextResponse.json(
         {
@@ -725,9 +1138,12 @@ export async function PUT(
             show_results = $11,
             show_correct_answers = $12,
 
+            available_from = $13,
+            available_until = $14,
+
             updated_at = NOW()
 
-          WHERE id = $13
+          WHERE id = $15
 
           RETURNING
             id,
@@ -763,7 +1179,9 @@ export async function PUT(
 
           instructions,
 
-          Math.floor(totalMarks),
+          Math.floor(
+            totalMarks
+          ),
 
           Math.floor(
             timeLimitMinutes
@@ -785,9 +1203,22 @@ export async function PUT(
 
           showCorrectAnswers,
 
+          /*
+           * Optional availability.
+           *
+           * null means no restriction.
+           */
+          availableFrom,
+
+          availableUntil,
+
           quizId,
         ]
       );
+
+    /* =====================================================
+       UPDATE FAILED
+    ===================================================== */
 
     if (
       updateResult.rows.length === 0
@@ -816,19 +1247,26 @@ export async function PUT(
         'Assessment updated successfully.',
 
       quiz: {
-        id: Number(quiz.id),
+        id:
+          Number(
+            quiz.id
+          ),
 
         lessonId:
-          Number(quiz.lesson_id),
+          Number(
+            quiz.lesson_id
+          ),
 
         title:
           quiz.title,
 
         description:
-          quiz.description ?? null,
+          quiz.description ??
+          null,
 
         instructions:
-          quiz.instructions ?? null,
+          quiz.instructions ??
+          null,
 
         totalMarks:
           Number(
@@ -851,7 +1289,8 @@ export async function PUT(
           ) || 0,
 
         status:
-          quiz.status ?? 'draft',
+          quiz.status ??
+          'draft',
 
         /* =========================================
            SHUFFLE SETTINGS
@@ -886,12 +1325,14 @@ export async function PUT(
         ========================================= */
 
         availableFrom:
-          quiz.available_from ??
-          null,
+          toISOStringOrNull(
+            quiz.available_from
+          ),
 
         availableUntil:
-          quiz.available_until ??
-          null,
+          toISOStringOrNull(
+            quiz.available_until
+          ),
 
         /* =========================================
            TIMESTAMPS
@@ -910,35 +1351,44 @@ export async function PUT(
         ========================================= */
 
         lesson: {
-          id: Number(
-            existing.lesson_id
-          ),
+          id:
+            Number(
+              existing.lesson_id
+            ),
+
           title:
             existing.lesson_title,
         },
 
         topic: {
-          id: Number(
-            existing.topic_id
-          ),
+          id:
+            Number(
+              existing.topic_id
+            ),
+
           title:
             existing.topic_title,
         },
 
         unit: {
-          id: Number(
-            existing.unit_id
-          ),
+          id:
+            Number(
+              existing.unit_id
+            ),
+
           code:
             existing.unit_code,
+
           name:
             existing.unit_name,
         },
 
         program: {
-          id: Number(
-            existing.program_id
-          ),
+          id:
+            Number(
+              existing.program_id
+            ),
+
           name:
             existing.program_name,
         },
@@ -952,6 +1402,46 @@ export async function PUT(
       'PUT /api/lecturer/quizzes/[id] ERROR:',
       error
     );
+
+    /* =====================================================
+       INVALID TIMESTAMP
+    ===================================================== */
+
+    if (
+      error?.code ===
+      '22007'
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            'One of the availability dates contains an invalid date or time.',
+        },
+        { status: 400 }
+      );
+    }
+
+    /* =====================================================
+       FOREIGN KEY ERROR
+    ===================================================== */
+
+    if (
+      error?.code ===
+      '23503'
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            'The assessment references data that no longer exists.',
+        },
+        { status: 400 }
+      );
+    }
+
+    /* =====================================================
+       UNKNOWN ERROR
+    ===================================================== */
 
     return NextResponse.json(
       {
@@ -973,6 +1463,8 @@ export async function PUT(
 
 /* =========================================================
    DELETE QUIZ
+
+   DELETE /api/lecturer/quizzes/[id]
 ========================================================= */
 
 export async function DELETE(
@@ -1056,7 +1548,10 @@ export async function DELETE(
 
           LIMIT 1
         `,
-        [quizId, lecturer.id]
+        [
+          quizId,
+          lecturer.id,
+        ]
       );
 
     if (
@@ -1180,9 +1675,10 @@ export async function DELETE(
           'Assessment deleted successfully.',
 
         deletedQuiz: {
-          id: Number(
-            quiz.id
-          ),
+          id:
+            Number(
+              quiz.id
+            ),
 
           title:
             quiz.title,

@@ -10,7 +10,7 @@ import {
   FileQuestion,
   ListChecks,
   Plus,
-  Trash2,
+  ShieldCheck,
 } from 'lucide-react';
 
 import pool from '@/lib/db';
@@ -19,6 +19,8 @@ import { requireLecturer } from '@/lib/lecturer-auth';
 /* =========================================================
    TYPES
 ========================================================= */
+
+type AssessmentType = 'quiz' | 'exam';
 
 type QuizQuestion = {
   id: number;
@@ -55,6 +57,7 @@ type Quiz = {
   attemptsAllowed: number;
   passingScore: number;
   status: string;
+  assessmentType: AssessmentType;
 
   lesson: {
     id: number;
@@ -82,6 +85,35 @@ type Quiz = {
    HELPERS
 ========================================================= */
 
+function normalizeAssessmentType(
+  value: unknown
+): AssessmentType {
+  const normalized = String(value ?? '')
+    .trim()
+    .toLowerCase();
+
+  return normalized === 'exam' ||
+    normalized === 'examination'
+    ? 'exam'
+    : 'quiz';
+}
+
+function getAssessmentLabel(
+  assessmentType: AssessmentType
+) {
+  return assessmentType === 'exam'
+    ? 'Examination'
+    : 'Quiz / CAT';
+}
+
+function getAssessmentDescription(
+  assessmentType: AssessmentType
+) {
+  return assessmentType === 'exam'
+    ? 'Manage the questions students will answer in this examination.'
+    : 'Manage the questions students will answer in this quiz or CAT.';
+}
+
 function formatQuestionType(type: string) {
   const normalized = type?.toLowerCase();
 
@@ -108,6 +140,32 @@ function formatQuestionType(type: string) {
     default:
       return type || 'Question';
   }
+}
+
+/* =========================================================
+   ASSESSMENT TYPE BADGE
+========================================================= */
+
+function AssessmentTypeBadge({
+  assessmentType,
+}: {
+  assessmentType: AssessmentType;
+}) {
+  if (assessmentType === 'exam') {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-purple-50 px-3 py-1.5 text-xs font-bold text-purple-700">
+        <ShieldCheck className="h-3.5 w-3.5" />
+        Examination
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700">
+      <ClipboardList className="h-3.5 w-3.5" />
+      Quiz / CAT
+    </span>
+  );
 }
 
 /* =========================================================
@@ -174,8 +232,8 @@ export default async function QuizQuestionsPage({
   }
 
   /* =======================================================
-     GET QUIZ
-     
+     GET ASSESSMENT
+
      RELATIONSHIP:
 
      lms_quizzes
@@ -193,6 +251,12 @@ export default async function QuizQuestionsPage({
      lms_lecturer_programs
        ↓ program_id
      lms_programs
+
+     Assessment type:
+
+     lms_quizzes.assessment_type
+       ├── quiz
+       └── exam
   ======================================================= */
 
   let quiz: Quiz | null = null;
@@ -211,6 +275,7 @@ export default async function QuizQuestionsPage({
           q.attempts_allowed,
           q.passing_score,
           q.status,
+          q.assessment_type,
 
           l.id AS lesson_id_ref,
           l.title AS lesson_title,
@@ -259,9 +324,12 @@ export default async function QuizQuestionsPage({
 
     quiz = {
       id: Number(row.id),
-      lessonId: Number(row.lesson_id),
 
-      title: row.title,
+      lessonId:
+        Number(row.lesson_id),
+
+      title:
+        row.title,
 
       description:
         row.description ?? null,
@@ -284,30 +352,49 @@ export default async function QuizQuestionsPage({
       status:
         row.status ?? 'draft',
 
+      assessmentType:
+        normalizeAssessmentType(
+          row.assessment_type
+        ),
+
       lesson: {
-        id: Number(row.lesson_id_ref),
-        title: row.lesson_title,
+        id:
+          Number(row.lesson_id_ref),
+
+        title:
+          row.lesson_title,
       },
 
       topic: {
-        id: Number(row.topic_id),
-        title: row.topic_title,
+        id:
+          Number(row.topic_id),
+
+        title:
+          row.topic_title,
       },
 
       unit: {
-        id: Number(row.unit_id),
-        code: row.unit_code,
-        name: row.unit_name,
+        id:
+          Number(row.unit_id),
+
+        code:
+          row.unit_code,
+
+        name:
+          row.unit_name,
       },
 
       program: {
-        id: Number(row.program_id),
-        name: row.program_name,
+        id:
+          Number(row.program_id),
+
+        name:
+          row.program_name,
       },
     };
   } catch (error) {
     console.error(
-      'GET QUIZ ERROR:',
+      'GET ASSESSMENT ERROR:',
       error
     );
 
@@ -319,8 +406,25 @@ export default async function QuizQuestionsPage({
   }
 
   /* =======================================================
+     ASSESSMENT LABELS
+  ======================================================= */
+
+  const assessmentLabel =
+    getAssessmentLabel(
+      quiz.assessmentType
+    );
+
+  const assessmentDescription =
+    getAssessmentDescription(
+      quiz.assessmentType
+    );
+
+  const isExam =
+    quiz.assessmentType === 'exam';
+
+  /* =======================================================
      GET QUESTIONS + OPTIONS
-     
+
      RELATIONSHIP:
 
      lms_quizzes
@@ -391,15 +495,18 @@ export default async function QuizQuestionsPage({
 
     questions = questionsResult.rows.map(
       (row) => ({
-        id: Number(row.id),
+        id:
+          Number(row.id),
 
-        quizId: Number(row.quiz_id),
+        quizId:
+          Number(row.quiz_id),
 
         questionText:
           row.question_text,
 
         questionType:
-          row.question_type ?? 'multiple_choice',
+          row.question_type ??
+          'multiple_choice',
 
         marks:
           Number(row.marks) || 0,
@@ -422,32 +529,46 @@ export default async function QuizQuestionsPage({
         updatedAt:
           row.updated_at ?? null,
 
-        options: Array.isArray(
-          row.question_options
-        )
-          ? row.question_options.map(
-              (option: any) => ({
-                id: Number(option.id),
+        options:
+          Array.isArray(
+            row.question_options
+          )
+            ? row.question_options.map(
+                (option: {
+                  id: number | string;
+                  questionId: number | string;
+                  optionText: string;
+                  isCorrect: boolean;
+                  optionOrder: number | string;
+                }) => ({
+                  id:
+                    Number(option.id),
 
-                questionId:
-                  Number(option.questionId),
+                  questionId:
+                    Number(
+                      option.questionId
+                    ),
 
-                optionText:
-                  option.optionText,
+                  optionText:
+                    option.optionText,
 
-                isCorrect:
-                  Boolean(option.isCorrect),
+                  isCorrect:
+                    Boolean(
+                      option.isCorrect
+                    ),
 
-                optionOrder:
-                  Number(option.optionOrder) || 0,
-              })
-            )
-          : [],
+                  optionOrder:
+                    Number(
+                      option.optionOrder
+                    ) || 0,
+                })
+              )
+            : [],
       })
     );
   } catch (error) {
     console.error(
-      'GET QUIZ QUESTIONS ERROR:',
+      'GET ASSESSMENT QUESTIONS ERROR:',
       error
     );
   }
@@ -512,16 +633,23 @@ export default async function QuizQuestionsPage({
             className="inline-flex items-center gap-2 text-sm font-semibold text-slate-500 transition hover:text-brand-green"
           >
             <ArrowLeft className="h-4 w-4" />
-            Back to Quizzes & Exams
+
+            Back to Assessments
           </Link>
 
         </div>
 
         {/* ==================================================
-            QUIZ HEADER
+            ASSESSMENT HEADER
         ================================================== */}
 
-        <section className="overflow-hidden rounded-3xl bg-brand-green shadow-soft">
+        <section
+          className={`overflow-hidden rounded-3xl shadow-soft ${
+            isExam
+              ? 'bg-purple-900'
+              : 'bg-brand-green'
+          }`}
+        >
 
           <div className="relative p-6 sm:p-8">
 
@@ -529,10 +657,11 @@ export default async function QuizQuestionsPage({
 
               <div className="flex flex-wrap items-center gap-2">
 
-                <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-xs font-bold text-white">
-                  <ClipboardList className="h-3.5 w-3.5" />
-                  Assessment Questions
-                </span>
+                <AssessmentTypeBadge
+                  assessmentType={
+                    quiz.assessmentType
+                  }
+                />
 
                 <QuizStatus
                   status={quiz.status}
@@ -549,8 +678,7 @@ export default async function QuizQuestionsPage({
                   </h1>
 
                   <p className="mt-3 max-w-3xl text-sm leading-6 text-white/70">
-                    Add, organize and manage the questions
-                    students will answer in this assessment.
+                    {assessmentDescription}
                   </p>
 
                   <div className="mt-5 flex flex-wrap gap-2">
@@ -575,13 +703,31 @@ export default async function QuizQuestionsPage({
 
                 </div>
 
-                <Link
-                  href={`/lecturer/dashboard/quizzes/${quiz.id}/questions/create`}
-                  className="inline-flex items-center justify-center gap-2 rounded-2xl bg-brand-gold px-5 py-3 text-sm font-bold text-brand-dark transition hover:brightness-95"
-                >
-                  <Plus className="h-4 w-4" />
-                  Add Question
-                </Link>
+                {/* ==================================================
+                    ASSESSMENT ACTIONS
+                ================================================== */}
+
+                <div className="flex flex-wrap items-center gap-2">
+
+                  <Link
+                    href={`/lecturer/dashboard/quizzes/${quiz.id}/grading`}
+                    className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-sm font-bold text-white transition hover:bg-white/20"
+                  >
+                    <ClipboardList className="h-4 w-4" />
+
+                    Manual Grading
+                  </Link>
+
+                  <Link
+                    href={`/lecturer/dashboard/quizzes/${quiz.id}/questions/create`}
+                    className="inline-flex items-center justify-center gap-2 rounded-2xl bg-brand-gold px-5 py-3 text-sm font-bold text-brand-dark transition hover:brightness-95"
+                  >
+                    <Plus className="h-4 w-4" />
+
+                    Add Question
+                  </Link>
+
+                </div>
 
               </div>
 
@@ -596,7 +742,69 @@ export default async function QuizQuestionsPage({
         </section>
 
         {/* ==================================================
-            QUIZ DETAILS
+            ASSESSMENT TYPE INFORMATION
+        ================================================== */}
+
+        <section className="mt-6">
+
+          <div
+            className={`rounded-2xl border p-4 ${
+              isExam
+                ? 'border-purple-200 bg-purple-50'
+                : 'border-blue-200 bg-blue-50'
+            }`}
+          >
+
+            <div className="flex items-start gap-3">
+
+              <div
+                className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
+                  isExam
+                    ? 'bg-purple-100'
+                    : 'bg-blue-100'
+                }`}
+              >
+                {isExam ? (
+                  <ShieldCheck className="h-5 w-5 text-purple-700" />
+                ) : (
+                  <ClipboardList className="h-5 w-5 text-blue-700" />
+                )}
+              </div>
+
+              <div>
+
+                <p
+                  className={`text-sm font-bold ${
+                    isExam
+                      ? 'text-purple-900'
+                      : 'text-blue-900'
+                  }`}
+                >
+                  {assessmentLabel}
+                </p>
+
+                <p
+                  className={`mt-1 text-sm leading-6 ${
+                    isExam
+                      ? 'text-purple-800'
+                      : 'text-blue-800'
+                  }`}
+                >
+                  {isExam
+                    ? 'This assessment is configured as an examination. Questions, marks, attempts and student results use the same assessment engine as quizzes and CATs.'
+                    : 'This assessment is configured as a quiz or CAT. You can add objective and written questions using the shared assessment question engine.'}
+                </p>
+
+              </div>
+
+            </div>
+
+          </div>
+
+        </section>
+
+        {/* ==================================================
+            ASSESSMENT DETAILS
         ================================================== */}
 
         <section className="mt-6 grid gap-5 lg:grid-cols-2">
@@ -647,6 +855,7 @@ export default async function QuizQuestionsPage({
 
                 <p className="mt-1 text-sm font-bold text-brand-dark">
                   {quiz.totalMarks} marks
+
                   {quiz.timeLimitMinutes > 0
                     ? ` · ${quiz.timeLimitMinutes} minutes`
                     : ' · No time limit'}
@@ -677,8 +886,15 @@ export default async function QuizQuestionsPage({
                 </p>
 
                 <p className="mt-1 text-sm font-bold text-brand-dark">
-  {Math.min(Math.max(quiz.passingScore, 0), 100)}%
-</p>
+                  {Math.min(
+                    Math.max(
+                      quiz.passingScore,
+                      0
+                    ),
+                    100
+                  )}
+                  %
+                </p>
 
               </div>
 
@@ -820,9 +1036,19 @@ export default async function QuizQuestionsPage({
 
               <div>
 
-                <h2 className="text-lg font-bold text-brand-dark">
-                  Questions
-                </h2>
+                <div className="flex flex-wrap items-center gap-2">
+
+                  <h2 className="text-lg font-bold text-brand-dark">
+                    Questions
+                  </h2>
+
+                  <AssessmentTypeBadge
+                    assessmentType={
+                      quiz.assessmentType
+                    }
+                  />
+
+                </div>
 
                 <p className="mt-1 text-sm text-slate-500">
                   Questions are displayed in their configured order.
@@ -830,13 +1056,31 @@ export default async function QuizQuestionsPage({
 
               </div>
 
-              <Link
-                href={`/lecturer/dashboard/quizzes/${quiz.id}/questions/create`}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-brand-green px-4 py-2.5 text-xs font-bold text-white transition hover:bg-brand-dark"
-              >
-                <Plus className="h-4 w-4" />
-                Add Question
-              </Link>
+              {/* ==================================================
+                  QUESTION ACTIONS
+              ================================================== */}
+
+              <div className="flex flex-wrap items-center gap-2">
+
+                <Link
+                  href={`/lecturer/dashboard/quizzes/${quiz.id}/grading`}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-600 transition hover:border-brand-green hover:text-brand-green"
+                >
+                  <ClipboardList className="h-4 w-4" />
+
+                  Manual Grading
+                </Link>
+
+                <Link
+                  href={`/lecturer/dashboard/quizzes/${quiz.id}/questions/create`}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-brand-green px-4 py-2.5 text-xs font-bold text-white transition hover:bg-brand-dark"
+                >
+                  <Plus className="h-4 w-4" />
+
+                  Add Question
+                </Link>
+
+              </div>
 
             </div>
 
@@ -852,7 +1096,11 @@ export default async function QuizQuestionsPage({
 
               <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl bg-brand-green/10">
 
-                <FileQuestion className="h-8 w-8 text-brand-green" />
+                {isExam ? (
+                  <ShieldCheck className="h-8 w-8 text-brand-green" />
+                ) : (
+                  <FileQuestion className="h-8 w-8 text-brand-green" />
+                )}
 
               </div>
 
@@ -861,8 +1109,11 @@ export default async function QuizQuestionsPage({
               </h3>
 
               <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
-                This assessment does not have any questions.
-                Add questions so students can take the quiz or exam.
+
+                {isExam
+                  ? 'This examination does not have any questions yet. Add questions so students can take the examination.'
+                  : 'This quiz or CAT does not have any questions yet. Add questions so students can take the assessment.'}
+
               </p>
 
               <Link
@@ -870,6 +1121,7 @@ export default async function QuizQuestionsPage({
                 className="mt-6 inline-flex items-center gap-2 rounded-xl bg-brand-green px-5 py-3 text-sm font-bold text-white transition hover:bg-brand-dark"
               >
                 <Plus className="h-4 w-4" />
+
                 Add First Question
               </Link>
 
@@ -932,6 +1184,7 @@ export default async function QuizQuestionsPage({
                           className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 transition hover:border-brand-green hover:text-brand-green"
                         >
                           <Edit3 className="h-3.5 w-3.5" />
+
                           Edit
                         </Link>
 
@@ -1081,7 +1334,8 @@ export default async function QuizQuestionsPage({
                   </p>
 
                   <p className="mt-1 text-sm leading-6 text-amber-800">
-                    The quiz is configured for{' '}
+
+                    This {assessmentLabel.toLowerCase()} is configured for{' '}
                     <strong>
                       {quiz.totalMarks}
                     </strong>{' '}
@@ -1091,6 +1345,13 @@ export default async function QuizQuestionsPage({
                       {totalQuestionMarks}
                     </strong>{' '}
                     marks.
+
+                  </p>
+
+                  <p className="mt-2 text-xs font-semibold text-amber-700">
+                    Add, remove or edit question marks so
+                    the assessment total matches its
+                    configured total.
                   </p>
 
                 </div>
@@ -1116,9 +1377,12 @@ export default async function QuizQuestionsPage({
           </h2>
 
           <p className="mt-2 max-w-2xl text-sm leading-6 text-white/70">
-            Add objective and written questions, configure
-            answer options and explanations, and keep the
-            assessment marks aligned with the quiz settings.
+
+            Add objective and written questions,
+            configure answer options and explanations,
+            and keep the assessment marks aligned with
+            the configured total.
+
           </p>
 
         </div>
@@ -1128,4 +1392,3 @@ export default async function QuizQuestionsPage({
     </main>
   );
 }
-

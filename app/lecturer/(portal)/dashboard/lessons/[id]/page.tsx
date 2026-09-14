@@ -326,19 +326,19 @@ export default function LessonDetailsPage() {
 
 
 const materialsUrl =
-  '/lecturer/dashboard/materials';
+  `/lecturer/dashboard/lessons/${lessonId}/materials`;
 
 const videosUrl =
   `/lecturer/dashboard/lessons/${lessonId}/videos`;
 
   const assignmentsUrl =
     unitId
-      ? `/lecturer/dashboard/lessons/${lesson.id}/assignments?topic_id=${topicId}&unit_id=${unitId}`
+      ? `/lecturer/dashboard/assignments`
       : `/lecturer/dashboard/lessons/${lesson.id}/assignments?topic_id=${topicId}`;
 
   const quizUrl =
     unitId
-      ? `/lecturer/dashboard/lessons/${lesson.id}/quiz?topic_id=${topicId}&unit_id=${unitId}`
+      ? `/lecturer/dashboard/quizzes`
       : `/lecturer/dashboard/lessons/${lesson.id}/quiz?topic_id=${topicId}`;
 
   /* =======================================================

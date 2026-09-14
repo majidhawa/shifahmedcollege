@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import pool from '@/lib/db';
+import { requireLecturer } from '@/lib/lecturer-auth';
 
 export const runtime = 'nodejs';
 
@@ -7,6 +8,19 @@ export const runtime = 'nodejs';
    GET /api/lecturer/lesson-videos/[id]
 
    GET SINGLE VIDEO
+
+   SECURITY:
+   Lecturer
+      ↓
+   Program
+      ↓
+   Unit
+      ↓
+   Topic
+      ↓
+   Lesson
+      ↓
+   Video
 ========================================================= */
 
 export async function GET(
@@ -18,13 +32,30 @@ export async function GET(
   }
 ) {
   try {
+    /* =====================================================
+       REQUIRE LECTURER AUTHENTICATION
+    ===================================================== */
+
+    const lecturer = await requireLecturer();
+
+    if (!lecturer) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            'Lecturer authentication required.',
+        },
+        { status: 401 }
+      );
+    }
+
+    /* =====================================================
+       GET VIDEO ID
+    ===================================================== */
+
     const { id } = await context.params;
 
     const videoId = Number(id);
-
-    /* =====================================================
-       VALIDATE VIDEO ID
-    ===================================================== */
 
     if (
       !Number.isInteger(videoId) ||
@@ -40,42 +71,93 @@ export async function GET(
     }
 
     /* =====================================================
-       GET VIDEO
+       GET VIDEO + VERIFY LECTURER ACCESS
+
+       Video
+          ↓
+       Lesson
+          ↓
+       Topic
+          ↓
+       Unit
+          ↓
+       Program
+          ↓
+       Lecturer
     ===================================================== */
 
     const result = await pool.query(
       `
         SELECT
-          id,
-          lesson_id,
-          title,
-          description,
-          video_url,
-          thumbnail_url,
-          duration_seconds,
-          order_number,
-          status,
-          created_at,
-          updated_at,
-          video_file_name,
-          video_file_url,
-          source_type
-        FROM lms_lesson_videos
-        WHERE id = $1
+          v.id,
+          v.lesson_id,
+
+          v.title,
+          v.description,
+          v.video_url,
+          v.thumbnail_url,
+          v.duration_seconds,
+          v.order_number,
+          v.status,
+          v.created_at,
+          v.updated_at,
+
+          v.video_file_name,
+          v.video_file_url,
+          v.source_type,
+
+          l.topic_id,
+          t.unit_id,
+          u.program_id,
+
+          p.name AS program_name,
+
+          u.name AS unit_name,
+          u.code AS unit_code,
+
+          t.title AS topic_title,
+
+          l.title AS lesson_title
+
+        FROM lms_lesson_videos v
+
+        INNER JOIN lms_lessons l
+          ON l.id = v.lesson_id
+
+        INNER JOIN lms_topics t
+          ON t.id = l.topic_id
+
+        INNER JOIN lms_units u
+          ON u.id = t.unit_id
+
+        INNER JOIN lms_programs p
+          ON p.id = u.program_id
+
+        INNER JOIN lms_lecturer_programs lp
+          ON lp.program_id = u.program_id
+
+        WHERE
+          v.id = $1
+          AND lp.lecturer_id = $2
+
         LIMIT 1
       `,
-      [videoId]
+      [
+        videoId,
+        lecturer.id,
+      ]
     );
 
     /* =====================================================
-       NOT FOUND
+       NOT FOUND / NO ACCESS
     ===================================================== */
 
     if (result.rows.length === 0) {
       return NextResponse.json(
         {
           success: false,
-          message: 'Video not found.',
+          message:
+            'Video not found or you do not have permission to access it.',
         },
         { status: 404 }
       );
@@ -85,20 +167,16 @@ export async function GET(
 
     /* =====================================================
        NORMALIZE VIDEO DATA
-       
-       For uploaded videos:
-       video_file_url is the actual uploaded file.
-       
-       For URL videos:
-       video_url is the actual source URL.
     ===================================================== */
 
     const normalizedVideo = {
       id: video.id,
 
-      lesson_id: video.lesson_id,
+      lesson_id:
+        video.lesson_id,
 
-      title: video.title ?? '',
+      title:
+        video.title ?? '',
 
       description:
         video.description ?? '',
@@ -143,13 +221,43 @@ export async function GET(
     return NextResponse.json(
       {
         success: true,
-        video: normalizedVideo,
+
+        hierarchy: {
+          program_id:
+            video.program_id,
+
+          program_name:
+            video.program_name,
+
+          unit_id:
+            video.unit_id,
+
+          unit_name:
+            video.unit_name,
+
+          unit_code:
+            video.unit_code,
+
+          topic_id:
+            video.topic_id,
+
+          topic_title:
+            video.topic_title,
+
+          lesson_id:
+            video.lesson_id,
+
+          lesson_title:
+            video.lesson_title,
+        },
+
+        video:
+          normalizedVideo,
       },
       { status: 200 }
     );
 
   } catch (error: unknown) {
-
     console.error(
       'GET LECTURER VIDEO ERROR:',
       error
@@ -184,14 +292,30 @@ export async function PUT(
   }
 ) {
   try {
+    /* =====================================================
+       REQUIRE LECTURER AUTHENTICATION
+    ===================================================== */
+
+    const lecturer = await requireLecturer();
+
+    if (!lecturer) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            'Lecturer authentication required.',
+        },
+        { status: 401 }
+      );
+    }
+
+    /* =====================================================
+       GET VIDEO ID
+    ===================================================== */
 
     const { id } = await context.params;
 
     const videoId = Number(id);
-
-    /* =====================================================
-       VALIDATE ID
-    ===================================================== */
 
     if (
       !Number.isInteger(videoId) ||
@@ -207,25 +331,59 @@ export async function PUT(
     }
 
     /* =====================================================
-       CHECK EXISTING VIDEO
+       CHECK EXISTING VIDEO + LECTURER ACCESS
+
+       We verify the complete hierarchy before allowing
+       the lecturer to modify the video.
     ===================================================== */
 
     const existingResult =
       await pool.query(
         `
           SELECT
-            id,
-            lesson_id,
-            source_type,
-            video_url,
-            video_file_name,
-            video_file_url
-          FROM lms_lesson_videos
-          WHERE id = $1
+            v.id,
+            v.lesson_id,
+
+            v.source_type,
+            v.video_url,
+            v.video_file_name,
+            v.video_file_url,
+
+            l.topic_id,
+
+            t.unit_id,
+
+            u.program_id
+
+          FROM lms_lesson_videos v
+
+          INNER JOIN lms_lessons l
+            ON l.id = v.lesson_id
+
+          INNER JOIN lms_topics t
+            ON t.id = l.topic_id
+
+          INNER JOIN lms_units u
+            ON u.id = t.unit_id
+
+          INNER JOIN lms_lecturer_programs lp
+            ON lp.program_id = u.program_id
+
+          WHERE
+            v.id = $1
+            AND lp.lecturer_id = $2
+
           LIMIT 1
         `,
-        [videoId]
+        [
+          videoId,
+          lecturer.id,
+        ]
       );
+
+    /* =====================================================
+       NOT FOUND / NO ACCESS
+    ===================================================== */
 
     if (
       existingResult.rows.length === 0
@@ -233,7 +391,8 @@ export async function PUT(
       return NextResponse.json(
         {
           success: false,
-          message: 'Video not found.',
+          message:
+            'Video not found or you do not have permission to modify it.',
         },
         { status: 404 }
       );
@@ -254,14 +413,122 @@ export async function PUT(
       return NextResponse.json(
         {
           success: false,
-          message: 'Invalid JSON request body.',
+          message:
+            'Invalid JSON request body.',
         },
         { status: 400 }
       );
     }
 
     /* =====================================================
-       VALUES
+       OPTIONAL UNIT / TOPIC VALIDATION
+
+       The edit page may send these values.
+
+       We do not store them in the video table.
+       They are only used to verify the hierarchy.
+    ===================================================== */
+
+    const submittedUnitId =
+      body.unit_id !== undefined &&
+      body.unit_id !== null &&
+      body.unit_id !== ''
+        ? Number(body.unit_id)
+        : null;
+
+    const submittedTopicId =
+      body.topic_id !== undefined &&
+      body.topic_id !== null &&
+      body.topic_id !== ''
+        ? Number(body.topic_id)
+        : null;
+
+    /* =====================================================
+       VALIDATE UNIT ID
+    ===================================================== */
+
+    if (
+      submittedUnitId !== null &&
+      (
+        !Number.isInteger(
+          submittedUnitId
+        ) ||
+        submittedUnitId <= 0
+      )
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            'Invalid unit_id.',
+        },
+        { status: 400 }
+      );
+    }
+
+    /* =====================================================
+       VALIDATE TOPIC ID
+    ===================================================== */
+
+    if (
+      submittedTopicId !== null &&
+      (
+        !Number.isInteger(
+          submittedTopicId
+        ) ||
+        submittedTopicId <= 0
+      )
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            'Invalid topic_id.',
+        },
+        { status: 400 }
+      );
+    }
+
+    /* =====================================================
+       VERIFY UNIT
+    ===================================================== */
+
+    if (
+      submittedUnitId !== null &&
+      submittedUnitId !==
+        existingVideo.unit_id
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            'The selected unit does not match this video lesson.',
+        },
+        { status: 400 }
+      );
+    }
+
+    /* =====================================================
+       VERIFY TOPIC
+    ===================================================== */
+
+    if (
+      submittedTopicId !== null &&
+      submittedTopicId !==
+        existingVideo.topic_id
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            'The selected topic does not match this video lesson.',
+        },
+        { status: 400 }
+      );
+    }
+
+    /* =====================================================
+       CLEAN VALUES
     ===================================================== */
 
     const cleanTitle =
@@ -295,14 +562,15 @@ export async function PUT(
         : '';
 
     /* =====================================================
-       TITLE
+       VALIDATE TITLE
     ===================================================== */
 
     if (!cleanTitle) {
       return NextResponse.json(
         {
           success: false,
-          message: 'Video title is required.',
+          message:
+            'Video title is required.',
         },
         { status: 400 }
       );
@@ -338,15 +606,14 @@ export async function PUT(
       | string
       | null = null;
 
-    if (sourceType === 'upload') {
-
+    if (
+      sourceType === 'upload'
+    ) {
       /*
-       * If the edit page sends a new uploaded
-       * video URL, use it.
+       * New uploaded video.
        */
 
       if (cleanVideoFileUrl) {
-
         finalVideoUrl =
           cleanVideoFileUrl;
 
@@ -354,14 +621,13 @@ export async function PUT(
           cleanVideoFileUrl;
 
         finalVideoFileName =
-          cleanVideoFileName || null;
-
+          cleanVideoFileName ||
+          null;
       } else {
-
         /*
          * No new upload.
          *
-         * Keep the existing uploaded video.
+         * Keep existing uploaded file.
          */
 
         finalVideoUrl =
@@ -377,11 +643,9 @@ export async function PUT(
           existingVideo.video_file_name ||
           null;
       }
-
     } else {
-
       /*
-       * URL source
+       * External URL.
        */
 
       finalVideoUrl =
@@ -393,7 +657,7 @@ export async function PUT(
     }
 
     /* =====================================================
-       VALIDATE VIDEO URL
+       VALIDATE FINAL VIDEO URL
     ===================================================== */
 
     if (!finalVideoUrl) {
@@ -418,13 +682,16 @@ export async function PUT(
       | null = null;
 
     if (
-      body.duration_seconds !== null &&
-      body.duration_seconds !== undefined &&
+      body.duration_seconds !==
+        null &&
+      body.duration_seconds !==
+        undefined &&
       body.duration_seconds !== ''
     ) {
-
       const duration =
-        Number(body.duration_seconds);
+        Number(
+          body.duration_seconds
+        );
 
       if (
         !Number.isFinite(duration) ||
@@ -451,13 +718,16 @@ export async function PUT(
     let finalOrder = 1;
 
     if (
-      body.order_number !== null &&
-      body.order_number !== undefined &&
+      body.order_number !==
+        null &&
+      body.order_number !==
+        undefined &&
       body.order_number !== ''
     ) {
-
       const order =
-        Number(body.order_number);
+        Number(
+          body.order_number
+        );
 
       if (
         !Number.isInteger(order) ||
@@ -482,7 +752,9 @@ export async function PUT(
 
     const requestedStatus =
       typeof body.status === 'string'
-        ? body.status.trim().toLowerCase()
+        ? body.status
+            .trim()
+            .toLowerCase()
         : 'active';
 
     const finalStatus =
@@ -491,25 +763,38 @@ export async function PUT(
         : 'active';
 
     /* =====================================================
-       UPDATE DATABASE
+       UPDATE VIDEO
     ===================================================== */
 
     const result =
       await pool.query(
         `
           UPDATE lms_lesson_videos
+
           SET
             title = $1,
+
             description = $2,
+
             video_url = $3,
+
             thumbnail_url = $4,
+
             duration_seconds = $5,
+
             order_number = $6,
+
             status = $7,
+
             video_file_name = $8,
+
             video_file_url = $9,
+
             source_type = $10,
-            updated_at = CURRENT_TIMESTAMP
+
+            updated_at =
+              CURRENT_TIMESTAMP
+
           WHERE id = $11
 
           RETURNING
@@ -531,11 +816,13 @@ export async function PUT(
         [
           cleanTitle,
 
-          cleanDescription || null,
+          cleanDescription ||
+            null,
 
           finalVideoUrl,
 
-          cleanThumbnailUrl || null,
+          cleanThumbnailUrl ||
+            null,
 
           finalDuration,
 
@@ -560,15 +847,31 @@ export async function PUT(
     return NextResponse.json(
       {
         success: true,
+
         message:
           'Video updated successfully.',
-        video: result.rows[0],
+
+        hierarchy: {
+          program_id:
+            existingVideo.program_id,
+
+          unit_id:
+            existingVideo.unit_id,
+
+          topic_id:
+            existingVideo.topic_id,
+
+          lesson_id:
+            existingVideo.lesson_id,
+        },
+
+        video:
+          result.rows[0],
       },
       { status: 200 }
     );
 
   } catch (error: unknown) {
-
     console.error(
       'UPDATE LECTURER VIDEO ERROR:',
       error
@@ -603,14 +906,30 @@ export async function DELETE(
   }
 ) {
   try {
+    /* =====================================================
+       REQUIRE LECTURER AUTHENTICATION
+    ===================================================== */
+
+    const lecturer = await requireLecturer();
+
+    if (!lecturer) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            'Lecturer authentication required.',
+        },
+        { status: 401 }
+      );
+    }
+
+    /* =====================================================
+       GET VIDEO ID
+    ===================================================== */
 
     const { id } = await context.params;
 
     const videoId = Number(id);
-
-    /* =====================================================
-       VALIDATE ID
-    ===================================================== */
 
     if (
       !Number.isInteger(videoId) ||
@@ -626,25 +945,56 @@ export async function DELETE(
     }
 
     /* =====================================================
-       CHECK VIDEO
+       CHECK VIDEO + LECTURER ACCESS
     ===================================================== */
 
     const existingVideo =
       await pool.query(
         `
           SELECT
-            id,
-            lesson_id,
-            title,
-            source_type,
-            video_file_name,
-            video_file_url
-          FROM lms_lesson_videos
-          WHERE id = $1
+            v.id,
+            v.lesson_id,
+            v.title,
+
+            v.source_type,
+            v.video_file_name,
+            v.video_file_url,
+
+            l.topic_id,
+
+            t.unit_id,
+
+            u.program_id
+
+          FROM lms_lesson_videos v
+
+          INNER JOIN lms_lessons l
+            ON l.id = v.lesson_id
+
+          INNER JOIN lms_topics t
+            ON t.id = l.topic_id
+
+          INNER JOIN lms_units u
+            ON u.id = t.unit_id
+
+          INNER JOIN lms_lecturer_programs lp
+            ON lp.program_id = u.program_id
+
+          WHERE
+            v.id = $1
+            AND lp.lecturer_id = $2
+
           LIMIT 1
         `,
-        [videoId]
+        [
+          videoId,
+          lecturer.id,
+        ]
       );
+
+    /* =====================================================
+       NOT FOUND / NO ACCESS
+    ===================================================== */
 
     if (
       existingVideo.rows.length === 0
@@ -652,7 +1002,8 @@ export async function DELETE(
       return NextResponse.json(
         {
           success: false,
-          message: 'Video not found.',
+          message:
+            'Video not found or you do not have permission to delete it.',
         },
         { status: 404 }
       );
@@ -677,15 +1028,17 @@ export async function DELETE(
     return NextResponse.json(
       {
         success: true,
+
         message:
           'Video deleted successfully.',
-        video_id: videoId,
+
+        video_id:
+          videoId,
       },
       { status: 200 }
     );
 
   } catch (error: unknown) {
-
     console.error(
       'DELETE LECTURER VIDEO ERROR:',
       error

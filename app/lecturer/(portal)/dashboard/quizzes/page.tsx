@@ -1,4 +1,3 @@
-
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import {
@@ -12,6 +11,7 @@ import {
   GraduationCap,
   Pencil,
   Plus,
+  ShieldCheck,
   Users,
   XCircle,
 } from 'lucide-react';
@@ -24,12 +24,17 @@ import QuizDeleteButton from './QuizDeleteButton';
    TYPES
 ========================================================= */
 
+type AssessmentType = 'quiz' | 'exam';
+
 type Quiz = {
   id: number;
   lessonId: number;
+
   title: string;
   description: string | null;
   instructions: string | null;
+
+  assessmentType: AssessmentType;
 
   totalMarks: number;
   timeLimitMinutes: number;
@@ -110,6 +115,40 @@ function formatShortDate(date: string | null) {
   }).format(parsed);
 }
 
+function normalizeAssessmentType(
+  value: unknown
+): AssessmentType {
+  return String(value ?? '').toLowerCase() === 'exam'
+    ? 'exam'
+    : 'quiz';
+}
+
+/* =========================================================
+   ASSESSMENT TYPE BADGE
+========================================================= */
+
+function AssessmentTypeBadge({
+  assessmentType,
+}: {
+  assessmentType: AssessmentType;
+}) {
+  if (assessmentType === 'exam') {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-purple-50 px-3 py-1.5 text-xs font-bold text-purple-700">
+        <ShieldCheck className="h-3.5 w-3.5" />
+        Examination
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700">
+      <ClipboardList className="h-3.5 w-3.5" />
+      Quiz / CAT
+    </span>
+  );
+}
+
 /* =========================================================
    STATUS
 ========================================================= */
@@ -180,7 +219,7 @@ export default async function LecturerQuizzesPage() {
   }
 
   /* =======================================================
-     FETCH QUIZZES
+     FETCH ASSESSMENTS
   ======================================================= */
 
   let quizzes: Quiz[] = [];
@@ -194,6 +233,8 @@ export default async function LecturerQuizzesPage() {
           q.title,
           q.description,
           q.instructions,
+
+          q.assessment_type,
 
           q.total_marks,
           q.time_limit_minutes,
@@ -259,6 +300,8 @@ export default async function LecturerQuizzesPage() {
           q.description,
           q.instructions,
 
+          q.assessment_type,
+
           q.total_marks,
           q.time_limit_minutes,
           q.attempts_allowed,
@@ -297,6 +340,7 @@ export default async function LecturerQuizzesPage() {
 
     quizzes = result.rows.map((row) => ({
       id: Number(row.id),
+
       lessonId: Number(row.lesson_id),
 
       title: String(row.title ?? ''),
@@ -306,6 +350,11 @@ export default async function LecturerQuizzesPage() {
 
       instructions:
         row.instructions ?? null,
+
+      assessmentType:
+        normalizeAssessmentType(
+          row.assessment_type
+        ),
 
       totalMarks:
         Number(row.total_marks) || 0,
@@ -372,7 +421,7 @@ export default async function LecturerQuizzesPage() {
     }));
   } catch (error) {
     console.error(
-      'GET LECTURER QUIZZES ERROR:',
+      'GET LECTURER ASSESSMENTS ERROR:',
       error
     );
   }
@@ -381,7 +430,17 @@ export default async function LecturerQuizzesPage() {
      STATISTICS
   ========================================================= */
 
-  const totalQuizzes = quizzes.length;
+  const totalAssessments = quizzes.length;
+
+  const totalExams = quizzes.filter(
+    (assessment) =>
+      assessment.assessmentType === 'exam'
+  ).length;
+
+  const totalQuizzes = quizzes.filter(
+    (assessment) =>
+      assessment.assessmentType === 'quiz'
+  ).length;
 
   const activeQuizzes = quizzes.filter(
     (quiz) => {
@@ -449,12 +508,13 @@ export default async function LecturerQuizzesPage() {
                 <div>
 
                   <h1 className="text-2xl font-bold text-white sm:text-3xl">
-                    Quizzes & Exams
+                    Quizzes, CATs & Examinations
                   </h1>
 
                   <p className="mt-3 max-w-2xl text-sm leading-6 text-white/70">
-                    Create, manage and monitor online quizzes
-                    and examinations for your students.
+                    Create, manage and monitor online quizzes,
+                    continuous assessment tests and examinations
+                    for your students.
                   </p>
 
                 </div>
@@ -464,7 +524,7 @@ export default async function LecturerQuizzesPage() {
                   className="inline-flex items-center justify-center gap-2 rounded-2xl bg-brand-gold px-5 py-3 text-sm font-bold text-brand-dark transition hover:brightness-95"
                 >
                   <Plus className="h-4 w-4" />
-                  Create Quiz / Exam
+                  Create Assessment
                 </Link>
 
               </div>
@@ -483,7 +543,7 @@ export default async function LecturerQuizzesPage() {
             STATISTICS
         ================================================= */}
 
-        <section className="mt-6 grid gap-5 sm:grid-cols-2 xl:grid-cols-5">
+        <section className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
 
           {/* TOTAL */}
 
@@ -498,7 +558,7 @@ export default async function LecturerQuizzesPage() {
                 </p>
 
                 <p className="mt-2 text-3xl font-bold text-brand-dark">
-                  {totalQuizzes}
+                  {totalAssessments}
                 </p>
 
               </div>
@@ -512,7 +572,71 @@ export default async function LecturerQuizzesPage() {
             </div>
 
             <p className="mt-3 text-xs text-slate-400">
-              Total quizzes & exams
+              All assessments
+            </p>
+
+          </div>
+
+          {/* QUIZZES */}
+
+          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-soft">
+
+            <div className="flex items-center justify-between">
+
+              <div>
+
+                <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                  Quizzes / CATs
+                </p>
+
+                <p className="mt-2 text-3xl font-bold text-brand-dark">
+                  {totalQuizzes}
+                </p>
+
+              </div>
+
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-50">
+
+                <ClipboardList className="h-5 w-5 text-blue-600" />
+
+              </div>
+
+            </div>
+
+            <p className="mt-3 text-xs text-slate-400">
+              Continuous assessments
+            </p>
+
+          </div>
+
+          {/* EXAMS */}
+
+          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-soft">
+
+            <div className="flex items-center justify-between">
+
+              <div>
+
+                <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                  Examinations
+                </p>
+
+                <p className="mt-2 text-3xl font-bold text-brand-dark">
+                  {totalExams}
+                </p>
+
+              </div>
+
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-purple-50">
+
+                <ShieldCheck className="h-5 w-5 text-purple-600" />
+
+              </div>
+
+            </div>
+
+            <p className="mt-3 text-xs text-slate-400">
+              Formal examinations
             </p>
 
           </div>
@@ -545,38 +669,6 @@ export default async function LecturerQuizzesPage() {
 
             <p className="mt-3 text-xs text-slate-400">
               Available to students
-            </p>
-
-          </div>
-
-          {/* DRAFT */}
-
-          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-soft">
-
-            <div className="flex items-center justify-between">
-
-              <div>
-
-                <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
-                  Drafts
-                </p>
-
-                <p className="mt-2 text-3xl font-bold text-brand-dark">
-                  {draftQuizzes}
-                </p>
-
-              </div>
-
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-50">
-
-                <Clock3 className="h-5 w-5 text-amber-600" />
-
-              </div>
-
-            </div>
-
-            <p className="mt-3 text-xs text-slate-400">
-              Still being prepared
             </p>
 
           </div>
@@ -648,7 +740,7 @@ export default async function LecturerQuizzesPage() {
         </section>
 
         {/* =================================================
-            QUIZZES
+            ASSESSMENTS
         ================================================= */}
 
         <section className="mt-8 rounded-3xl border border-slate-200 bg-white shadow-soft">
@@ -662,12 +754,12 @@ export default async function LecturerQuizzesPage() {
               <div>
 
                 <h2 className="text-lg font-bold text-brand-dark">
-                  My Quizzes & Exams
+                  My Assessments
                 </h2>
 
                 <p className="mt-1 text-sm text-slate-500">
-                  Manage assessments assigned to your
-                  programs and lessons.
+                  Manage quizzes, CATs and examinations
+                  assigned to your programs and lessons.
                 </p>
 
               </div>
@@ -699,12 +791,12 @@ export default async function LecturerQuizzesPage() {
               </div>
 
               <h3 className="mt-5 text-lg font-bold text-brand-dark">
-                No quizzes or exams yet
+                No assessments yet
               </h3>
 
               <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
-                Create your first online assessment and
-                add questions for your students.
+                Create your first quiz, CAT or examination
+                and add questions for your students.
               </p>
 
               <Link
@@ -735,6 +827,10 @@ export default async function LecturerQuizzesPage() {
 
                       <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-slate-400">
                         Assessment
+                      </th>
+
+                      <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-slate-400">
+                        Type
                       </th>
 
                       <th className="px-6 py-4 text-xs font-bold uppercase tracking-wide text-slate-400">
@@ -778,13 +874,23 @@ export default async function LecturerQuizzesPage() {
 
                         <td className="px-6 py-5">
 
-                          <div className="min-w-[240px]">
+                          <div className="min-w-[220px]">
 
                             <div className="flex items-start gap-3">
 
-                              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-green/10">
+                              <div
+                                className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
+                                  quiz.assessmentType === 'exam'
+                                    ? 'bg-purple-50'
+                                    : 'bg-brand-green/10'
+                                }`}
+                              >
 
-                                <ClipboardList className="h-5 w-5 text-brand-green" />
+                                {quiz.assessmentType === 'exam' ? (
+                                  <ShieldCheck className="h-5 w-5 text-purple-600" />
+                                ) : (
+                                  <ClipboardList className="h-5 w-5 text-brand-green" />
+                                )}
 
                               </div>
 
@@ -815,6 +921,18 @@ export default async function LecturerQuizzesPage() {
                             </div>
 
                           </div>
+
+                        </td>
+
+                        {/* TYPE */}
+
+                        <td className="px-6 py-5">
+
+                          <AssessmentTypeBadge
+                            assessmentType={
+                              quiz.assessmentType
+                            }
+                          />
 
                         </td>
 
@@ -920,8 +1038,6 @@ export default async function LecturerQuizzesPage() {
 
                           <div className="flex items-center justify-end gap-2">
 
-                            {/* MANAGE */}
-
                             <Link
                               href={`/lecturer/dashboard/quizzes/${quiz.id}`}
                               title="Manage assessment"
@@ -931,8 +1047,6 @@ export default async function LecturerQuizzesPage() {
                               Manage
                             </Link>
 
-                            {/* EDIT */}
-
                             <Link
                               href={`/lecturer/dashboard/quizzes/${quiz.id}/edit`}
                               title="Edit assessment"
@@ -941,8 +1055,6 @@ export default async function LecturerQuizzesPage() {
                               <Pencil className="h-4 w-4" />
                               Edit
                             </Link>
-
-                            {/* DELETE */}
 
                             <QuizDeleteButton
                               quizId={quiz.id}
@@ -982,9 +1094,19 @@ export default async function LecturerQuizzesPage() {
 
                       <div className="flex min-w-0 items-start gap-3">
 
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-green/10">
+                        <div
+                          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
+                            quiz.assessmentType === 'exam'
+                              ? 'bg-purple-50'
+                              : 'bg-brand-green/10'
+                          }`}
+                        >
 
-                          <ClipboardList className="h-5 w-5 text-brand-green" />
+                          {quiz.assessmentType === 'exam' ? (
+                            <ShieldCheck className="h-5 w-5 text-purple-600" />
+                          ) : (
+                            <ClipboardList className="h-5 w-5 text-brand-green" />
+                          )}
 
                         </div>
 
@@ -1004,6 +1126,18 @@ export default async function LecturerQuizzesPage() {
 
                       <QuizStatus
                         status={quiz.status}
+                      />
+
+                    </div>
+
+                    {/* TYPE */}
+
+                    <div className="mt-4">
+
+                      <AssessmentTypeBadge
+                        assessmentType={
+                          quiz.assessmentType
+                        }
                       />
 
                     </div>
@@ -1167,9 +1301,9 @@ export default async function LecturerQuizzesPage() {
           </h2>
 
           <p className="mt-2 max-w-2xl text-sm leading-6 text-white/70">
-            Build structured online assessments, manage
-            student attempts and monitor performance from
-            one place.
+            Build structured online quizzes, CATs and
+            examinations, manage student attempts and
+            monitor performance from one place.
           </p>
 
         </div>
@@ -1179,4 +1313,3 @@ export default async function LecturerQuizzesPage() {
     </main>
   );
 }
-

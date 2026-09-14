@@ -4,1235 +4,1741 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 
 import {
-  BookOpen,
-  CheckCircle2,
-  ChevronRight,
-  ClipboardList,
-  Clock3,
-  FileQuestion,
-  ListChecks,
-  Loader2,
-  Save,
+BookOpen,
+CalendarClock,
+CheckCircle2,
+ChevronRight,
+Clock3,
+FileQuestion,
+GraduationCap,
+ListChecks,
+Loader2,
+Save,
+ShieldCheck,
 } from 'lucide-react';
 
 /* =========================================================
-   TYPES
+TYPES
 ========================================================= */
 
+type AssessmentType = 'quiz' | 'exam';
+
 type Program = {
-  id: number;
-  name: string;
+id: number;
+name: string;
 };
 
 type Unit = {
-  id: number;
-  programId: number;
-  code: string;
-  name: string;
+id: number;
+programId: number;
+code: string;
+name: string;
 };
 
 type Topic = {
-  id: number;
-  unitId: number;
-  title: string;
+id: number;
+unitId: number;
+title: string;
 };
 
 type Lesson = {
-  id: number;
-  topicId: number;
-  title: string;
+id: number;
+topicId: number;
+title: string;
 };
 
 type QuizCreateFormProps = {
-  programs: Program[];
-  units: Unit[];
-  topics: Topic[];
-  lessons: Lesson[];
+programs: Program[];
+units: Unit[];
+topics: Topic[];
+lessons: Lesson[];
 };
 
 /* =========================================================
-   COMPONENT
+HELPERS
+========================================================= */
+
+function localDateTimeToISO(value: string): string | null {
+if (!value) {
+return null;
+}
+
+const date = new Date(value);
+
+if (Number.isNaN(date.getTime())) {
+return null;
+}
+
+return date.toISOString();
+}
+
+function isInvalidAvailabilityRange(
+availableFrom: string,
+availableUntil: string
+): boolean {
+if (!availableFrom || !availableUntil) {
+return false;
+}
+
+const from = new Date(availableFrom).getTime();
+const until = new Date(availableUntil).getTime();
+
+if (
+Number.isNaN(from) ||
+Number.isNaN(until)
+) {
+return false;
+}
+
+return until <= from;
+}
+
+/* =========================================================
+COMPONENT
 ========================================================= */
 
 export default function QuizCreateForm({
-  programs,
-  units,
-  topics,
-  lessons,
+programs,
+units,
+topics,
+lessons,
 }: QuizCreateFormProps) {
-  /* =======================================================
-     STATE
-  ======================================================= */
+/* =======================================================
+STATE
+======================================================= */
 
-  const [programId, setProgramId] =
-    useState('');
+const [assessmentType, setAssessmentType] =
+useState<AssessmentType>('quiz');
 
-  const [unitId, setUnitId] =
-    useState('');
+const [programId, setProgramId] =
+useState('');
 
-  const [topicId, setTopicId] =
-    useState('');
+const [unitId, setUnitId] =
+useState('');
 
-  const [lessonId, setLessonId] =
-    useState('');
+const [topicId, setTopicId] =
+useState('');
 
-  const [submitting, setSubmitting] =
-    useState(false);
+const [lessonId, setLessonId] =
+useState('');
 
-  const [errorMessage, setErrorMessage] =
-    useState('');
+/* =======================================================
+AVAILABILITY
+======================================================= */
 
-  /* =======================================================
-     FILTER UNITS
-     
-     Program
-       ↓
-     Units
-  ======================================================= */
+const [availableFrom, setAvailableFrom] =
+useState('');
 
-  const filteredUnits = useMemo(() => {
-    if (!programId) {
-      return [];
-    }
+const [availableUntil, setAvailableUntil] =
+useState('');
 
-    const selectedProgramId =
-      Number(programId);
+const [submitting, setSubmitting] =
+useState(false);
 
-    return units.filter(
-      (unit) =>
-        unit.programId ===
-        selectedProgramId
+const [errorMessage, setErrorMessage] =
+useState('');
+
+/* =======================================================
+FILTER UNITS
+======================================================= */
+
+const filteredUnits = useMemo(() => {
+if (!programId) {
+return [];
+}
+
+const selectedProgramId =
+  Number(programId);
+
+return units.filter(
+  (unit) =>
+    unit.programId === selectedProgramId
+);
+
+}, [programId, units]);
+
+/* =======================================================
+FILTER TOPICS
+======================================================= */
+
+const filteredTopics = useMemo(() => {
+if (!unitId) {
+return [];
+}
+
+const selectedUnitId =
+  Number(unitId);
+
+return topics.filter(
+  (topic) =>
+    topic.unitId === selectedUnitId
+);
+
+}, [unitId, topics]);
+
+/* =======================================================
+FILTER LESSONS
+======================================================= */
+
+const filteredLessons = useMemo(() => {
+if (!topicId) {
+return [];
+}
+
+const selectedTopicId =
+  Number(topicId);
+
+return lessons.filter(
+  (lesson) =>
+    lesson.topicId === selectedTopicId
+);
+
+}, [topicId, lessons]);
+
+/* =======================================================
+SELECTED INFORMATION
+======================================================= */
+
+const selectedProgram =
+programs.find(
+(program) =>
+program.id === Number(programId)
+);
+
+const selectedUnit =
+units.find(
+(unit) =>
+unit.id === Number(unitId)
+);
+
+const selectedTopic =
+topics.find(
+(topic) =>
+topic.id === Number(topicId)
+);
+
+const selectedLesson =
+lessons.find(
+(lesson) =>
+lesson.id === Number(lessonId)
+);
+
+/* =======================================================
+ASSESSMENT TYPE CHANGE
+======================================================= */
+
+function handleAssessmentTypeChange(
+value: AssessmentType
+) {
+setAssessmentType(value);
+setErrorMessage('');
+}
+
+/* =======================================================
+PROGRAM CHANGE
+======================================================= */
+
+function handleProgramChange(
+value: string
+) {
+setProgramId(value);
+
+setUnitId('');
+setTopicId('');
+setLessonId('');
+setErrorMessage('');
+
+}
+
+/* =======================================================
+UNIT CHANGE
+======================================================= */
+
+function handleUnitChange(
+value: string
+) {
+setUnitId(value);
+
+setTopicId('');
+setLessonId('');
+
+setErrorMessage('');
+
+}
+
+/* =======================================================
+TOPIC CHANGE
+======================================================= */
+
+function handleTopicChange(
+value: string
+) {
+setTopicId(value);
+
+setLessonId('');
+
+setErrorMessage('');
+
+}
+
+/* =======================================================
+LESSON CHANGE
+======================================================= */
+
+function handleLessonChange(
+value: string
+) {
+setLessonId(value);
+
+setErrorMessage('');
+
+}
+
+/* =======================================================
+AVAILABILITY CHANGE
+======================================================= */
+
+function handleAvailableFromChange(
+value: string
+) {
+setAvailableFrom(value);
+setErrorMessage('');
+}
+
+function handleAvailableUntilChange(
+value: string
+) {
+setAvailableUntil(value);
+setErrorMessage('');
+}
+
+/* =======================================================
+SUBMIT
+======================================================= */
+
+async function handleSubmit(
+event: React.FormEvent<HTMLFormElement>
+) {
+event.preventDefault();
+setErrorMessage('');
+
+/* =====================================================
+   VALIDATION
+===================================================== */
+
+if (
+  assessmentType !== 'quiz' &&
+  assessmentType !== 'exam'
+) {
+  setErrorMessage(
+    'Please select a valid assessment type.'
+  );
+
+  return;
+}
+
+if (!programId) {
+  setErrorMessage(
+    'Please select a program.'
+  );
+
+  return;
+}
+
+if (!unitId) {
+  setErrorMessage(
+    'Please select a unit.'
+  );
+
+  return;
+}
+
+if (!topicId) {
+  setErrorMessage(
+    'Please select a topic.'
+  );
+
+  return;
+}
+
+if (!lessonId) {
+  setErrorMessage(
+    'Please select a lesson.'
+  );
+
+  return;
+}
+
+/* =====================================================
+   VALIDATE AVAILABILITY
+===================================================== */
+
+if (
+  availableFrom &&
+  availableUntil
+) {
+  const invalidRange =
+    isInvalidAvailabilityRange(
+      availableFrom,
+      availableUntil
     );
-  }, [programId, units]);
 
-  /* =======================================================
-     FILTER TOPICS
-     
-     Unit
-       ↓
-     Topics
-  ======================================================= */
-
-  const filteredTopics = useMemo(() => {
-    if (!unitId) {
-      return [];
-    }
-
-    const selectedUnitId =
-      Number(unitId);
-
-    return topics.filter(
-      (topic) =>
-        topic.unitId ===
-        selectedUnitId
-    );
-  }, [unitId, topics]);
-
-  /* =======================================================
-     FILTER LESSONS
-     
-     Topic
-       ↓
-     Lessons
-  ======================================================= */
-
-  const filteredLessons = useMemo(() => {
-    if (!topicId) {
-      return [];
-    }
-
-    const selectedTopicId =
-      Number(topicId);
-
-    return lessons.filter(
-      (lesson) =>
-        lesson.topicId ===
-        selectedTopicId
-    );
-  }, [topicId, lessons]);
-
-  /* =======================================================
-     SELECTED INFORMATION
-  ======================================================= */
-
-  const selectedProgram =
-    programs.find(
-      (program) =>
-        program.id ===
-        Number(programId)
+  if (invalidRange) {
+    setErrorMessage(
+      'Available Until must be later than Available From.'
     );
 
-  const selectedUnit =
-    units.find(
-      (unit) =>
-        unit.id ===
-        Number(unitId)
-    );
-
-  const selectedTopic =
-    topics.find(
-      (topic) =>
-        topic.id ===
-        Number(topicId)
-    );
-
-  const selectedLesson =
-    lessons.find(
-      (lesson) =>
-        lesson.id ===
-        Number(lessonId)
-    );
-
-  /* =======================================================
-     PROGRAM CHANGE
-     
-     When program changes:
-       Unit resets
-       Topic resets
-       Lesson resets
-  ======================================================= */
-
-  function handleProgramChange(
-    value: string
-  ) {
-    setProgramId(value);
-
-    setUnitId('');
-    setTopicId('');
-    setLessonId('');
-
-    setErrorMessage('');
+    return;
   }
+}
 
-  /* =======================================================
-     UNIT CHANGE
-     
-     When unit changes:
-       Topic resets
-       Lesson resets
-  ======================================================= */
+/* =====================================================
+   ENSURE HIERARCHY IS VALID
+===================================================== */
 
-  function handleUnitChange(
-    value: string
-  ) {
-    setUnitId(value);
+const validUnit =
+  selectedUnit &&
+  selectedUnit.programId ===
+    Number(programId);
 
-    setTopicId('');
-    setLessonId('');
+const validTopic =
+  selectedTopic &&
+  selectedTopic.unitId ===
+    Number(unitId);
 
-    setErrorMessage('');
-  }
+const validLesson =
+  selectedLesson &&
+  selectedLesson.topicId ===
+    Number(topicId);
 
-  /* =======================================================
-     TOPIC CHANGE
-     
-     When topic changes:
-       Lesson resets
-  ======================================================= */
+if (!validUnit) {
+  setErrorMessage(
+    'The selected unit does not belong to the selected program.'
+  );
 
-  function handleTopicChange(
-    value: string
-  ) {
-    setTopicId(value);
+  return;
+}
 
-    setLessonId('');
+if (!validTopic) {
+  setErrorMessage(
+    'The selected topic does not belong to the selected unit.'
+  );
 
-    setErrorMessage('');
-  }
+  return;
+}
 
-  /* =======================================================
-     LESSON CHANGE
-  ======================================================= */
+if (!validLesson) {
+  setErrorMessage(
+    'The selected lesson does not belong to the selected topic.'
+  );
 
-  function handleLessonChange(
-    value: string
-  ) {
-    setLessonId(value);
+  return;
+}
 
-    setErrorMessage('');
-  }
+/* =====================================================
+   CONVERT AVAILABILITY
+===================================================== */
 
-  /* =======================================================
-     SUBMIT
-  ======================================================= */
+const availableFromISO =
+  localDateTimeToISO(
+    availableFrom
+  );
 
-  async function handleSubmit(
-    event: React.FormEvent<HTMLFormElement>
-  ) {
-    event.preventDefault();
+const availableUntilISO =
+  localDateTimeToISO(
+    availableUntil
+  );
 
-    setErrorMessage('');
+if (
+  availableFrom &&
+  !availableFromISO
+) {
+  setErrorMessage(
+    'Please enter a valid Available From date and time.'
+  );
 
-    /* =====================================================
-       VALIDATION
-    ===================================================== */
+  return;
+}
 
-    if (!programId) {
-      setErrorMessage(
-        'Please select a program.'
-      );
+if (
+  availableUntil &&
+  !availableUntilISO
+) {
+  setErrorMessage(
+    'Please enter a valid Available Until date and time.'
+  );
 
-      return;
-    }
+  return;
+}
 
-    if (!unitId) {
-      setErrorMessage(
-        'Please select a unit.'
-      );
+/* =====================================================
+   SUBMITTING
+===================================================== */
 
-      return;
-    }
+setSubmitting(true);
 
-    if (!topicId) {
-      setErrorMessage(
-        'Please select a topic.'
-      );
+try {
+  const form =
+    event.currentTarget;
 
-      return;
-    }
+  const formData =
+    new FormData(form);
 
-    if (!lessonId) {
-      setErrorMessage(
-        'Please select a lesson.'
-      );
+  /* ===================================================
+     HIERARCHY
+  =================================================== */
 
-      return;
-    }
+  formData.set(
+    'program_id',
+    programId
+  );
 
-    /* =====================================================
-       ENSURE THE HIERARCHY IS VALID
-       
-       This is an additional frontend check.
-       The API still performs its own secure
-       database validation.
-    ===================================================== */
+  formData.set(
+    'unit_id',
+    unitId
+  );
 
-    const validUnit =
-      selectedUnit &&
-      selectedUnit.programId ===
-        Number(programId);
+  formData.set(
+    'topic_id',
+    topicId
+  );
 
-    const validTopic =
-      selectedTopic &&
-      selectedTopic.unitId ===
-        Number(unitId);
+  formData.set(
+    'lesson_id',
+    lessonId
+  );
 
-    const validLesson =
-      selectedLesson &&
-      selectedLesson.topicId ===
-        Number(topicId);
+  /* ===================================================
+     ASSESSMENT TYPE
 
-    if (!validUnit) {
-      setErrorMessage(
-        'The selected unit does not belong to the selected program.'
-      );
+     quiz = Quiz / CAT
+     exam  = Examination
+  =================================================== */
 
-      return;
-    }
+  formData.set(
+    'assessment_type',
+    assessmentType
+  );
 
-    if (!validTopic) {
-      setErrorMessage(
-        'The selected topic does not belong to the selected unit.'
-      );
+  /* ===================================================
+     AVAILABILITY
+  =================================================== */
 
-      return;
-    }
+  formData.set(
+    'available_from',
+    availableFromISO || ''
+  );
 
-    if (!validLesson) {
-      setErrorMessage(
-        'The selected lesson does not belong to the selected topic.'
-      );
+  formData.set(
+    'available_until',
+    availableUntilISO || ''
+  );
 
-      return;
-    }
+  /* ===================================================
+     API REQUEST
+  =================================================== */
 
-    /* =====================================================
-       SUBMITTING
-    ===================================================== */
-
-    setSubmitting(true);
-
-    try {
-      const form =
-        event.currentTarget;
-
-      const formData =
-        new FormData(form);
-
-      /*
-       * Explicitly set the hierarchy IDs.
-       * This guarantees the values submitted to
-       * the API are the currently selected values.
-       */
-
-      formData.set(
-        'program_id',
-        programId
-      );
-
-      formData.set(
-        'unit_id',
-        unitId
-      );
-
-      formData.set(
-        'topic_id',
-        topicId
-      );
-
-      formData.set(
-        'lesson_id',
-        lessonId
-      );
-
-      const response =
-        await fetch(
-          '/api/lecturer/quizzes',
-          {
-            method: 'POST',
-            body: formData,
-          }
-        );
-
-      const data =
-        await response.json();
-
-      /* ===================================================
-         API ERROR
-      =================================================== */
-
-      if (!response.ok || !data.success) {
-        setErrorMessage(
-          data.message ||
-            'Failed to create the assessment.'
-        );
-
-        return;
+  const response =
+    await fetch(
+      '/api/lecturer/quizzes',
+      {
+        method: 'POST',
+        body: formData,
       }
+    );
 
-      /* ===================================================
-         SUCCESS
-      =================================================== */
+  const data =
+    await response.json();
 
-      if (
-        data.redirectUrl
-      ) {
-        window.location.href =
-          data.redirectUrl;
+  /* ===================================================
+     API ERROR
+  =================================================== */
 
-        return;
-      }
+  if (
+    !response.ok ||
+    !data.success
+  ) {
+    setErrorMessage(
+      data.message ||
+        'Failed to create the assessment.'
+    );
 
-      if (
-        data.quiz?.id
-      ) {
-        window.location.href =
-          `/lecturer/dashboard/quizzes/${data.quiz.id}/questions`;
-
-        return;
-      }
-
-      /*
-       * Fallback
-       */
-
-      window.location.href =
-        '/lecturer/dashboard/quizzes';
-    } catch (error) {
-      console.error(
-        'CREATE QUIZ SUBMIT ERROR:',
-        error
-      );
-
-      setErrorMessage(
-        'Unable to create the assessment. Please try again.'
-      );
-    } finally {
-      setSubmitting(false);
-    }
+    return;
   }
 
-  /* =======================================================
-     RENDER
-  ======================================================= */
+  /* ===================================================
+     SUCCESS
+  =================================================== */
 
-  return (
-    <form
-      onSubmit={handleSubmit}
-      className="mt-6 space-y-6"
-    >
+  if (
+    data.redirectUrl
+  ) {
+    window.location.href =
+      data.redirectUrl;
 
-      {/* ==================================================
-          ERROR MESSAGE
-      ================================================== */}
+    return;
+  }
 
-      {errorMessage && (
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-4">
+  if (
+    data.quiz?.id
+  ) {
+    window.location.href =
+      `/lecturer/dashboard/quizzes/${data.quiz.id}/questions`;
 
-          <div className="flex items-start gap-3">
+    return;
+  }
 
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-red-100">
+  window.location.href =
+    '/lecturer/dashboard/quizzes';
+} catch (error) {
+  console.error(
+    'CREATE ASSESSMENT SUBMIT ERROR:',
+    error
+  );
 
-              <span className="text-sm font-bold text-red-600">
-                !
-              </span>
+  setErrorMessage(
+    'Unable to create the assessment. Please try again.'
+  );
+} finally {
+  setSubmitting(false);
+}
 
-            </div>
+}
 
-            <div>
-              <p className="text-sm font-bold text-red-800">
-                Unable to create assessment
-              </p>
+/* =======================================================
+DYNAMIC LABELS
+======================================================= */
 
-              <p className="mt-1 text-sm leading-6 text-red-700">
-                {errorMessage}
-              </p>
-            </div>
+const isExam =
+assessmentType === 'exam';
 
-          </div>
+const assessmentLabel =
+isExam
+? 'Examination'
+: 'Quiz / CAT';
 
-        </div>
-      )}
+const titlePlaceholder =
+isExam
+? 'e.g. German Language Final Examination'
+: 'e.g. German Language CAT 1';
 
-      {/* ==================================================
-          BASIC INFORMATION
-      ================================================== */}
+/* =======================================================
+RENDER
+======================================================= */
 
-      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-soft sm:p-8">
+return ( <form
+   onSubmit={handleSubmit}
+   className="mt-6 space-y-6"
+ >
 
-        <div className="flex items-start gap-4">
+```
+  {/* ==================================================
+      ERROR MESSAGE
+  ================================================== */}
 
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-brand-green/10">
+  {errorMessage && (
+    <div className="rounded-2xl border border-red-200 bg-red-50 p-4">
 
-            <FileQuestion className="h-5 w-5 text-brand-green" />
+      <div className="flex items-start gap-3">
 
-          </div>
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-red-100">
 
-          <div>
-            <h2 className="text-lg font-bold text-brand-dark">
-              Assessment Information
-            </h2>
-
-            <p className="mt-1 text-sm text-slate-500">
-              Enter the basic information for this quiz or exam.
-            </p>
-          </div>
-
-        </div>
-
-        <div className="mt-7 grid gap-5">
-
-          {/* TITLE */}
-
-          <div>
-
-            <label
-              htmlFor="title"
-              className="mb-2 block text-sm font-bold text-slate-700"
-            >
-              Quiz / Exam Title *
-            </label>
-
-            <input
-              id="title"
-              name="title"
-              type="text"
-              required
-              maxLength={255}
-              placeholder="e.g. EMT Introduction Mid-Term Assessment"
-              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-brand-dark outline-none transition placeholder:text-slate-400 focus:border-brand-green focus:ring-2 focus:ring-brand-green/10"
-            />
-
-          </div>
-
-          {/* DESCRIPTION */}
-
-          <div>
-
-            <label
-              htmlFor="description"
-              className="mb-2 block text-sm font-bold text-slate-700"
-            >
-              Description
-            </label>
-
-            <textarea
-              id="description"
-              name="description"
-              rows={4}
-              placeholder="Briefly describe what this assessment covers..."
-              className="w-full resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-brand-dark outline-none transition placeholder:text-slate-400 focus:border-brand-green focus:ring-2 focus:ring-brand-green/10"
-            />
-
-          </div>
-
-          {/* INSTRUCTIONS */}
-
-          <div>
-
-            <label
-              htmlFor="instructions"
-              className="mb-2 block text-sm font-bold text-slate-700"
-            >
-              Instructions
-            </label>
-
-            <textarea
-              id="instructions"
-              name="instructions"
-              rows={4}
-              placeholder="Enter instructions students should follow..."
-              className="w-full resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-brand-dark outline-none transition placeholder:text-slate-400 focus:border-brand-green focus:ring-2 focus:ring-brand-green/10"
-            />
-
-          </div>
+          <span className="text-sm font-bold text-red-600">
+            !
+          </span>
 
         </div>
 
-      </section>
+        <div>
+          <p className="text-sm font-bold text-red-800">
+            Unable to create assessment
+          </p>
 
-      {/* ==================================================
-          ASSESSMENT LOCATION
-      ================================================== */}
-
-      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-soft sm:p-8">
-
-        <div className="flex items-start gap-4">
-
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-brand-gold/20">
-
-            <BookOpen className="h-5 w-5 text-brand-dark" />
-
-          </div>
-
-          <div>
-            <h2 className="text-lg font-bold text-brand-dark">
-              Assessment Location
-            </h2>
-
-            <p className="mt-1 text-sm text-slate-500">
-              Select the program, unit, topic and lesson where this assessment belongs.
-            </p>
-          </div>
-
+          <p className="mt-1 text-sm leading-6 text-red-700">
+            {errorMessage}
+          </p>
         </div>
 
-        {/* =================================================
-            HIERARCHY PREVIEW
-        ================================================= */}
+      </div>
 
-        {(selectedProgram ||
-          selectedUnit ||
-          selectedTopic ||
-          selectedLesson) && (
+    </div>
+  )}
 
-          <div className="mt-6 rounded-2xl border border-brand-green/10 bg-brand-green/5 p-4">
+  {/* ==================================================
+      BASIC INFORMATION
+  ================================================== */}
 
-            <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-brand-green">
-              Selected Assessment Location
-            </p>
+  <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-soft sm:p-8">
 
-            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+    <div className="flex items-start gap-4">
 
-              {selectedProgram && (
-                <>
-                  <span className="rounded-lg bg-white px-3 py-2 font-bold text-brand-dark shadow-sm">
-                    {selectedProgram.name}
-                  </span>
+      <div
+        className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${
+          isExam
+            ? 'bg-purple-100'
+            : 'bg-brand-green/10'
+        }`}
+      >
 
-                  {selectedUnit && (
-                    <ChevronRight className="h-4 w-4 text-slate-400" />
-                  )}
-                </>
-              )}
-
-              {selectedUnit && (
-                <>
-                  <span className="rounded-lg bg-white px-3 py-2 font-bold text-brand-dark shadow-sm">
-                    {selectedUnit.code}
-                  </span>
-
-                  {selectedTopic && (
-                    <ChevronRight className="h-4 w-4 text-slate-400" />
-                  )}
-                </>
-              )}
-
-              {selectedTopic && (
-                <>
-                  <span className="rounded-lg bg-white px-3 py-2 font-bold text-brand-dark shadow-sm">
-                    {selectedTopic.title}
-                  </span>
-
-                  {selectedLesson && (
-                    <ChevronRight className="h-4 w-4 text-slate-400" />
-                  )}
-                </>
-              )}
-
-              {selectedLesson && (
-                <span className="rounded-lg bg-brand-green px-3 py-2 font-bold text-white shadow-sm">
-                  {selectedLesson.title}
-                </span>
-              )}
-
-            </div>
-
-          </div>
+        {isExam ? (
+          <ShieldCheck className="h-5 w-5 text-purple-700" />
+        ) : (
+          <FileQuestion className="h-5 w-5 text-brand-green" />
         )}
 
-        <div className="mt-7 grid gap-5 sm:grid-cols-2">
+      </div>
 
-          {/* =================================================
-              PROGRAM
-          ================================================= */}
+      <div>
+        <h2 className="text-lg font-bold text-brand-dark">
+          Assessment Information
+        </h2>
 
-          <div>
+        <p className="mt-1 text-sm text-slate-500">
+          Enter the basic information for this{' '}
+          {isExam
+            ? 'examination'
+            : 'quiz or CAT'}.
+        </p>
+      </div>
 
-            <label
-              htmlFor="program_id"
-              className="mb-2 block text-sm font-bold text-slate-700"
-            >
-              Program *
-            </label>
+    </div>
 
-            <select
-              id="program_id"
-              name="program_id"
-              value={programId}
-              onChange={(event) =>
-                handleProgramChange(
-                  event.target.value
-                )
-              }
-              required
-              disabled={submitting}
-              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-brand-dark outline-none transition focus:border-brand-green focus:ring-2 focus:ring-brand-green/10 disabled:cursor-not-allowed disabled:bg-slate-50"
-            >
+    <div className="mt-7 grid gap-5">
 
-              <option value="">
-                Select program
-              </option>
+      {/* =================================================
+          ASSESSMENT TYPE
+      ================================================= */}
 
-              {programs.map(
-                (program) => (
-                  <option
-                    key={program.id}
-                    value={program.id}
-                  >
-                    {program.name}
-                  </option>
-                )
-              )}
+      <div>
 
-            </select>
+        <label className="mb-3 block text-sm font-bold text-slate-700">
+          Assessment Type *
+        </label>
 
-          </div>
+        <div className="grid gap-4 sm:grid-cols-2">
 
-          {/* =================================================
-              UNIT
-          ================================================= */}
+          {/* QUIZ / CAT */}
 
-          <div>
-
-            <label
-              htmlFor="unit_id"
-              className="mb-2 block text-sm font-bold text-slate-700"
-            >
-              Unit *
-            </label>
-
-            <select
-              id="unit_id"
-              name="unit_id"
-              value={unitId}
-              onChange={(event) =>
-                handleUnitChange(
-                  event.target.value
-                )
-              }
-              required
-              disabled={
-                !programId ||
-                filteredUnits.length === 0 ||
-                submitting
-              }
-              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-brand-dark outline-none transition focus:border-brand-green focus:ring-2 focus:ring-brand-green/10 disabled:cursor-not-allowed disabled:bg-slate-50"
-            >
-
-              <option value="">
-                {!programId
-                  ? 'Select program first'
-                  : filteredUnits.length === 0
-                  ? 'No units available'
-                  : 'Select unit'}
-              </option>
-
-              {filteredUnits.map(
-                (unit) => (
-                  <option
-                    key={unit.id}
-                    value={unit.id}
-                  >
-                    {unit.code} — {unit.name}
-                  </option>
-                )
-              )}
-
-            </select>
-
-            {programId && (
-              <p className="mt-1 text-[11px] text-slate-400">
-                {filteredUnits.length}{' '}
-                {filteredUnits.length === 1
-                  ? 'unit'
-                  : 'units'}{' '}
-                available for this program.
-              </p>
-            )}
-
-          </div>
-
-          {/* =================================================
-              TOPIC
-          ================================================= */}
-
-          <div>
-
-            <label
-              htmlFor="topic_id"
-              className="mb-2 block text-sm font-bold text-slate-700"
-            >
-              Topic *
-            </label>
-
-            <select
-              id="topic_id"
-              name="topic_id"
-              value={topicId}
-              onChange={(event) =>
-                handleTopicChange(
-                  event.target.value
-                )
-              }
-              required
-              disabled={
-                !unitId ||
-                filteredTopics.length === 0 ||
-                submitting
-              }
-              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-brand-dark outline-none transition focus:border-brand-green focus:ring-2 focus:ring-brand-green/10 disabled:cursor-not-allowed disabled:bg-slate-50"
-            >
-
-              <option value="">
-                {!unitId
-                  ? 'Select unit first'
-                  : filteredTopics.length === 0
-                  ? 'No topics available'
-                  : 'Select topic'}
-              </option>
-
-              {filteredTopics.map(
-                (topic) => (
-                  <option
-                    key={topic.id}
-                    value={topic.id}
-                  >
-                    {topic.title}
-                  </option>
-                )
-              )}
-
-            </select>
-
-            {unitId && (
-              <p className="mt-1 text-[11px] text-slate-400">
-                {filteredTopics.length}{' '}
-                {filteredTopics.length === 1
-                  ? 'topic'
-                  : 'topics'}{' '}
-                available for this unit.
-              </p>
-            )}
-
-          </div>
-
-          {/* =================================================
-              LESSON
-          ================================================= */}
-
-          <div>
-
-            <label
-              htmlFor="lesson_id"
-              className="mb-2 block text-sm font-bold text-slate-700"
-            >
-              Lesson *
-            </label>
-
-            <select
-              id="lesson_id"
-              name="lesson_id"
-              value={lessonId}
-              onChange={(event) =>
-                handleLessonChange(
-                  event.target.value
-                )
-              }
-              required
-              disabled={
-                !topicId ||
-                filteredLessons.length === 0 ||
-                submitting
-              }
-              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-brand-dark outline-none transition focus:border-brand-green focus:ring-2 focus:ring-brand-green/10 disabled:cursor-not-allowed disabled:bg-slate-50"
-            >
-
-              <option value="">
-                {!topicId
-                  ? 'Select topic first'
-                  : filteredLessons.length === 0
-                  ? 'No lessons available'
-                  : 'Select lesson'}
-              </option>
-
-              {filteredLessons.map(
-                (lesson) => (
-                  <option
-                    key={lesson.id}
-                    value={lesson.id}
-                  >
-                    {lesson.title}
-                  </option>
-                )
-              )}
-
-            </select>
-
-            {topicId && (
-              <p className="mt-1 text-[11px] text-slate-400">
-                {filteredLessons.length}{' '}
-                {filteredLessons.length === 1
-                  ? 'lesson'
-                  : 'lessons'}{' '}
-                available for this topic.
-              </p>
-            )}
-
-          </div>
-
-        </div>
-
-      </section>
-
-      {/* ==================================================
-          ASSESSMENT SETTINGS
-      ================================================== */}
-
-      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-soft sm:p-8">
-
-        <div className="flex items-start gap-4">
-
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-brand-green/10">
-
-            <ListChecks className="h-5 w-5 text-brand-green" />
-
-          </div>
-
-          <div>
-            <h2 className="text-lg font-bold text-brand-dark">
-              Assessment Settings
-            </h2>
-
-            <p className="mt-1 text-sm text-slate-500">
-              Configure marks, attempts and the passing score.
-            </p>
-          </div>
-
-        </div>
-
-        <div className="mt-7 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-
-          {/* TOTAL MARKS */}
-
-          <div>
-
-            <label
-              htmlFor="total_marks"
-              className="mb-2 block text-sm font-bold text-slate-700"
-            >
-              Total Marks *
-            </label>
+          <label
+            className={`relative flex cursor-pointer items-start gap-4 rounded-2xl border p-5 transition ${
+              assessmentType === 'quiz'
+                ? 'border-brand-green bg-brand-green/5 ring-2 ring-brand-green/10'
+                : 'border-slate-200 bg-white hover:border-brand-green/40 hover:bg-slate-50'
+            }`}
+          >
 
             <input
-              id="total_marks"
-              name="total_marks"
-              type="number"
-              min="1"
-              step="1"
-              defaultValue="10"
-              required
+              type="radio"
+              name="assessment_type"
+              value="quiz"
+              checked={
+                assessmentType === 'quiz'
+              }
+              onChange={() =>
+                handleAssessmentTypeChange(
+                  'quiz'
+                )
+              }
               disabled={submitting}
-              className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-brand-dark outline-none focus:border-brand-green focus:ring-2 focus:ring-brand-green/10 disabled:bg-slate-50"
+              className="mt-1 h-4 w-4 accent-brand-green"
             />
 
-          </div>
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-green/10">
 
-          {/* TIME */}
-
-          <div>
-
-            <label
-              htmlFor="time_limit_minutes"
-              className="mb-2 block text-sm font-bold text-slate-700"
-            >
-              Time Limit
-            </label>
-
-            <div className="relative">
-
-              <Clock3 className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-
-              <input
-                id="time_limit_minutes"
-                name="time_limit_minutes"
-                type="number"
-                min="0"
-                step="1"
-                defaultValue="0"
-                disabled={submitting}
-                className="w-full rounded-2xl border border-slate-200 px-10 py-3 text-sm font-semibold text-brand-dark outline-none focus:border-brand-green focus:ring-2 focus:ring-brand-green/10 disabled:bg-slate-50"
-              />
+              <GraduationCap className="h-5 w-5 text-brand-green" />
 
             </div>
 
-            <p className="mt-1 text-[11px] text-slate-400">
-              0 = no time limit
-            </p>
+            <div className="min-w-0">
 
-          </div>
+              <p className="text-sm font-bold text-brand-dark">
+                Quiz / CAT
+              </p>
 
-          {/* ATTEMPTS */}
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                Use this for class tests, CATs,
+                quizzes and continuous assessments.
+              </p>
 
-          <div>
+            </div>
 
-            <label
-              htmlFor="attempts_allowed"
-              className="mb-2 block text-sm font-bold text-slate-700"
-            >
-              Attempts *
-            </label>
+          </label>
+
+          {/* EXAMINATION */}
+
+          <label
+            className={`relative flex cursor-pointer items-start gap-4 rounded-2xl border p-5 transition ${
+              assessmentType === 'exam'
+                ? 'border-purple-500 bg-purple-50 ring-2 ring-purple-500/10'
+                : 'border-slate-200 bg-white hover:border-purple-300 hover:bg-slate-50'
+            }`}
+          >
 
             <input
-              id="attempts_allowed"
-              name="attempts_allowed"
-              type="number"
-              min="1"
-              step="1"
-              defaultValue="1"
-              required
+              type="radio"
+              name="assessment_type"
+              value="exam"
+              checked={
+                assessmentType === 'exam'
+              }
+              onChange={() =>
+                handleAssessmentTypeChange(
+                  'exam'
+                )
+              }
               disabled={submitting}
-              className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-brand-dark outline-none focus:border-brand-green focus:ring-2 focus:ring-brand-green/10 disabled:bg-slate-50"
+              className="mt-1 h-4 w-4 accent-purple-600"
             />
 
-          </div>
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-purple-100">
 
-          {/* PASSING SCORE */}
-
-          <div>
-
-            <label
-              htmlFor="passing_score"
-              className="mb-2 block text-sm font-bold text-slate-700"
-            >
-              Passing Score *
-            </label>
-
-            <div className="relative">
-
-              <input
-                id="passing_score"
-                name="passing_score"
-                type="number"
-                min="0"
-                max="100"
-                step="1"
-                defaultValue="50"
-                required
-                disabled={submitting}
-                className="w-full rounded-2xl border border-slate-200 px-4 py-3 pr-10 text-sm font-semibold text-brand-dark outline-none focus:border-brand-green focus:ring-2 focus:ring-brand-green/10 disabled:bg-slate-50"
-              />
-
-              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-bold text-slate-400">
-                %
-              </span>
+              <ShieldCheck className="h-5 w-5 text-purple-700" />
 
             </div>
 
-          </div>
+            <div className="min-w-0">
 
-        </div>
+              <p className="text-sm font-bold text-brand-dark">
+                Examination
+              </p>
 
-      </section>
-
-      {/* ==================================================
-          STATUS
-      ================================================== */}
-
-      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-soft sm:p-8">
-
-        <div className="flex items-start gap-4">
-
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-green-50">
-
-            <CheckCircle2 className="h-5 w-5 text-green-600" />
-
-          </div>
-
-          <div className="flex-1">
-
-            <h2 className="text-lg font-bold text-brand-dark">
-              Quiz Status
-            </h2>
-
-            <p className="mt-1 text-sm leading-6 text-slate-500">
-              Keep the quiz as a draft while you prepare the
-              questions. You can publish it when it is ready.
-            </p>
-
-            <div className="mt-5 grid gap-3 sm:grid-cols-2">
-
-              {/* DRAFT */}
-
-              <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 transition hover:border-brand-green">
-
-                <input
-                  type="radio"
-                  name="status"
-                  value="draft"
-                  defaultChecked
-                  disabled={submitting}
-                  className="mt-1 h-4 w-4 accent-brand-green"
-                />
-
-                <div>
-
-                  <p className="text-sm font-bold text-brand-dark">
-                    Draft
-                  </p>
-
-                  <p className="mt-1 text-xs leading-5 text-slate-500">
-                    Prepare the assessment before making it
-                    available to students.
-                  </p>
-
-                </div>
-
-              </label>
-
-              {/* ACTIVE */}
-
-              <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 transition hover:border-brand-green">
-
-                <input
-                  type="radio"
-                  name="status"
-                  value="active"
-                  disabled={submitting}
-                  className="mt-1 h-4 w-4 accent-brand-green"
-                />
-
-                <div>
-
-                  <p className="text-sm font-bold text-brand-dark">
-                    Active
-                  </p>
-
-                  <p className="mt-1 text-xs leading-5 text-slate-500">
-                    Make the assessment available according
-                    to the student LMS rules.
-                  </p>
-
-                </div>
-
-              </label>
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                Use this for mid-term, final,
+                end-term and other formal examinations.
+              </p>
 
             </div>
 
-          </div>
+          </label>
 
         </div>
 
-      </section>
+        {/* SELECTED TYPE */}
 
-      {/* ==================================================
-          ACTIONS
-      ================================================== */}
-
-      <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-
-        <Link
-          href="/lecturer/dashboard/quizzes"
-          className={`inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-6 py-3 text-sm font-bold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 ${
-            submitting
-              ? 'pointer-events-none opacity-50'
-              : ''
+        <div
+          className={`mt-4 rounded-2xl border p-4 ${
+            isExam
+              ? 'border-purple-200 bg-purple-50'
+              : 'border-brand-green/10 bg-brand-green/5'
           }`}
         >
-          Cancel
-        </Link>
 
-        <button
-          type="submit"
-          disabled={
-            submitting ||
-            !programId ||
-            !unitId ||
-            !topicId ||
-            !lessonId
-          }
-          className="inline-flex items-center justify-center gap-2 rounded-2xl bg-brand-green px-7 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-60"
+          <div className="flex items-center gap-3">
+
+            {isExam ? (
+              <ShieldCheck className="h-4 w-4 text-purple-700" />
+            ) : (
+              <FileQuestion className="h-4 w-4 text-brand-green" />
+            )}
+
+            <p
+              className={`text-sm font-bold ${
+                isExam
+                  ? 'text-purple-800'
+                  : 'text-brand-dark'
+              }`}
+            >
+              Selected: {assessmentLabel}
+            </p>
+
+          </div>
+
+          <p className="mt-1 pl-7 text-xs leading-5 text-slate-500">
+            The assessment will be stored and displayed
+            throughout the LMS as a{' '}
+            {isExam
+              ? 'formal examination.'
+              : 'quiz / CAT.'}
+          </p>
+
+        </div>
+
+      </div>
+
+      {/* TITLE */}
+
+      <div>
+
+        <label
+          htmlFor="title"
+          className="mb-2 block text-sm font-bold text-slate-700"
         >
+          {isExam
+            ? 'Examination Title *'
+            : 'Quiz / CAT Title *'}
+        </label>
 
-          {submitting ? (
+        <input
+          id="title"
+          name="title"
+          type="text"
+          required
+          maxLength={255}
+          placeholder={titlePlaceholder}
+          disabled={submitting}
+          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-brand-dark outline-none transition placeholder:text-slate-400 focus:border-brand-green focus:ring-2 focus:ring-brand-green/10 disabled:bg-slate-50"
+        />
+
+      </div>
+
+      {/* DESCRIPTION */}
+
+      <div>
+
+        <label
+          htmlFor="description"
+          className="mb-2 block text-sm font-bold text-slate-700"
+        >
+          Description
+        </label>
+
+        <textarea
+          id="description"
+          name="description"
+          rows={4}
+          placeholder={`Briefly describe what this ${
+            isExam
+              ? 'examination'
+              : 'assessment'
+          } covers...`}
+          disabled={submitting}
+          className="w-full resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-brand-dark outline-none transition placeholder:text-slate-400 focus:border-brand-green focus:ring-2 focus:ring-brand-green/10 disabled:bg-slate-50"
+        />
+
+      </div>
+
+      {/* INSTRUCTIONS */}
+
+      <div>
+
+        <label
+          htmlFor="instructions"
+          className="mb-2 block text-sm font-bold text-slate-700"
+        >
+          Instructions
+        </label>
+
+        <textarea
+          id="instructions"
+          name="instructions"
+          rows={4}
+          placeholder="Enter instructions students should follow..."
+          disabled={submitting}
+          className="w-full resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-brand-dark outline-none transition placeholder:text-slate-400 focus:border-brand-green focus:ring-2 focus:ring-brand-green/10 disabled:bg-slate-50"
+        />
+
+      </div>
+
+    </div>
+
+  </section>
+
+  {/* ==================================================
+      ASSESSMENT LOCATION
+  ================================================== */}
+
+  <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-soft sm:p-8">
+
+    <div className="flex items-start gap-4">
+
+      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-brand-gold/20">
+
+        <BookOpen className="h-5 w-5 text-brand-dark" />
+
+      </div>
+
+      <div>
+        <h2 className="text-lg font-bold text-brand-dark">
+          Assessment Location
+        </h2>
+
+        <p className="mt-1 text-sm text-slate-500">
+          Select the program, unit, topic and lesson where
+          this assessment belongs.
+        </p>
+      </div>
+
+    </div>
+
+    {/* =================================================
+        HIERARCHY PREVIEW
+    ================================================= */}
+
+    {(selectedProgram ||
+      selectedUnit ||
+      selectedTopic ||
+      selectedLesson) && (
+
+      <div className="mt-6 rounded-2xl border border-brand-green/10 bg-brand-green/5 p-4">
+
+        <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-brand-green">
+          Selected Assessment Location
+        </p>
+
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+
+          {selectedProgram && (
             <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Creating Assessment...
-            </>
-          ) : (
-            <>
-              <Save className="h-4 w-4" />
-              Create Quiz
+              <span className="rounded-lg bg-white px-3 py-2 font-bold text-brand-dark shadow-sm">
+                {selectedProgram.name}
+              </span>
+
+              {selectedUnit && (
+                <ChevronRight className="h-4 w-4 text-slate-400" />
+              )}
             </>
           )}
 
-        </button>
+          {selectedUnit && (
+            <>
+              <span className="rounded-lg bg-white px-3 py-2 font-bold text-brand-dark shadow-sm">
+                {selectedUnit.code}
+              </span>
+
+              {selectedTopic && (
+                <ChevronRight className="h-4 w-4 text-slate-400" />
+              )}
+            </>
+          )}
+
+          {selectedTopic && (
+            <>
+              <span className="rounded-lg bg-white px-3 py-2 font-bold text-brand-dark shadow-sm">
+                {selectedTopic.title}
+              </span>
+
+              {selectedLesson && (
+                <ChevronRight className="h-4 w-4 text-slate-400" />
+              )}
+            </>
+          )}
+
+          {selectedLesson && (
+            <span className="rounded-lg bg-brand-green px-3 py-2 font-bold text-white shadow-sm">
+              {selectedLesson.title}
+            </span>
+          )}
+
+        </div>
+
+      </div>
+    )}
+
+    <div className="mt-7 grid gap-5 sm:grid-cols-2">
+
+      {/* PROGRAM */}
+
+      <div>
+
+        <label
+          htmlFor="program_id"
+          className="mb-2 block text-sm font-bold text-slate-700"
+        >
+          Program *
+        </label>
+
+        <select
+          id="program_id"
+          name="program_id"
+          value={programId}
+          onChange={(event) =>
+            handleProgramChange(
+              event.target.value
+            )
+          }
+          required
+          disabled={submitting}
+          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-brand-dark outline-none transition focus:border-brand-green focus:ring-2 focus:ring-brand-green/10 disabled:cursor-not-allowed disabled:bg-slate-50"
+        >
+
+          <option value="">
+            Select program
+          </option>
+
+          {programs.map(
+            (program) => (
+              <option
+                key={program.id}
+                value={program.id}
+              >
+                {program.name}
+              </option>
+            )
+          )}
+
+        </select>
 
       </div>
 
-      {/* ==================================================
-          FOOTER
-      ================================================== */}
+      {/* UNIT */}
 
-      <div className="mt-8 rounded-3xl bg-brand-green p-7 shadow-soft">
+      <div>
 
-        <p className="text-xs font-bold uppercase tracking-[0.2em] text-brand-gold">
-          SMTC Lecturer Portal
-        </p>
+        <label
+          htmlFor="unit_id"
+          className="mb-2 block text-sm font-bold text-slate-700"
+        >
+          Unit *
+        </label>
 
-        <h2 className="mt-2 text-xl font-bold text-white">
-          Create the assessment first, then build the questions.
+        <select
+          id="unit_id"
+          name="unit_id"
+          value={unitId}
+          onChange={(event) =>
+            handleUnitChange(
+              event.target.value
+            )
+          }
+          required
+          disabled={
+            !programId ||
+            filteredUnits.length === 0 ||
+            submitting
+          }
+          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-brand-dark outline-none transition focus:border-brand-green focus:ring-2 focus:ring-brand-green/10 disabled:cursor-not-allowed disabled:bg-slate-50"
+        >
+
+          <option value="">
+            {!programId
+              ? 'Select program first'
+              : filteredUnits.length === 0
+              ? 'No units available'
+              : 'Select unit'}
+          </option>
+
+          {filteredUnits.map(
+            (unit) => (
+              <option
+                key={unit.id}
+                value={unit.id}
+              >
+                {unit.code} — {unit.name}
+              </option>
+            )
+          )}
+
+        </select>
+
+        {programId && (
+          <p className="mt-1 text-[11px] text-slate-400">
+            {filteredUnits.length}{' '}
+            {filteredUnits.length === 1
+              ? 'unit'
+              : 'units'}{' '}
+            available for this program.
+          </p>
+        )}
+
+      </div>
+
+      {/* TOPIC */}
+
+      <div>
+
+        <label
+          htmlFor="topic_id"
+          className="mb-2 block text-sm font-bold text-slate-700"
+        >
+          Topic *
+        </label>
+
+        <select
+          id="topic_id"
+          name="topic_id"
+          value={topicId}
+          onChange={(event) =>
+            handleTopicChange(
+              event.target.value
+            )
+          }
+          required
+          disabled={
+            !unitId ||
+            filteredTopics.length === 0 ||
+            submitting
+          }
+          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-brand-dark outline-none transition focus:border-brand-green focus:ring-2 focus:ring-brand-green/10 disabled:cursor-not-allowed disabled:bg-slate-50"
+        >
+
+          <option value="">
+            {!unitId
+              ? 'Select unit first'
+              : filteredTopics.length === 0
+              ? 'No topics available'
+              : 'Select topic'}
+          </option>
+
+          {filteredTopics.map(
+            (topic) => (
+              <option
+                key={topic.id}
+                value={topic.id}
+              >
+                {topic.title}
+              </option>
+            )
+          )}
+
+        </select>
+
+        {unitId && (
+          <p className="mt-1 text-[11px] text-slate-400">
+            {filteredTopics.length}{' '}
+            {filteredTopics.length === 1
+              ? 'topic'
+              : 'topics'}{' '}
+            available for this unit.
+          </p>
+        )}
+
+      </div>
+
+      {/* LESSON */}
+
+      <div>
+
+        <label
+          htmlFor="lesson_id"
+          className="mb-2 block text-sm font-bold text-slate-700"
+        >
+          Lesson *
+        </label>
+
+        <select
+          id="lesson_id"
+          name="lesson_id"
+          value={lessonId}
+          onChange={(event) =>
+            handleLessonChange(
+              event.target.value
+            )
+          }
+          required
+          disabled={
+            !topicId ||
+            filteredLessons.length === 0 ||
+            submitting
+          }
+          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-brand-dark outline-none transition focus:border-brand-green focus:ring-2 focus:ring-brand-green/10 disabled:cursor-not-allowed disabled:bg-slate-50"
+        >
+
+          <option value="">
+            {!topicId
+              ? 'Select topic first'
+              : filteredLessons.length === 0
+              ? 'No lessons available'
+              : 'Select lesson'}
+          </option>
+
+          {filteredLessons.map(
+            (lesson) => (
+              <option
+                key={lesson.id}
+                value={lesson.id}
+              >
+                {lesson.title}
+              </option>
+            )
+          )}
+
+        </select>
+
+        {topicId && (
+          <p className="mt-1 text-[11px] text-slate-400">
+            {filteredLessons.length}{' '}
+            {filteredLessons.length === 1
+              ? 'lesson'
+              : 'lessons'}{' '}
+            available for this topic.
+          </p>
+        )}
+
+      </div>
+
+    </div>
+
+  </section>
+
+  {/* ==================================================
+      ASSESSMENT SETTINGS
+  ================================================== */}
+
+  <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-soft sm:p-8">
+
+    <div className="flex items-start gap-4">
+
+      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-brand-green/10">
+
+        <ListChecks className="h-5 w-5 text-brand-green" />
+
+      </div>
+
+      <div>
+        <h2 className="text-lg font-bold text-brand-dark">
+          Assessment Settings
         </h2>
 
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-white/70">
-          Once the quiz has been created, you will be taken to
-          its question management page where you can add
-          multiple-choice, true/false, short-answer and essay
-          questions.
+        <p className="mt-1 text-sm text-slate-500">
+          Configure marks, attempts and the passing score.
+        </p>
+      </div>
+
+    </div>
+
+    <div className="mt-7 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+
+      {/* TOTAL MARKS */}
+
+      <div>
+
+        <label
+          htmlFor="total_marks"
+          className="mb-2 block text-sm font-bold text-slate-700"
+        >
+          Total Marks *
+        </label>
+
+        <input
+          id="total_marks"
+          name="total_marks"
+          type="number"
+          min="1"
+          step="1"
+          defaultValue="10"
+          required
+          disabled={submitting}
+          className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-brand-dark outline-none focus:border-brand-green focus:ring-2 focus:ring-brand-green/10 disabled:bg-slate-50"
+        />
+
+      </div>
+
+      {/* TIME */}
+
+      <div>
+
+        <label
+          htmlFor="time_limit_minutes"
+          className="mb-2 block text-sm font-bold text-slate-700"
+        >
+          Time Limit
+        </label>
+
+        <div className="relative">
+
+          <Clock3 className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+
+          <input
+            id="time_limit_minutes"
+            name="time_limit_minutes"
+            type="number"
+            min="0"
+            step="1"
+            defaultValue="0"
+            disabled={submitting}
+            className="w-full rounded-2xl border border-slate-200 px-10 py-3 text-sm font-semibold text-brand-dark outline-none focus:border-brand-green focus:ring-2 focus:ring-brand-green/10 disabled:bg-slate-50"
+          />
+
+        </div>
+
+        <p className="mt-1 text-[11px] text-slate-400">
+          0 = no time limit
         </p>
 
       </div>
 
-    </form>
-  );
+      {/* ATTEMPTS */}
+
+      <div>
+
+        <label
+          htmlFor="attempts_allowed"
+          className="mb-2 block text-sm font-bold text-slate-700"
+        >
+          Attempts *
+        </label>
+
+        <input
+          id="attempts_allowed"
+          name="attempts_allowed"
+          type="number"
+          min="1"
+          step="1"
+          defaultValue="1"
+          required
+          disabled={submitting}
+          className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-brand-dark outline-none focus:border-brand-green focus:ring-2 focus:ring-brand-green/10 disabled:bg-slate-50"
+        />
+
+      </div>
+
+      {/* PASSING SCORE */}
+
+      <div>
+
+        <label
+          htmlFor="passing_score"
+          className="mb-2 block text-sm font-bold text-slate-700"
+        >
+          Passing Score *
+        </label>
+
+        <div className="relative">
+
+          <input
+            id="passing_score"
+            name="passing_score"
+            type="number"
+            min="0"
+            max="100"
+            step="1"
+            defaultValue="50"
+            required
+            disabled={submitting}
+            className="w-full rounded-2xl border border-slate-200 px-4 py-3 pr-10 text-sm font-semibold text-brand-dark outline-none focus:border-brand-green focus:ring-2 focus:ring-brand-green/10 disabled:bg-slate-50"
+          />
+
+          <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm font-bold text-slate-400">
+            %
+          </span>
+
+        </div>
+
+      </div>
+
+    </div>
+
+  </section>
+
+  {/* ==================================================
+      AVAILABILITY SCHEDULE
+  ================================================== */}
+
+  <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-soft sm:p-8">
+
+    <div className="flex items-start gap-4">
+
+      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-brand-green/10">
+
+        <CalendarClock className="h-5 w-5 text-brand-green" />
+
+      </div>
+
+      <div>
+
+        <h2 className="text-lg font-bold text-brand-dark">
+          Availability Schedule
+        </h2>
+
+        <p className="mt-1 text-sm leading-6 text-slate-500">
+          Set when students can access this{' '}
+          {isExam
+            ? 'examination'
+            : 'quiz or CAT'}.
+          Leave either field blank if you do not want
+          that restriction.
+        </p>
+
+      </div>
+
+    </div>
+
+    <div className="mt-7 grid gap-5 sm:grid-cols-2">
+
+      {/* AVAILABLE FROM */}
+
+      <div>
+
+        <label
+          htmlFor="available_from"
+          className="mb-2 block text-sm font-bold text-slate-700"
+        >
+          Available From
+        </label>
+
+        <input
+          id="available_from"
+          name="available_from"
+          type="datetime-local"
+          value={availableFrom}
+          onChange={(event) =>
+            handleAvailableFromChange(
+              event.target.value
+            )
+          }
+          disabled={submitting}
+          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-brand-dark outline-none transition focus:border-brand-green focus:ring-2 focus:ring-brand-green/10 disabled:cursor-not-allowed disabled:bg-slate-50"
+        />
+
+        <p className="mt-2 text-[11px] leading-5 text-slate-400">
+          Students can start the assessment from this
+          date and time.
+        </p>
+
+      </div>
+
+      {/* AVAILABLE UNTIL */}
+
+      <div>
+
+        <label
+          htmlFor="available_until"
+          className="mb-2 block text-sm font-bold text-slate-700"
+        >
+          Available Until
+        </label>
+
+        <input
+          id="available_until"
+          name="available_until"
+          type="datetime-local"
+          value={availableUntil}
+          onChange={(event) =>
+            handleAvailableUntilChange(
+              event.target.value
+            )
+          }
+          min={availableFrom || undefined}
+          disabled={submitting}
+          className={`w-full rounded-2xl border bg-white px-4 py-3 text-sm font-semibold text-brand-dark outline-none transition focus:ring-2 focus:ring-brand-green/10 disabled:cursor-not-allowed disabled:bg-slate-50 ${
+            availableFrom &&
+            availableUntil &&
+            isInvalidAvailabilityRange(
+              availableFrom,
+              availableUntil
+            )
+              ? 'border-red-300 focus:border-red-500'
+              : 'border-slate-200 focus:border-brand-green'
+          }`}
+        />
+
+        <p className="mt-2 text-[11px] leading-5 text-slate-400">
+          Students can no longer access a new attempt
+          after this date and time.
+        </p>
+
+        {availableFrom &&
+          availableUntil &&
+          isInvalidAvailabilityRange(
+            availableFrom,
+            availableUntil
+          ) && (
+            <p className="mt-2 text-xs font-semibold text-red-600">
+              Available Until must be later than Available
+              From.
+            </p>
+          )}
+
+      </div>
+
+    </div>
+
+    {/* AVAILABILITY NOTE */}
+
+    <div className="mt-5 rounded-2xl border border-brand-green/10 bg-brand-green/5 p-4">
+
+      <div className="flex items-start gap-3">
+
+        <CalendarClock className="mt-0.5 h-4 w-4 shrink-0 text-brand-green" />
+
+        <div>
+
+          <p className="text-sm font-bold text-brand-dark">
+            Scheduling is optional
+          </p>
+
+          <p className="mt-1 text-xs leading-5 text-slate-500">
+            If you leave both dates blank, the assessment
+            will not have a scheduled availability window.
+            You can still control access using the assessment
+            status.
+          </p>
+
+        </div>
+
+      </div>
+
+    </div>
+
+  </section>
+
+  {/* ==================================================
+      STATUS
+  ================================================== */}
+
+  <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-soft sm:p-8">
+
+    <div className="flex items-start gap-4">
+
+      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-green-50">
+
+        <CheckCircle2 className="h-5 w-5 text-green-600" />
+
+      </div>
+
+      <div className="flex-1">
+
+        <h2 className="text-lg font-bold text-brand-dark">
+          Assessment Status
+        </h2>
+
+        <p className="mt-1 text-sm leading-6 text-slate-500">
+          Keep the {isExam ? 'examination' : 'quiz'} as a
+          draft while you prepare the questions. You can
+          publish it when it is ready.
+        </p>
+
+        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+
+          {/* DRAFT */}
+
+          <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 transition hover:border-brand-green">
+
+            <input
+              type="radio"
+              name="status"
+              value="draft"
+              defaultChecked
+              disabled={submitting}
+              className="mt-1 h-4 w-4 accent-brand-green"
+            />
+
+            <div>
+
+              <p className="text-sm font-bold text-brand-dark">
+                Draft
+              </p>
+
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                Prepare the assessment before making it
+                available to students.
+              </p>
+
+            </div>
+
+          </label>
+
+          {/* ACTIVE */}
+
+          <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 transition hover:border-brand-green">
+
+            <input
+              type="radio"
+              name="status"
+              value="active"
+              disabled={submitting}
+              className="mt-1 h-4 w-4 accent-brand-green"
+            />
+
+            <div>
+
+              <p className="text-sm font-bold text-brand-dark">
+                Active
+              </p>
+
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                Make the assessment available according
+                to the student LMS rules.
+              </p>
+
+            </div>
+
+          </label>
+
+        </div>
+
+      </div>
+
+    </div>
+
+  </section>
+
+  {/* ==================================================
+      ACTIONS
+  ================================================== */}
+
+  <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+
+    <Link
+      href="/lecturer/dashboard/quizzes"
+      className={`inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-6 py-3 text-sm font-bold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 ${
+        submitting
+          ? 'pointer-events-none opacity-50'
+          : ''
+      }`}
+    >
+      Cancel
+    </Link>
+
+    <button
+      type="submit"
+      disabled={
+        submitting ||
+        !programId ||
+        !unitId ||
+        !topicId ||
+        !lessonId ||
+        isInvalidAvailabilityRange(
+          availableFrom,
+          availableUntil
+        )
+      }
+      className={`inline-flex items-center justify-center gap-2 rounded-2xl px-7 py-3 text-sm font-bold text-white shadow-sm transition disabled:cursor-not-allowed disabled:opacity-60 ${
+        isExam
+          ? 'bg-purple-700 hover:bg-purple-800'
+          : 'bg-brand-green hover:bg-brand-dark'
+      }`}
+    >
+
+      {submitting ? (
+        <>
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Creating {isExam
+            ? 'Examination'
+            : 'Assessment'}...
+        </>
+      ) : (
+        <>
+          {isExam ? (
+            <ShieldCheck className="h-4 w-4" />
+          ) : (
+            <Save className="h-4 w-4" />
+          )}
+
+          Create {isExam
+            ? 'Examination'
+            : 'Quiz / CAT'}
+        </>
+      )}
+
+    </button>
+
+  </div>
+
+  {/* ==================================================
+      FOOTER
+  ================================================== */}
+
+  <div className="mt-8 rounded-3xl bg-brand-green p-7 shadow-soft">
+
+    <p className="text-xs font-bold uppercase tracking-[0.2em] text-brand-gold">
+      SMTC Lecturer Portal
+    </p>
+
+    <h2 className="mt-2 text-xl font-bold text-white">
+      Create the assessment first, then build the questions.
+    </h2>
+
+    <p className="mt-2 max-w-2xl text-sm leading-6 text-white/70">
+      Once the {isExam ? 'examination' : 'quiz'} has been
+      created, you will be taken to its question management
+      page where you can add multiple-choice, true/false,
+      short-answer and essay questions.
+    </p>
+
+  </div>
+
+</form>
+
+);
 }

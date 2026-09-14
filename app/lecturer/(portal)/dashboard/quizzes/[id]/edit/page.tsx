@@ -7,6 +7,7 @@ import { useParams, useRouter } from 'next/navigation';
 import {
   ArrowLeft,
   BookOpen,
+  CalendarClock,
   CheckCircle2,
   ClipboardList,
   Clock3,
@@ -16,6 +17,7 @@ import {
   Eye,
   EyeOff,
   ListChecks,
+  AlertCircle,
 } from 'lucide-react';
 
 /* =========================================================
@@ -36,6 +38,13 @@ type Quiz = {
   passingScore: number;
 
   status: string;
+
+  /* =======================================================
+     AVAILABILITY
+  ======================================================= */
+
+  availableFrom: string | null;
+  availableUntil: string | null;
 
   /* =======================================================
      ASSESSMENT OPTIONS
@@ -75,6 +84,69 @@ type ApiResponse = {
 };
 
 /* =========================================================
+   HELPERS
+========================================================= */
+
+/**
+ * Convert a database ISO timestamp into the value expected
+ * by <input type="datetime-local">.
+ *
+ * Example:
+ * 2026-09-15T05:00:00.000Z
+ *
+ * becomes the user's local browser time.
+ */
+function isoToDateTimeLocal(
+  value: string | null | undefined
+): string {
+  if (!value) {
+    return '';
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+
+  const pad = (number: number) =>
+    String(number).padStart(2, '0');
+
+  return `${date.getFullYear()}-${pad(
+    date.getMonth() + 1
+  )}-${pad(
+    date.getDate()
+  )}T${pad(
+    date.getHours()
+  )}:${pad(
+    date.getMinutes()
+  )}`;
+}
+
+/**
+ * Convert datetime-local into an ISO timestamp that
+ * represents the user's actual local time.
+ *
+ * This is important because PostgreSQL stores the value
+ * as TIMESTAMPTZ.
+ */
+function dateTimeLocalToISO(
+  value: string
+): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return date.toISOString();
+}
+
+/* =========================================================
    PAGE
 ========================================================= */
 
@@ -90,18 +162,46 @@ export default function EditQuizPage() {
      STATE
   ======================================================= */
 
-  const [quiz, setQuiz] = useState<Quiz | null>(null);
+  const [quiz, setQuiz] =
+    useState<Quiz | null>(null);
 
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [instructions, setInstructions] = useState('');
+  const [title, setTitle] =
+    useState('');
 
-  const [totalMarks, setTotalMarks] = useState('1');
-  const [timeLimitMinutes, setTimeLimitMinutes] = useState('0');
-  const [attemptsAllowed, setAttemptsAllowed] = useState('1');
-  const [passingScore, setPassingScore] = useState('50');
+  const [description, setDescription] =
+    useState('');
 
-  const [status, setStatus] = useState('draft');
+  const [instructions, setInstructions] =
+    useState('');
+
+  const [totalMarks, setTotalMarks] =
+    useState('1');
+
+  const [timeLimitMinutes, setTimeLimitMinutes] =
+    useState('0');
+
+  const [attemptsAllowed, setAttemptsAllowed] =
+    useState('1');
+
+  const [passingScore, setPassingScore] =
+    useState('50');
+
+  /* =======================================================
+     AVAILABILITY
+  ======================================================= */
+
+  const [availableFrom, setAvailableFrom] =
+    useState('');
+
+  const [availableUntil, setAvailableUntil] =
+    useState('');
+
+  /* =======================================================
+     STATUS
+  ======================================================= */
+
+  const [status, setStatus] =
+    useState('draft');
 
   /* =======================================================
      ASSESSMENT OPTIONS
@@ -123,11 +223,17 @@ export default function EditQuizPage() {
      UI STATE
   ======================================================= */
 
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] =
+    useState(true);
 
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
+  const [saving, setSaving] =
+    useState(false);
+
+  const [error, setError] =
+    useState('');
+
+  const [success, setSuccess] =
+    useState('');
 
   /* =======================================================
      LOAD QUIZ
@@ -178,7 +284,7 @@ export default function EditQuizPage() {
         setQuiz(loadedQuiz);
 
         /* =================================================
-           BASIC INFORMATION
+           BASIC
         ================================================= */
 
         setTitle(
@@ -222,6 +328,22 @@ export default function EditQuizPage() {
         );
 
         /* =================================================
+           AVAILABILITY
+        ================================================= */
+
+        setAvailableFrom(
+          isoToDateTimeLocal(
+            loadedQuiz.availableFrom
+          )
+        );
+
+        setAvailableUntil(
+          isoToDateTimeLocal(
+            loadedQuiz.availableUntil
+          )
+        );
+
+        /* =================================================
            STATUS
         ================================================= */
 
@@ -230,7 +352,7 @@ export default function EditQuizPage() {
         );
 
         /* =================================================
-           ASSESSMENT OPTIONS
+           OPTIONS
         ================================================= */
 
         setShuffleQuestions(
@@ -296,10 +418,11 @@ export default function EditQuizPage() {
     setSuccess('');
 
     /* -----------------------------------------------------
-       VALIDATION
+       BASIC VALIDATION
     ----------------------------------------------------- */
 
-    const cleanTitle = title.trim();
+    const cleanTitle =
+      title.trim();
 
     if (!cleanTitle) {
       setError(
@@ -308,10 +431,17 @@ export default function EditQuizPage() {
       return;
     }
 
-    const marks = Number(totalMarks);
-    const time = Number(timeLimitMinutes);
-    const attempts = Number(attemptsAllowed);
-    const passing = Number(passingScore);
+    const marks =
+      Number(totalMarks);
+
+    const time =
+      Number(timeLimitMinutes);
+
+    const attempts =
+      Number(attemptsAllowed);
+
+    const passing =
+      Number(passingScore);
 
     if (
       !Number.isFinite(marks) ||
@@ -354,67 +484,128 @@ export default function EditQuizPage() {
       return;
     }
 
+    /* -----------------------------------------------------
+       AVAILABILITY VALIDATION
+    ----------------------------------------------------- */
+
+    const fromISO =
+      dateTimeLocalToISO(
+        availableFrom
+      );
+
+    const untilISO =
+      dateTimeLocalToISO(
+        availableUntil
+      );
+
+    if (
+      availableFrom &&
+      !fromISO
+    ) {
+      setError(
+        'The Available From date and time is invalid.'
+      );
+      return;
+    }
+
+    if (
+      availableUntil &&
+      !untilISO
+    ) {
+      setError(
+        'The Available Until date and time is invalid.'
+      );
+      return;
+    }
+
+    if (
+      fromISO &&
+      untilISO &&
+      new Date(untilISO) <=
+        new Date(fromISO)
+    ) {
+      setError(
+        'Available Until must be later than Available From.'
+      );
+      return;
+    }
+
     try {
       setSaving(true);
 
-      const response = await fetch(
-        `/api/lecturer/quizzes/${quizId}`,
-        {
-          method: 'PUT',
+      const response =
+        await fetch(
+          `/api/lecturer/quizzes/${quizId}`,
+          {
+            method: 'PUT',
 
-          headers: {
-            'Content-Type': 'application/json',
-          },
+            headers: {
+              'Content-Type':
+                'application/json',
+            },
 
-          body: JSON.stringify({
-            /* =============================================
-               BASIC
-            ============================================= */
+            body: JSON.stringify({
+              /* =========================================
+                 BASIC
+              ========================================= */
 
-            title: cleanTitle,
+              title:
+                cleanTitle,
 
-            description:
-              description.trim() || null,
+              description:
+                description.trim() ||
+                null,
 
-            instructions:
-              instructions.trim() || null,
+              instructions:
+                instructions.trim() ||
+                null,
 
-            /* =============================================
-               SCORING
-            ============================================= */
+              /* =========================================
+                 SCORING
+              ========================================= */
 
-            totalMarks:
-              Math.floor(marks),
+              totalMarks:
+                Math.floor(marks),
 
-            timeLimitMinutes:
-              Math.floor(time),
+              timeLimitMinutes:
+                Math.floor(time),
 
-            attemptsAllowed:
-              Math.floor(attempts),
+              attemptsAllowed:
+                Math.floor(attempts),
 
-            passingScore:
-              passing,
+              passingScore:
+                passing,
 
-            /* =============================================
-               STATUS
-            ============================================= */
+              /* =========================================
+                 AVAILABILITY
+              ========================================= */
 
-            status,
+              availableFrom:
+                fromISO,
 
-            /* =============================================
-               ASSESSMENT OPTIONS
-            ============================================= */
+              availableUntil:
+                untilISO,
 
-            shuffleQuestions,
+              /* =========================================
+                 STATUS
+              ========================================= */
 
-            shuffleOptions,
+              status,
 
-            showResults,
+              /* =========================================
+                 ASSESSMENT OPTIONS
+              ========================================= */
 
-            showCorrectAnswers,
-          }),
-        }
-      );
+              shuffleQuestions,
+
+              shuffleOptions,
+
+              showResults,
+
+              showCorrectAnswers,
+            }),
+          }
+        );
 
       const data: ApiResponse =
         await response.json();
@@ -432,10 +623,6 @@ export default function EditQuizPage() {
       setSuccess(
         'Assessment updated successfully.'
       );
-
-      /* =================================================
-         REDIRECT
-      ================================================= */
 
       setTimeout(() => {
         router.push(
@@ -492,7 +679,7 @@ export default function EditQuizPage() {
   }
 
   /* =========================================================
-     ERROR / NOT FOUND
+     NOT FOUND
   ========================================================= */
 
   if (!quiz) {
@@ -543,9 +730,7 @@ export default function EditQuizPage() {
 
       <div className="mx-auto max-w-5xl">
 
-        {/* =================================================
-            BACK
-        ================================================= */}
+        {/* BACK */}
 
         <Link
           href={`/lecturer/dashboard/quizzes/${quiz.id}`}
@@ -555,9 +740,7 @@ export default function EditQuizPage() {
           Back to Assessment
         </Link>
 
-        {/* =================================================
-            HEADER
-        ================================================= */}
+        {/* HEADER */}
 
         <section className="mt-5 overflow-hidden rounded-3xl bg-brand-green shadow-soft">
 
@@ -588,9 +771,9 @@ export default function EditQuizPage() {
               </div>
 
               <p className="mt-4 max-w-2xl text-sm leading-6 text-white/70">
-                Update the assessment details, scoring,
-                timing, student attempt settings and
-                assessment behaviour.
+                Update the assessment details, schedule,
+                scoring, timing, student attempt settings
+                and assessment behaviour.
               </p>
 
             </div>
@@ -601,9 +784,7 @@ export default function EditQuizPage() {
 
         </section>
 
-        {/* =================================================
-            COURSE STRUCTURE
-        ================================================= */}
+        {/* COURSE STRUCTURE */}
 
         <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-soft sm:p-7">
 
@@ -638,7 +819,6 @@ export default function EditQuizPage() {
                 {quiz.topic && (
                   <>
                     <span>•</span>
-
                     <span>
                       {quiz.topic.title}
                     </span>
@@ -648,7 +828,6 @@ export default function EditQuizPage() {
                 {quiz.lesson && (
                   <>
                     <span>•</span>
-
                     <span>
                       {quiz.lesson.title}
                     </span>
@@ -662,10 +841,6 @@ export default function EditQuizPage() {
           </div>
 
         </section>
-
-        {/* =================================================
-            FORM
-        ================================================= */}
 
         <form
           onSubmit={handleSubmit}
@@ -693,8 +868,6 @@ export default function EditQuizPage() {
 
             <div className="mt-6 space-y-5">
 
-              {/* TITLE */}
-
               <div>
 
                 <label
@@ -717,7 +890,7 @@ export default function EditQuizPage() {
                     )
                   }
                   maxLength={255}
-                  placeholder="e.g. EMT Introduction Quiz"
+                  placeholder="e.g. German Language CAT 1"
                   className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-brand-dark outline-none transition placeholder:text-slate-400 focus:border-brand-green focus:ring-2 focus:ring-brand-green/10"
                 />
 
@@ -726,8 +899,6 @@ export default function EditQuizPage() {
                 </p>
 
               </div>
-
-              {/* DESCRIPTION */}
 
               <div>
 
@@ -752,8 +923,6 @@ export default function EditQuizPage() {
                 />
 
               </div>
-
-              {/* INSTRUCTIONS */}
 
               <div>
 
@@ -804,8 +973,6 @@ export default function EditQuizPage() {
 
             <div className="mt-6 grid gap-5 sm:grid-cols-2">
 
-              {/* TOTAL MARKS */}
-
               <div>
 
                 <label
@@ -833,8 +1000,6 @@ export default function EditQuizPage() {
                 />
 
               </div>
-
-              {/* TIME */}
 
               <div>
 
@@ -877,8 +1042,6 @@ export default function EditQuizPage() {
 
               </div>
 
-              {/* ATTEMPTS */}
-
               <div>
 
                 <label
@@ -911,8 +1074,6 @@ export default function EditQuizPage() {
                 </p>
 
               </div>
-
-              {/* PASSING SCORE */}
 
               <div>
 
@@ -960,7 +1121,123 @@ export default function EditQuizPage() {
           </section>
 
           {/* =================================================
-              ASSESSMENT BEHAVIOUR
+              AVAILABILITY
+          ================================================= */}
+
+          <section className="rounded-3xl border border-brand-green/15 bg-white p-6 shadow-soft sm:p-7">
+
+            <div className="flex items-start gap-4 border-b border-slate-100 pb-5">
+
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-brand-green/10">
+
+                <CalendarClock className="h-5 w-5 text-brand-green" />
+
+              </div>
+
+              <div>
+
+                <h2 className="text-lg font-bold text-brand-dark">
+                  Assessment Availability
+                </h2>
+
+                <p className="mt-1 text-sm leading-6 text-slate-500">
+                  Schedule exactly when students are
+                  allowed to access this assessment.
+                </p>
+
+              </div>
+
+            </div>
+
+            <div className="mt-6 grid gap-5 sm:grid-cols-2">
+
+              {/* AVAILABLE FROM */}
+
+              <div>
+
+                <label
+                  htmlFor="availableFrom"
+                  className="text-sm font-bold text-brand-dark"
+                >
+                  Available From
+                </label>
+
+                <input
+                  id="availableFrom"
+                  type="datetime-local"
+                  value={availableFrom}
+                  onChange={(event) =>
+                    setAvailableFrom(
+                      event.target.value
+                    )
+                  }
+                  className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-brand-dark outline-none transition focus:border-brand-green focus:ring-2 focus:ring-brand-green/10"
+                />
+
+                <p className="mt-2 text-xs leading-5 text-slate-400">
+                  Students cannot start the assessment
+                  before this time.
+                </p>
+
+              </div>
+
+              {/* AVAILABLE UNTIL */}
+
+              <div>
+
+                <label
+                  htmlFor="availableUntil"
+                  className="text-sm font-bold text-brand-dark"
+                >
+                  Available Until
+                </label>
+
+                <input
+                  id="availableUntil"
+                  type="datetime-local"
+                  value={availableUntil}
+                  onChange={(event) =>
+                    setAvailableUntil(
+                      event.target.value
+                    )
+                  }
+                  className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-brand-dark outline-none transition focus:border-brand-green focus:ring-2 focus:ring-brand-green/10"
+                />
+
+                <p className="mt-2 text-xs leading-5 text-slate-400">
+                  Students cannot start the assessment
+                  after this time.
+                </p>
+
+              </div>
+
+            </div>
+
+            <div className="mt-5 flex items-start gap-3 rounded-2xl border border-blue-100 bg-blue-50 p-4">
+
+              <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-blue-600" />
+
+              <div>
+
+                <p className="text-sm font-bold text-blue-900">
+                  How scheduling works
+                </p>
+
+                <p className="mt-1 text-xs leading-5 text-blue-700">
+                  The availability window controls when
+                  students can start the assessment. Once
+                  a student starts, the Time Limit controls
+                  how long they have to complete it.
+                </p>
+
+              </div>
+
+            </div>
+
+          </section>
+
+          {/* =================================================
+              BEHAVIOUR
           ================================================= */}
 
           <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-soft sm:p-7">
@@ -983,9 +1260,7 @@ export default function EditQuizPage() {
 
                   <p className="mt-1 text-sm leading-6 text-slate-500">
                     Control how questions and answer
-                    options are presented to students and
-                    what results they can see after
-                    submitting the assessment.
+                    options are presented to students.
                   </p>
 
                 </div>
@@ -995,10 +1270,6 @@ export default function EditQuizPage() {
             </div>
 
             <div className="mt-6 space-y-3">
-
-              {/* =================================================
-                  SHUFFLE QUESTIONS
-              ================================================= */}
 
               <SettingToggle
                 icon={
@@ -1010,10 +1281,6 @@ export default function EditQuizPage() {
                 onChange={setShuffleQuestions}
               />
 
-              {/* =================================================
-                  SHUFFLE OPTIONS
-              ================================================= */}
-
               <SettingToggle
                 icon={
                   <ListChecks className="h-5 w-5" />
@@ -1023,10 +1290,6 @@ export default function EditQuizPage() {
                 enabled={shuffleOptions}
                 onChange={setShuffleOptions}
               />
-
-              {/* =================================================
-                  SHOW RESULTS
-              ================================================= */}
 
               <SettingToggle
                 icon={
@@ -1042,10 +1305,6 @@ export default function EditQuizPage() {
                 onChange={setShowResults}
               />
 
-              {/* =================================================
-                  SHOW CORRECT ANSWERS
-              ================================================= */}
-
               <SettingToggle
                 icon={
                   showCorrectAnswers ? (
@@ -1055,16 +1314,12 @@ export default function EditQuizPage() {
                   )
                 }
                 title="Show Correct Answers"
-                description="Allow students to see the correct answers after completing the assessment."
+                description="Allow students to see correct answers after completing the assessment."
                 enabled={showCorrectAnswers}
                 onChange={setShowCorrectAnswers}
               />
 
             </div>
-
-            {/* =================================================
-                INFORMATION
-            ================================================= */}
 
             <div className="mt-5 rounded-2xl border border-brand-green/10 bg-brand-green/5 p-4">
 
@@ -1074,10 +1329,9 @@ export default function EditQuizPage() {
                   Tip:
                 </span>{' '}
 
-                Showing correct answers is recommended
-                only when you want students to review
-                their mistakes immediately after the
-                assessment.
+                For formal exams, consider disabling
+                correct-answer visibility until you have
+                reviewed the assessment results.
 
               </p>
 
@@ -1105,8 +1359,6 @@ export default function EditQuizPage() {
             </div>
 
             <div className="mt-6 grid gap-3 sm:grid-cols-2">
-
-              {/* DRAFT */}
 
               <label
                 className={`cursor-pointer rounded-2xl border p-4 transition ${
@@ -1156,8 +1408,6 @@ export default function EditQuizPage() {
 
               </label>
 
-              {/* ACTIVE */}
-
               <label
                 className={`cursor-pointer rounded-2xl border p-4 transition ${
                   status === 'active'
@@ -1196,8 +1446,9 @@ export default function EditQuizPage() {
                     </p>
 
                     <p className="mt-1 text-xs leading-5 text-slate-500">
-                      Assessment is available for
-                      students to take.
+                      Assessment can be accessed by
+                      students when the availability
+                      window is open.
                     </p>
 
                   </div>
@@ -1210,28 +1461,23 @@ export default function EditQuizPage() {
 
           </section>
 
-          {/* =================================================
-              ERROR
-          ================================================= */}
+          {/* ERROR */}
 
           {error && (
+            <div className="flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-4">
 
-            <div className="rounded-2xl border border-red-200 bg-red-50 p-4">
+              <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
 
               <p className="text-sm font-semibold text-red-700">
                 {error}
               </p>
 
             </div>
-
           )}
 
-          {/* =================================================
-              SUCCESS
-          ================================================= */}
+          {/* SUCCESS */}
 
           {success && (
-
             <div className="flex items-center gap-3 rounded-2xl border border-green-200 bg-green-50 p-4">
 
               <CheckCircle2 className="h-5 w-5 shrink-0 text-green-600" />
@@ -1241,12 +1487,9 @@ export default function EditQuizPage() {
               </p>
 
             </div>
-
           )}
 
-          {/* =================================================
-              ACTIONS
-          ================================================= */}
+          {/* ACTIONS */}
 
           <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
 
@@ -1281,9 +1524,7 @@ export default function EditQuizPage() {
 
         </form>
 
-        {/* =================================================
-            FOOTER
-        ================================================= */}
+        {/* FOOTER */}
 
         <div className="mt-8 rounded-3xl bg-brand-green p-7 shadow-soft">
 
@@ -1302,8 +1543,8 @@ export default function EditQuizPage() {
               </h2>
 
               <p className="mt-2 max-w-2xl text-sm leading-6 text-white/70">
-                Update your assessment settings before
-                publishing it to students.
+                Schedule your assessment, configure
+                its behaviour and publish it when ready.
               </p>
 
             </div>
@@ -1319,7 +1560,7 @@ export default function EditQuizPage() {
 }
 
 /* =========================================================
-   REUSABLE SETTING TOGGLE
+   SETTING TOGGLE
 ========================================================= */
 
 function SettingToggle({
@@ -1370,10 +1611,6 @@ function SettingToggle({
 
       </div>
 
-      {/* =================================================
-          SWITCH
-      ================================================= */}
-
       <button
         type="button"
         role="switch"
@@ -1404,13 +1641,15 @@ function SettingToggle({
 }
 
 /* =========================================================
-   SMALL FOOTER ICON
+   FOOTER ICON
 ========================================================= */
 
 function GraduationCapIcon() {
   return (
     <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white/10">
-      <span className="text-lg">🎓</span>
+      <span className="text-lg">
+        🎓
+      </span>
     </div>
   );
 }

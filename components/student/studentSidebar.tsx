@@ -20,6 +20,7 @@ import {
   TrendingUp,
   LogOut,
   ChevronRight,
+  Camera,
 } from 'lucide-react';
 
 interface StudentSidebarProps {
@@ -174,6 +175,18 @@ export default function StudentSidebar({
                 href="/student/dashboard/units"
                 icon={<BookOpen size={18} />}
                 label="Units & Lessons"
+                pathname={pathname}
+              />
+                 <SidebarItem
+                href="/student/dashboard/live-classes"
+                icon={<Camera size={18} />}
+                label="Live Classes"
+                pathname={pathname}
+              />
+                <SidebarItem
+                href="/student/dashboard/resources"
+                icon={<BookOpen size={18} />}
+                label="Class Resources"
                 pathname={pathname}
               />
 

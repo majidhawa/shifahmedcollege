@@ -86,9 +86,11 @@ export default async function StudentCoursesPage() {
   }
 
   /*
-   * The student session is expected to identify the student
-   * through applicationId, which is already used throughout
-   * the Student Portal.
+   * The student session identifies the student through
+   * applicationId.
+   *
+   * IMPORTANT:
+   * applications.id is the actual primary key.
    */
   const applicationId = Number(session.applicationId);
 
@@ -110,18 +112,28 @@ export default async function StudentCoursesPage() {
     const studentResult = await pool.query(
       `
         SELECT
-          a.application_id,
-          a.application_number,
-          a.student_name,
+          a.id AS application_id,
 
-          ad.admission_number
+          a.application_number,
+
+          CONCAT_WS(
+            ' ',
+            a.first_name,
+            a.middle_name,
+            a.surname
+          ) AS student_name,
+
+          COALESCE(
+            ad.admission_number,
+            a.admission_number
+          ) AS admission_number
 
         FROM applications a
 
         LEFT JOIN admissions ad
-          ON ad.application_id = a.application_id
+          ON ad.application_id = a.id
 
-        WHERE a.application_id = $1
+        WHERE a.id = $1
 
         LIMIT 1
       `,
@@ -132,9 +144,13 @@ export default async function StudentCoursesPage() {
       const row = studentResult.rows[0];
 
       student = {
-        name: row.student_name || 'Student',
+        name:
+          row.student_name?.trim() ||
+          'Student',
+
         applicationNumber:
           row.application_number || null,
+
         admissionNumber:
           row.admission_number || null,
       };
@@ -241,26 +257,38 @@ export default async function StudentCoursesPage() {
 
       program_name: row.program_name,
       program_code: row.program_code || null,
+
       program_description:
         row.program_description || null,
+
       duration: row.duration || null,
       level: row.level || null,
       program_status: row.program_status,
 
-      student_number: row.student_number || null,
+      student_number:
+        row.student_number || null,
+
       year_of_study:
         row.year_of_study !== null
           ? Number(row.year_of_study)
           : null,
+
       enrollment_status:
         row.enrollment_status,
 
       enrolled_at: row.enrolled_at,
 
-      total_units: Number(row.total_units || 0),
-      assigned_units: Number(row.assigned_units || 0),
-      total_topics: Number(row.total_topics || 0),
-      total_lessons: Number(row.total_lessons || 0),
+      total_units:
+        Number(row.total_units || 0),
+
+      assigned_units:
+        Number(row.assigned_units || 0),
+
+      total_topics:
+        Number(row.total_topics || 0),
+
+      total_lessons:
+        Number(row.total_lessons || 0),
     }));
   } catch (error) {
     console.error(
@@ -332,7 +360,6 @@ export default async function StudentCoursesPage() {
 
                 <p className="text-sm font-bold text-slate-900">
                   {student.admissionNumber ||
-                    student.applicationNumber ||
                     'Not available'}
                 </p>
               </div>

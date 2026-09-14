@@ -25,6 +25,8 @@ import { requireLecturer } from '@/lib/lecturer-auth';
    TYPES
 ========================================================= */
 
+type AssessmentType = 'quiz' | 'exam';
+
 type Quiz = {
   id: number;
   lessonId: number;
@@ -32,6 +34,26 @@ type Quiz = {
   title: string;
   description: string | null;
   instructions: string | null;
+
+  /*
+   * IMPORTANT:
+   *
+   * assessment_type identifies what kind of assessment
+   * this record represents.
+   *
+   * quiz -> Quiz / CAT
+   * exam -> Examination
+   *
+   * Both types continue using the same:
+   *
+   * lms_quizzes
+   *      ↓
+   * lms_quiz_questions
+   *      ↓
+   * lms_quiz_options
+   */
+
+  assessmentType: AssessmentType;
 
   totalMarks: number;
 
@@ -128,6 +150,44 @@ function formatShortDate(date: string | null) {
     month: 'short',
     year: 'numeric',
   }).format(parsed);
+}
+
+/* =========================================================
+   ASSESSMENT TYPE
+========================================================= */
+
+function normalizeAssessmentType(
+  value: unknown
+): AssessmentType {
+  return String(value ?? '')
+    .toLowerCase()
+    .trim() === 'exam'
+    ? 'exam'
+    : 'quiz';
+}
+
+function getAssessmentLabel(
+  assessmentType: AssessmentType
+) {
+  return assessmentType === 'exam'
+    ? 'Examination'
+    : 'Quiz / CAT';
+}
+
+function getAssessmentShortLabel(
+  assessmentType: AssessmentType
+) {
+  return assessmentType === 'exam'
+    ? 'Examination'
+    : 'CAT / Quiz';
+}
+
+function getQuestionManagementLabel(
+  assessmentType: AssessmentType
+) {
+  return assessmentType === 'exam'
+    ? 'Manage Examination Questions'
+    : 'Manage CAT Questions';
 }
 
 /* =========================================================
@@ -269,7 +329,7 @@ export default async function LecturerQuizManagementPage({
   }
 
   /* =======================================================
-     GET QUIZ
+     GET ASSESSMENT
      
      RELATIONSHIP:
 
@@ -288,6 +348,13 @@ export default async function LecturerQuizManagementPage({
      lms_lecturer_programs
        ↓ program_id
      lms_programs
+
+     Assessment type:
+
+     lms_quizzes.assessment_type
+
+       quiz -> Quiz / CAT
+       exam -> Examination
   ======================================================= */
 
   let quiz: Quiz | null = null;
@@ -301,6 +368,7 @@ export default async function LecturerQuizManagementPage({
           q.title,
           q.description,
           q.instructions,
+          q.assessment_type,
           q.total_marks,
           q.time_limit_minutes,
           q.attempts_allowed,
@@ -367,6 +435,7 @@ export default async function LecturerQuizManagementPage({
           q.title,
           q.description,
           q.instructions,
+          q.assessment_type,
           q.total_marks,
           q.time_limit_minutes,
           q.attempts_allowed,
@@ -420,6 +489,18 @@ export default async function LecturerQuizManagementPage({
 
       instructions:
         row.instructions ?? null,
+
+      /*
+       * assessment_type is now read directly from
+       * lms_quizzes.
+       *
+       * Unknown/null values safely fall back to quiz
+       * so existing records do not break.
+       */
+      assessmentType:
+        normalizeAssessmentType(
+          row.assessment_type
+        ),
 
       totalMarks:
         Number(row.total_marks) || 0,
@@ -523,7 +604,7 @@ export default async function LecturerQuizManagementPage({
     };
   } catch (error) {
     console.error(
-      'GET LECTURER QUIZ MANAGEMENT ERROR:',
+      'GET LECTURER ASSESSMENT MANAGEMENT ERROR:',
       error
     );
 
@@ -539,26 +620,29 @@ export default async function LecturerQuizManagementPage({
   ======================================================= */
 
   /*
-   * IMPORTANT:
-   *
    * passingScore is ALREADY a percentage.
-   *
-   * Therefore:
-   *
-   * passing_score = 60
-   *
-   * displays:
-   *
-   * 60%
-   *
-   * NOT:
-   *
-   * (60 / total_marks) * 100
    */
-
   const passingPercentage =
     normalizePassingPercentage(
       quiz.passingScore
+    );
+
+  const assessmentType =
+    quiz.assessmentType;
+
+  const assessmentLabel =
+    getAssessmentLabel(
+      assessmentType
+    );
+
+  const assessmentShortLabel =
+    getAssessmentShortLabel(
+      assessmentType
+    );
+
+  const questionManagementLabel =
+    getQuestionManagementLabel(
+      assessmentType
     );
 
   const status =
@@ -604,6 +688,11 @@ export default async function LecturerQuizManagementPage({
                 <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-xs font-bold text-white">
                   <GraduationCap className="h-3.5 w-3.5" />
                   Lecturer Assessment Centre
+                </span>
+
+                <span className="inline-flex items-center gap-2 rounded-full bg-brand-gold/20 px-3 py-1.5 text-xs font-bold text-brand-gold">
+                  <BookOpen className="h-3.5 w-3.5" />
+                  {assessmentLabel}
                 </span>
 
                 <QuizStatus
@@ -653,7 +742,7 @@ export default async function LecturerQuizManagementPage({
                   className="inline-flex items-center justify-center gap-2 rounded-2xl bg-brand-gold px-5 py-3 text-sm font-bold text-brand-dark transition hover:brightness-95"
                 >
                   <Edit3 className="h-4 w-4" />
-                  Edit Assessment
+                  Edit {assessmentShortLabel}
                 </Link>
 
               </div>
@@ -699,7 +788,7 @@ export default async function LecturerQuizManagementPage({
             </div>
 
             <p className="mt-2 text-xs text-slate-400">
-              Questions in this assessment
+              Questions in this {assessmentLabel.toLowerCase()}
             </p>
 
           </div>
@@ -821,7 +910,7 @@ export default async function LecturerQuizManagementPage({
                 <div>
 
                   <h2 className="text-base font-bold text-brand-dark">
-                    Assessment Details
+                    {assessmentLabel} Details
                   </h2>
 
                   <p className="text-xs text-slate-400">
@@ -891,7 +980,7 @@ export default async function LecturerQuizManagementPage({
                     </h2>
 
                     <p className="text-xs text-slate-400">
-                      Build and manage assessment questions
+                      Build and manage {assessmentLabel.toLowerCase()} questions
                     </p>
 
                   </div>
@@ -903,7 +992,7 @@ export default async function LecturerQuizManagementPage({
                   className="inline-flex items-center justify-center gap-2 rounded-xl bg-brand-green px-4 py-2.5 text-xs font-bold text-white transition hover:bg-brand-dark"
                 >
                   <ListChecks className="h-4 w-4" />
-                  Manage Questions
+                  {questionManagementLabel}
                 </Link>
 
               </div>
@@ -1034,7 +1123,7 @@ export default async function LecturerQuizManagementPage({
                 <div>
 
                   <h2 className="text-base font-bold text-brand-dark">
-                    Assessment Settings
+                    {assessmentLabel} Settings
                   </h2>
 
                   <p className="text-xs text-slate-400">
@@ -1383,13 +1472,13 @@ export default async function LecturerQuizManagementPage({
 
               <h2 className="mt-2 text-xl font-bold text-white">
                 {isActive
-                  ? 'Assessment is available to students.'
-                  : 'Assessment is being prepared.'}
+                  ? `${assessmentLabel} is available to students.`
+                  : `${assessmentLabel} is being prepared.`}
               </h2>
 
               <p className="mt-2 max-w-2xl text-sm leading-6 text-white/70">
                 Manage questions, assessment settings and
-                student attempts from this assessment centre.
+                student attempts from this {assessmentLabel.toLowerCase()} centre.
               </p>
 
             </div>
@@ -1399,7 +1488,7 @@ export default async function LecturerQuizManagementPage({
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-brand-gold px-5 py-3 text-sm font-bold text-brand-dark transition hover:brightness-95"
             >
               <FileQuestion className="h-4 w-4" />
-              Manage Questions
+              {questionManagementLabel}
             </Link>
 
           </div>

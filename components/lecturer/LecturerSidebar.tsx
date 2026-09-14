@@ -110,6 +110,11 @@ const navigationSections: NavigationSection[] = [
         href: '/lecturer/dashboard/lessons',
         icon: ClipboardList,
       },
+       {
+        label: 'Live classes',
+        href: '/lecturer/dashboard/live-classes',
+        icon: ClipboardList,
+      },
     ],
   },
 

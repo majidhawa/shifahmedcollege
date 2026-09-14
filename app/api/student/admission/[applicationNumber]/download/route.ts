@@ -1,12 +1,9 @@
-// app/api/student/admission/[applicationNumber]/download/route.ts
 
 import { NextResponse } from 'next/server';
 import pool from '@/lib/db';
 import { getStudentSession } from '@/lib/student-auth';
-
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
 type RouteContext = {
   params: Promise<{
     applicationNumber: string;

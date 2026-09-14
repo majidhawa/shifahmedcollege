@@ -4,26 +4,21 @@ import {
   ChangeEvent,
   FormEvent,
   useEffect,
+  useMemo,
   useState,
 } from 'react';
 
-import {
-  useParams,
-  useRouter,
-} from 'next/navigation';
-
 import Link from 'next/link';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 
 import {
   ArrowLeft,
-  AlertCircle,
-  BookOpen,
   CheckCircle2,
+  ChevronDown,
   Film,
-  Link2,
   Loader2,
-  Save,
   Upload,
+  Video,
   X,
 } from 'lucide-react';
 
@@ -31,11 +26,49 @@ import {
    TYPES
 ========================================================= */
 
-interface Lesson {
+type Unit = {
   id: number;
+  program_id: number;
+  code: string | null;
+  name: string;
+  description: string | null;
+  credit_hours: number | null;
+  year_of_study: number | null;
+  term_number: number | null;
+  status: string;
+  course_id: number;
+  course_name: string;
+  course_code: string | null;
+  topic_count?: number;
+};
+
+type Topic = {
+  id: number;
+  unit_id: number;
   title: string;
-  description?: string | null;
-}
+  description: string | null;
+  order_number: number;
+  status: string;
+};
+
+type Lesson = {
+  id: number;
+  topic_id: number;
+  title: string;
+  description: string | null;
+  content?: string | null;
+  order_number: number;
+  status: string;
+};
+
+type ApiResponse = {
+  success?: boolean;
+  message?: string;
+  units?: Unit[];
+  topics?: Topic[];
+  lessons?: Lesson[];
+  lesson?: Lesson;
+};
 
 /* =========================================================
    PAGE
@@ -44,36 +77,75 @@ interface Lesson {
 export default function CreateLessonVideoPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
 
-  /* =======================================================
-     LESSON ID
-  ======================================================= */
+  const routeLessonId = Number(params?.id);
 
-  const lessonId = Number(
-    params?.id
+  const initialTopicId = Number(
+    searchParams.get('topic_id')
   );
 
-  const validLessonId =
-    Number.isInteger(lessonId) &&
-    lessonId > 0;
+  const initialUnitId = Number(
+    searchParams.get('unit_id')
+  );
 
   /* =======================================================
-     LESSON
+     SELECTION STATE
+  ======================================================= */
+
+  const [selectedUnitId, setSelectedUnitId] =
+    useState<number>(
+      Number.isInteger(initialUnitId) &&
+        initialUnitId > 0
+        ? initialUnitId
+        : 0
+    );
+
+  const [selectedTopicId, setSelectedTopicId] =
+    useState<number>(
+      Number.isInteger(initialTopicId) &&
+        initialTopicId > 0
+        ? initialTopicId
+        : 0
+    );
+
+  const [selectedLessonId, setSelectedLessonId] =
+    useState<number>(
+      Number.isInteger(routeLessonId) &&
+        routeLessonId > 0
+        ? routeLessonId
+        : 0
+    );
+
+  /* =======================================================
+     DATA STATE
+  ======================================================= */
+
+  const [units, setUnits] = useState<Unit[]>([]);
+  const [topics, setTopics] = useState<Topic[]>([]);
+  const [lessons, setLessons] = useState<Lesson[]>([]);
+
+  const [loadingUnits, setLoadingUnits] =
+    useState(true);
+
+  const [loadingTopics, setLoadingTopics] =
+    useState(false);
+
+  const [loadingLessons, setLoadingLessons] =
+    useState(false);
+
+  /* =======================================================
+     LESSON STATE
   ======================================================= */
 
   const [lesson, setLesson] =
     useState<Lesson | null>(null);
 
-  const [loadingLesson, setLoadingLesson] =
-    useState(true);
-
   /* =======================================================
-     FORM
+     VIDEO FORM
   ======================================================= */
 
-  const [title, setTitle] =
-    useState('');
-
+  const [title, setTitle] = useState('');
   const [description, setDescription] =
     useState('');
 
@@ -93,9 +165,11 @@ export default function CreateLessonVideoPage() {
     useState('active');
 
   const [sourceType, setSourceType] =
-    useState<'url' | 'upload'>(
-      'url'
-    );
+    useState<'url' | 'upload'>('url');
+
+  /* =======================================================
+     UPLOAD STATE
+  ======================================================= */
 
   const [selectedFile, setSelectedFile] =
     useState<File | null>(null);
@@ -107,13 +181,10 @@ export default function CreateLessonVideoPage() {
     useState('');
 
   /* =======================================================
-     STATE
+     UI STATE
   ======================================================= */
 
-  const [saving, setSaving] =
-    useState(false);
-
-  const [uploading, setUploading] =
+  const [loading, setLoading] =
     useState(false);
 
   const [error, setError] =
@@ -122,118 +193,465 @@ export default function CreateLessonVideoPage() {
   const [success, setSuccess] =
     useState('');
 
-  /* =========================================================
-     LOAD LESSON
-  ========================================================= */
+  /* =======================================================
+     DERIVED DATA
+  ======================================================= */
+
+  const selectedUnit = useMemo(
+    () =>
+      units.find(
+        (unit) => unit.id === selectedUnitId
+      ) ?? null,
+    [units, selectedUnitId]
+  );
+
+  const selectedTopic = useMemo(
+    () =>
+      topics.find(
+        (topic) => topic.id === selectedTopicId
+      ) ?? null,
+    [topics, selectedTopicId]
+  );
+
+  const selectedLesson = useMemo(
+    () =>
+      lessons.find(
+        (item) =>
+          item.id === selectedLessonId
+      ) ?? lesson,
+    [lessons, selectedLessonId, lesson]
+  );
+
+  /* =======================================================
+     LOAD UNITS
+  ======================================================= */
 
   useEffect(() => {
-    if (!validLessonId) {
-      setLoadingLesson(false);
+    let cancelled = false;
+
+    async function loadUnits() {
+      try {
+        setLoadingUnits(true);
+        setError('');
+
+        const response = await fetch(
+          '/api/lecturer/units',
+          {
+            method: 'GET',
+            credentials: 'include',
+          }
+        );
+
+        const data: ApiResponse =
+          await response.json();
+
+        if (!response.ok || !data.success) {
+          throw new Error(
+            data.message ||
+              'Unable to load course units.'
+          );
+        }
+
+        if (!cancelled) {
+          const loadedUnits =
+            data.units ?? [];
+
+          setUnits(loadedUnits);
+
+          /*
+           * If the URL did not contain a valid unit,
+           * don't automatically select one.
+           *
+           * The lecturer should explicitly choose.
+           */
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : 'Unable to load course units.'
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingUnits(false);
+        }
+      }
+    }
+
+    loadUnits();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /* =======================================================
+     LOAD TOPICS WHEN UNIT CHANGES
+  ======================================================= */
+
+  useEffect(() => {
+    if (!selectedUnitId) {
+      setTopics([]);
+      setSelectedTopicId(0);
+      setLessons([]);
+      setSelectedLessonId(0);
       return;
     }
 
-    const loadLesson =
-      async () => {
-        try {
-          setLoadingLesson(true);
+    let cancelled = false;
 
-          const response =
-            await fetch(
-              `/api/lecturer/lessons/${lessonId}`,
-              {
-                method: 'GET',
-                credentials: 'include',
-                cache: 'no-store',
-              }
-            );
+    async function loadTopics() {
+      try {
+        setLoadingTopics(true);
+        setError('');
 
-          if (!response.ok) {
-            throw new Error(
-              'Unable to load lesson.'
-            );
+        /*
+         * Reset dependent selections.
+         *
+         * If the page arrived with matching URL values,
+         * preserve them.
+         */
+        const preserveTopic =
+          Number.isInteger(initialTopicId) &&
+          initialTopicId > 0;
+
+        const response = await fetch(
+          `/api/lecturer/topics?unit_id=${selectedUnitId}`,
+          {
+            method: 'GET',
+            credentials: 'include',
           }
+        );
 
-          const data =
-            await response.json();
+        const data: ApiResponse =
+          await response.json();
+
+        if (!response.ok || !data.success) {
+          throw new Error(
+            data.message ||
+              'Unable to load topics.'
+          );
+        }
+
+        if (!cancelled) {
+          const loadedTopics =
+            data.topics ?? [];
+
+          setTopics(loadedTopics);
 
           if (
-            !data?.success ||
-            !data?.lesson
+            preserveTopic &&
+            loadedTopics.some(
+              (topic) =>
+                topic.id === initialTopicId
+            )
           ) {
-            throw new Error(
-              data?.message ||
-                'Lesson not found.'
+            setSelectedTopicId(
+              initialTopicId
             );
+          } else {
+            setSelectedTopicId(0);
+            setLessons([]);
+            setSelectedLessonId(0);
           }
-
-          setLesson(
-            data.lesson
-          );
-        } catch (error) {
-          console.error(
-            'LOAD LESSON ERROR:',
-            error
-          );
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setTopics([]);
+          setSelectedTopicId(0);
+          setLessons([]);
+          setSelectedLessonId(0);
 
           setError(
-            error instanceof Error
-              ? error.message
-              : 'Unable to load lesson.'
+            err instanceof Error
+              ? err.message
+              : 'Unable to load topics.'
           );
-        } finally {
-          setLoadingLesson(false);
         }
-      };
+      } finally {
+        if (!cancelled) {
+          setLoadingTopics(false);
+        }
+      }
+    }
 
-    loadLesson();
-  }, [
-    lessonId,
-    validLessonId,
-  ]);
+    loadTopics();
 
-  /* =========================================================
-     FILE CHANGE
-  ========================================================= */
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedUnitId]);
 
-  const handleFileChange = (
-    event: ChangeEvent<HTMLInputElement>
-  ) => {
-    const file =
-      event.target.files?.[0];
+  /* =======================================================
+     LOAD LESSONS WHEN TOPIC CHANGES
+  ======================================================= */
 
-    if (!file) {
+  useEffect(() => {
+    if (!selectedTopicId) {
+      setLessons([]);
+      setSelectedLessonId(0);
+      setLesson(null);
       return;
     }
 
+    let cancelled = false;
+
+    async function loadLessons() {
+      try {
+        setLoadingLessons(true);
+        setError('');
+
+        const response = await fetch(
+          `/api/lecturer/lessons?topic_id=${selectedTopicId}`,
+          {
+            method: 'GET',
+            credentials: 'include',
+          }
+        );
+
+        const data: ApiResponse =
+          await response.json();
+
+        if (!response.ok || !data.success) {
+          throw new Error(
+            data.message ||
+              'Unable to load lessons.'
+          );
+        }
+
+        if (!cancelled) {
+          const loadedLessons =
+            data.lessons ?? [];
+
+          setLessons(loadedLessons);
+
+          /*
+           * Preserve the lesson from the URL only
+           * if it actually belongs to this topic.
+           */
+          if (
+            routeLessonId > 0 &&
+            loadedLessons.some(
+              (item) =>
+                item.id === routeLessonId
+            )
+          ) {
+            setSelectedLessonId(
+              routeLessonId
+            );
+
+            const matchingLesson =
+              loadedLessons.find(
+                (item) =>
+                  item.id === routeLessonId
+              );
+
+            setLesson(
+              matchingLesson ?? null
+            );
+          } else {
+            setSelectedLessonId(0);
+            setLesson(null);
+          }
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setLessons([]);
+          setSelectedLessonId(0);
+          setLesson(null);
+
+          setError(
+            err instanceof Error
+              ? err.message
+              : 'Unable to load lessons.'
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingLessons(false);
+        }
+      }
+    }
+
+    loadLessons();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedTopicId]);
+
+  /* =======================================================
+     LOAD ORIGINAL LESSON IF URL HAS LESSON ID
+  ======================================================= */
+
+  useEffect(() => {
+    if (
+      !routeLessonId ||
+      !Number.isInteger(routeLessonId)
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadOriginalLesson() {
+      try {
+        const response = await fetch(
+          `/api/lecturer/lessons/${routeLessonId}`,
+          {
+            method: 'GET',
+            credentials: 'include',
+          }
+        );
+
+        const data: ApiResponse =
+          await response.json();
+
+        if (!response.ok || !data.success) {
+          return;
+        }
+
+        if (
+          !cancelled &&
+          data.lesson
+        ) {
+          setLesson(data.lesson);
+
+          /*
+           * If the URL did not contain topic_id,
+           * derive it from the lesson.
+           */
+          if (
+            data.lesson.topic_id &&
+            !selectedTopicId
+          ) {
+            setSelectedTopicId(
+              Number(data.lesson.topic_id)
+            );
+          }
+        }
+      } catch {
+        /*
+         * The dependent dropdown APIs remain
+         * the authoritative source.
+         */
+      }
+    }
+
+    loadOriginalLesson();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [routeLessonId]);
+
+  /* =======================================================
+     UNIT CHANGE
+  ======================================================= */
+
+  function handleUnitChange(
+    event: ChangeEvent<HTMLSelectElement>
+  ) {
+    const value = Number(event.target.value);
+
+    setSelectedUnitId(
+      Number.isInteger(value) &&
+        value > 0
+        ? value
+        : 0
+    );
+
+    setSelectedTopicId(0);
+    setSelectedLessonId(0);
+
+    setTopics([]);
+    setLessons([]);
+    setLesson(null);
+
     setError('');
-    setSuccess('');
+  }
 
-    /* =====================================================
-       MAXIMUM VIDEO SIZE
-    ===================================================== */
+  /* =======================================================
+     TOPIC CHANGE
+  ======================================================= */
 
-    const maxFileSize =
+  function handleTopicChange(
+    event: ChangeEvent<HTMLSelectElement>
+  ) {
+    const value = Number(event.target.value);
+
+    setSelectedTopicId(
+      Number.isInteger(value) &&
+        value > 0
+        ? value
+        : 0
+    );
+
+    setSelectedLessonId(0);
+    setLessons([]);
+    setLesson(null);
+
+    setError('');
+  }
+
+  /* =======================================================
+     LESSON CHANGE
+  ======================================================= */
+
+  function handleLessonChange(
+    event: ChangeEvent<HTMLSelectElement>
+  ) {
+    const value = Number(event.target.value);
+
+    const selected =
+      lessons.find(
+        (item) =>
+          item.id === value
+      ) ?? null;
+
+    setSelectedLessonId(
+      Number.isInteger(value) &&
+        value > 0
+        ? value
+        : 0
+    );
+
+    setLesson(selected);
+
+    setError('');
+  }
+
+  /* =======================================================
+     FILE CHANGE
+  ======================================================= */
+
+  function handleFileChange(
+    event: ChangeEvent<HTMLInputElement>
+  ) {
+    const file =
+      event.target.files?.[0] ?? null;
+
+    setError('');
+
+    if (!file) {
+      setSelectedFile(null);
+      return;
+    }
+
+    const maxSize =
       100 * 1024 * 1024;
 
-    if (
-      file.size >
-      maxFileSize
-    ) {
-      setSelectedFile(null);
-      setVideoFileName('');
-
+    if (file.size > maxSize) {
       setError(
-        'The selected video is too large. Maximum video size is 100 MB.'
+        'Video file must not exceed 100 MB.'
       );
 
       event.target.value = '';
-
+      setSelectedFile(null);
       return;
     }
-
-    /* =====================================================
-       ALLOWED VIDEO TYPES
-    ===================================================== */
 
     const allowedTypes = [
       'video/mp4',
@@ -253,105 +671,105 @@ export default function CreateLessonVideoPage() {
       '.mkv',
     ];
 
-    const fileName =
+    const lowerName =
       file.name.toLowerCase();
 
-    const validType =
-      allowedTypes.includes(
-        file.type
-      );
-
-    const validExtension =
+    const extensionAllowed =
       allowedExtensions.some(
         (extension) =>
-          fileName.endsWith(
-            extension
-          )
+          lowerName.endsWith(extension)
       );
 
-    if (
-      !validType &&
-      !validExtension
-    ) {
-      setSelectedFile(null);
-      setVideoFileName('');
+    const typeAllowed =
+      allowedTypes.includes(file.type);
 
+    if (
+      !typeAllowed &&
+      !extensionAllowed
+    ) {
       setError(
-        'Unsupported video type. Please upload MP4, WebM, OGG, MOV, AVI or MKV.'
+        'Unsupported video format. Use MP4, WebM, OGG, MOV, AVI or MKV.'
       );
 
       event.target.value = '';
-
+      setSelectedFile(null);
       return;
     }
 
     setSelectedFile(file);
+    setVideoFileName(file.name);
+  }
 
-    setVideoFileName(
-      file.name
-    );
-  };
+  /* =======================================================
+     REMOVE SELECTED FILE
+  ======================================================= */
 
-  /* =========================================================
-     REMOVE VIDEO
-  ========================================================= */
-
-  const removeSelectedFile = () => {
+  function removeSelectedFile() {
     setSelectedFile(null);
     setVideoFileName('');
     setVideoFileUrl('');
+  }
 
-    const input =
-      document.getElementById(
-        'videoFile'
-      ) as HTMLInputElement | null;
-
-    if (input) {
-      input.value = '';
-    }
-  };
-
-  /* =========================================================
-     FORMAT FILE SIZE
-  ========================================================= */
-
-  const formatFileSize = (
-    size: number
-  ) => {
-    if (size < 1024 * 1024) {
-      return `${(
-        size / 1024
-      ).toFixed(1)} KB`;
-    }
-
-    return `${(
-      size /
-      1024 /
-      1024
-    ).toFixed(2)} MB`;
-  };
-
-  /* =========================================================
+  /* =======================================================
      SUBMIT
-  ========================================================= */
+  ======================================================= */
 
-  const handleSubmit = async (
+  async function handleSubmit(
     event: FormEvent<HTMLFormElement>
-  ) => {
+  ) {
     event.preventDefault();
 
     setError('');
     setSuccess('');
 
     /* =====================================================
-       VALIDATE LESSON
+       VALIDATE HIERARCHY
     ===================================================== */
 
-    if (!validLessonId) {
+    if (!selectedUnitId) {
       setError(
-        'A valid lesson ID is required.'
+        'Please select a course unit.'
       );
+      return;
+    }
 
+    if (!selectedTopicId) {
+      setError(
+        'Please select a topic.'
+      );
+      return;
+    }
+
+    if (!selectedLessonId) {
+      setError(
+        'Please select a lesson.'
+      );
+      return;
+    }
+
+    /*
+     * Frontend relationship verification.
+     */
+
+    const topicBelongsToUnit =
+      selectedTopic?.unit_id ===
+      selectedUnitId;
+
+    if (!topicBelongsToUnit) {
+      setError(
+        'The selected topic does not belong to the selected unit.'
+      );
+      return;
+    }
+
+    const lessonBelongsToTopic =
+      selectedLesson?.topic_id ===
+      selectedTopicId;
+
+    if (!lessonBelongsToTopic) {
+      setError(
+        'The selected lesson does not belong to the selected topic.'
+      );
       return;
     }
 
@@ -363,7 +781,6 @@ export default function CreateLessonVideoPage() {
       setError(
         'Video title is required.'
       );
-
       return;
     }
 
@@ -376,42 +793,19 @@ export default function CreateLessonVideoPage() {
       !videoUrl.trim()
     ) {
       setError(
-        'Please provide the video URL.'
+        'Please enter the video URL.'
       );
-
       return;
     }
 
     if (
       sourceType === 'upload' &&
-      !selectedFile &&
-      !videoFileUrl
+      !selectedFile
     ) {
       setError(
-        'Please select a video to upload.'
+        'Please select a video file to upload.'
       );
-
       return;
-    }
-
-    /* =====================================================
-       VALIDATE URL
-    ===================================================== */
-
-    if (
-      sourceType === 'url'
-    ) {
-      try {
-        new URL(
-          videoUrl.trim()
-        );
-      } catch {
-        setError(
-          'Please enter a valid video URL.'
-        );
-
-        return;
-      }
     }
 
     /* =====================================================
@@ -422,15 +816,12 @@ export default function CreateLessonVideoPage() {
       Number(orderNumber);
 
     if (
-      !Number.isInteger(
-        parsedOrder
-      ) ||
-      parsedOrder <= 0
+      !Number.isInteger(parsedOrder) ||
+      parsedOrder < 1
     ) {
       setError(
-        'Order number must be a positive number.'
+        'Order number must be a whole number greater than 0.'
       );
-
       return;
     }
 
@@ -438,20 +829,16 @@ export default function CreateLessonVideoPage() {
        VALIDATE DURATION
     ===================================================== */
 
-    let finalDuration:
-      | number
-      | null = null;
+    let finalDuration: number | null = null;
 
     if (
       durationSeconds.trim()
     ) {
       const parsedDuration =
-        Number(
-          durationSeconds
-        );
+        Number(durationSeconds);
 
       if (
-        !Number.isFinite(
+        !Number.isInteger(
           parsedDuration
         ) ||
         parsedDuration < 0
@@ -459,50 +846,41 @@ export default function CreateLessonVideoPage() {
         setError(
           'Duration must be a valid number of seconds.'
         );
-
         return;
       }
 
       finalDuration =
-        Math.trunc(
-          parsedDuration
-        );
+        parsedDuration;
     }
 
     try {
-      setSaving(true);
-
-      let finalVideoUrl =
-        videoUrl.trim();
-
-      let finalVideoFileUrl =
-        videoFileUrl.trim();
-
-      let finalVideoFileName =
-        videoFileName.trim();
+      setLoading(true);
 
       /* ===================================================
-         UPLOAD VIDEO
+         UPLOAD FILE FIRST
       =================================================== */
 
+      let finalVideoFileUrl =
+        videoFileUrl;
+
+      let finalVideoFileName =
+        videoFileName;
+
       if (
-        sourceType ===
-          'upload' &&
+        sourceType === 'upload' &&
         selectedFile
       ) {
-        setUploading(true);
-
-        const uploadFormData =
+        const formData =
           new FormData();
 
-        uploadFormData.append(
+        formData.append(
           'file',
           selectedFile
         );
 
-        uploadFormData.append(
+        formData.append(
           'lesson_id',
-          String(lessonId)
+          String(selectedLessonId)
         );
 
         const uploadResponse =
@@ -511,7 +889,7 @@ export default function CreateLessonVideoPage() {
             {
               method: 'POST',
               credentials: 'include',
-              body: uploadFormData,
+              body: formData,
             }
           );
 
@@ -519,12 +897,11 @@ export default function CreateLessonVideoPage() {
           await uploadResponse.json();
 
         if (
-          !uploadResponse.ok ||
-          !uploadData?.success
+          !uploadResponse.ok
         ) {
           throw new Error(
-            uploadData?.message ||
-              'Unable to upload video.'
+            uploadData.message ||
+              'Video upload failed.'
           );
         }
 
@@ -547,20 +924,10 @@ export default function CreateLessonVideoPage() {
             'Video uploaded, but no video URL was returned.'
           );
         }
-
-        setVideoFileUrl(
-          finalVideoFileUrl
-        );
-
-        setVideoFileName(
-          finalVideoFileName
-        );
-
-        setUploading(false);
       }
 
       /* ===================================================
-         CREATE DATABASE RECORD
+         CREATE VIDEO RECORD
       =================================================== */
 
       const response =
@@ -575,7 +942,7 @@ export default function CreateLessonVideoPage() {
             },
             body: JSON.stringify({
               lesson_id:
-                lessonId,
+                selectedLessonId,
 
               title:
                 title.trim(),
@@ -585,9 +952,8 @@ export default function CreateLessonVideoPage() {
                 null,
 
               video_url:
-                sourceType ===
-                'url'
-                  ? finalVideoUrl
+                sourceType === 'url'
+                  ? videoUrl.trim()
                   : '',
 
               thumbnail_url:
@@ -603,14 +969,12 @@ export default function CreateLessonVideoPage() {
               status,
 
               video_file_name:
-                sourceType ===
-                'upload'
+                sourceType === 'upload'
                   ? finalVideoFileName
                   : null,
 
               video_file_url:
-                sourceType ===
-                'upload'
+                sourceType === 'upload'
                   ? finalVideoFileUrl
                   : null,
 
@@ -623,522 +987,567 @@ export default function CreateLessonVideoPage() {
       const data =
         await response.json();
 
-      if (
-        !response.ok ||
-        !data?.success
-      ) {
+      if (!response.ok) {
         throw new Error(
-          data?.message ||
+          data.message ||
             'Unable to create lesson video.'
         );
       }
 
       setSuccess(
-        'Lesson video created successfully.'
+        'Video added successfully.'
       );
 
-      /* ===================================================
-         REDIRECT
-      =================================================== */
+      /*
+       * Return to video management page
+       * while preserving the hierarchy.
+       */
 
       setTimeout(() => {
         router.push(
-          `/lecturer/dashboard/lessons/${lessonId}/videos`
+          `/lecturer/dashboard/lessons/${selectedLessonId}/videos?topic_id=${selectedTopicId}&unit_id=${selectedUnitId}`
         );
-
-        router.refresh();
       }, 700);
-
-    } catch (error) {
-      console.error(
-        'CREATE LESSON VIDEO ERROR:',
-        error
-      );
-
+    } catch (err) {
       setError(
-        error instanceof Error
-          ? error.message
-          : 'Unable to create lesson video.'
+        err instanceof Error
+          ? err.message
+          : 'Unable to save video.'
       );
     } finally {
-      setSaving(false);
-      setUploading(false);
+      setLoading(false);
     }
-  };
-
-  /* =========================================================
-     INVALID LESSON
-  ========================================================= */
-
-  if (!validLessonId) {
-    return (
-      <div className="px-4 py-8 sm:px-6 lg:px-8">
-
-        <div className="mx-auto max-w-4xl">
-
-          <Link
-            href="/lecturer/dashboard/lessons"
-            className="mb-6 inline-flex items-center gap-2 rounded-xl px-2 py-2 text-sm font-bold text-slate-500 transition hover:bg-brand-green/5 hover:text-brand-green"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back to Lessons
-          </Link>
-
-          <div className="rounded-3xl border border-red-200 bg-red-50 p-8">
-
-            <div className="flex items-start gap-4">
-
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-red-100">
-                <AlertCircle className="h-5 w-5 text-red-600" />
-              </div>
-
-              <div>
-
-                <h1 className="text-lg font-bold text-red-700">
-                  Invalid Lesson
-                </h1>
-
-                <p className="mt-1 text-sm text-red-600">
-                  A valid lesson ID is required
-                  to create a video.
-                </p>
-
-              </div>
-
-            </div>
-
-          </div>
-
-        </div>
-
-      </div>
-    );
   }
 
-  /* =========================================================
-     PAGE
-  ========================================================= */
+  /* =======================================================
+     BACK URL
+  ======================================================= */
+
+  const backUrl =
+    selectedLessonId
+      ? `/lecturer/dashboard/lessons/${selectedLessonId}/videos?topic_id=${selectedTopicId}&unit_id=${selectedUnitId}`
+      : '/lecturer/dashboard/lessons';
+
+  /* =======================================================
+     RENDER
+  ======================================================= */
 
   return (
-    <div className="px-4 py-8 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-slate-50">
+      <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
 
-      <div className="mx-auto max-w-4xl">
+        {/* =================================================
+            HEADER
+        ================================================= */}
 
-        {/* ===================================================
-           BACK
-        =================================================== */}
+        <div className="mb-8">
+          <Link
+            href={backUrl}
+            className="mb-4 inline-flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-slate-900"
+          >
+            <ArrowLeft
+              className="h-4 w-4"
+            />
+            Back to Videos
+          </Link>
 
-        <Link
-          href={`/lecturer/dashboard/lessons/${lessonId}/videos`}
-          className="mb-6 inline-flex items-center gap-2 rounded-xl px-2 py-2 text-sm font-bold text-slate-500 transition hover:bg-brand-green/5 hover:text-brand-green"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to Videos
-        </Link>
-
-        {/* ===================================================
-           HEADER
-        =================================================== */}
-
-        <div className="mb-6">
-
-          <div className="mb-3 inline-flex items-center gap-2 rounded-xl bg-brand-green/5 px-3 py-2 text-xs font-bold text-brand-green">
-
-            <Film className="h-4 w-4" />
-
-            Lesson Video
-
-          </div>
-
-          <h1 className="text-2xl font-bold text-brand-dark sm:text-3xl">
-            Add Lesson Video
-          </h1>
-
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-            Add a video resource to this lesson
-            using an external URL or an uploaded
-            video file.
-          </p>
-
-          {lesson && (
-            <div className="mt-4 inline-flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600">
-
-              <BookOpen className="h-4 w-4 text-brand-green" />
-
-              {lesson.title}
-
+          <div className="flex items-start gap-4">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-purple-100 text-purple-700">
+              <Video
+                className="h-6 w-6"
+              />
             </div>
-          )}
 
+            <div>
+              <h1 className="text-2xl font-bold text-slate-900">
+                Add Lesson Video
+              </h1>
+
+              <p className="mt-1 text-sm text-slate-500">
+                Select the course unit, topic and lesson
+                before adding the video.
+              </p>
+            </div>
+          </div>
         </div>
 
-        {/* ===================================================
-           LOADING LESSON
-        =================================================== */}
-
-        {loadingLesson && (
-          <div className="mb-5 flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4">
-
-            <Loader2 className="h-5 w-5 animate-spin text-brand-green" />
-
-            <p className="text-sm font-semibold text-slate-500">
-              Loading lesson...
-            </p>
-
-          </div>
-        )}
-
-        {/* ===================================================
-           SUCCESS
-        =================================================== */}
-
-        {success && (
-          <div className="mb-5 flex items-start gap-3 rounded-2xl border border-green-200 bg-green-50 p-4">
-
-            <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-green-600" />
-
-            <p className="text-sm font-semibold text-green-700">
-              {success}
-            </p>
-
-          </div>
-        )}
-
-        {/* ===================================================
-           ERROR
-        =================================================== */}
+        {/* =================================================
+            ALERTS
+        ================================================= */}
 
         {error && (
-          <div className="mb-5 flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-4">
+          <div className="mb-6 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+            <X className="mt-0.5 h-5 w-5 shrink-0" />
 
-            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
+            <div>
+              <p className="font-semibold">
+                Something went wrong
+              </p>
 
-            <p className="text-sm font-semibold text-red-700">
-              {error}
-            </p>
-
+              <p className="mt-1">
+                {error}
+              </p>
+            </div>
           </div>
         )}
 
-        {/* ===================================================
-           FORM
-        =================================================== */}
+        {success && (
+          <div className="mb-6 flex items-start gap-3 rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-700">
+            <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
+
+            <div>
+              <p className="font-semibold">
+                Success
+              </p>
+
+              <p className="mt-1">
+                {success}
+              </p>
+            </div>
+          </div>
+        )}
 
         <form
-          onSubmit={
-            handleSubmit
-          }
-          className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-soft"
+          onSubmit={handleSubmit}
+          className="space-y-6"
         >
 
           {/* =================================================
-             FORM HEADER
+              CONTENT HIERARCHY
           ================================================= */}
 
-          <div className="border-b border-slate-100 px-5 py-5 sm:px-6">
+          <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="border-b border-slate-200 px-6 py-5">
+              <h2 className="text-lg font-semibold text-slate-900">
+                1. Select Learning Location
+              </h2>
 
-            <div className="flex items-center gap-3">
+              <p className="mt-1 text-sm text-slate-500">
+                Choose where this video belongs in the
+                curriculum.
+              </p>
+            </div>
 
-              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-brand-green/10">
+            <div className="grid gap-6 p-6 md:grid-cols-3">
 
-                <Film className="h-5 w-5 text-brand-green" />
-
-              </div>
+              {/* UNIT */}
 
               <div>
+                <label className="mb-2 block text-sm font-semibold text-slate-700">
+                  Course Unit
+                  <span className="ml-1 text-red-500">
+                    *
+                  </span>
+                </label>
 
-                <h2 className="font-bold text-brand-dark">
-                  Video Details
-                </h2>
+                <div className="relative">
+                  <select
+                    value={
+                      selectedUnitId || ''
+                    }
+                    onChange={
+                      handleUnitChange
+                    }
+                    disabled={
+                      loadingUnits ||
+                      loading
+                    }
+                    className="w-full appearance-none rounded-xl border border-slate-300 bg-white px-4 py-3 pr-10 text-sm text-slate-900 outline-none transition focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:bg-slate-100"
+                  >
+                    <option value="">
+                      {loadingUnits
+                        ? 'Loading units...'
+                        : 'Select unit'}
+                    </option>
 
-                <p className="mt-1 text-xs text-slate-500">
-                  Enter the information for this
-                  lesson video.
-                </p>
+                    {units.map(
+                      (unit) => (
+                        <option
+                          key={unit.id}
+                          value={unit.id}
+                        >
+                          {unit.name}
+                          {unit.code
+                            ? ` (${unit.code})`
+                            : ''}
+                        </option>
+                      )
+                    )}
+                  </select>
 
+                  <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                </div>
+
+                {selectedUnit && (
+                  <p className="mt-2 text-xs text-slate-500">
+                    {selectedUnit.course_name}
+                  </p>
+                )}
               </div>
 
-            </div>
+              {/* TOPIC */}
 
-          </div>
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-slate-700">
+                  Topic
+                  <span className="ml-1 text-red-500">
+                    *
+                  </span>
+                </label>
 
-          {/* =================================================
-             BODY
-          ================================================= */}
+                <div className="relative">
+                  <select
+                    value={
+                      selectedTopicId || ''
+                    }
+                    onChange={
+                      handleTopicChange
+                    }
+                    disabled={
+                      !selectedUnitId ||
+                      loadingTopics ||
+                      loading
+                    }
+                    className="w-full appearance-none rounded-xl border border-slate-300 bg-white px-4 py-3 pr-10 text-sm text-slate-900 outline-none transition focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:bg-slate-100"
+                  >
+                    <option value="">
+                      {!selectedUnitId
+                        ? 'Select unit first'
+                        : loadingTopics
+                          ? 'Loading topics...'
+                          : topics.length === 0
+                            ? 'No topics found'
+                            : 'Select topic'}
+                    </option>
 
-          <div className="space-y-6 p-5 sm:p-6">
+                    {topics.map(
+                      (topic) => (
+                        <option
+                          key={topic.id}
+                          value={topic.id}
+                        >
+                          {topic.title}
+                        </option>
+                      )
+                    )}
+                  </select>
 
-            {/* =================================================
-               TITLE
-            ================================================= */}
-
-            <div>
-
-              <label
-                htmlFor="title"
-                className="mb-2 block text-sm font-bold text-slate-700"
-              >
-                Video Title
-                <span className="ml-1 text-red-500">
-                  *
-                </span>
-              </label>
-
-              <input
-                id="title"
-                type="text"
-                value={title}
-                onChange={(event) =>
-                  setTitle(
-                    event.target.value
-                  )
-                }
-                placeholder="e.g. Introduction to Emergency Medical Technology"
-                disabled={
-                  saving ||
-                  uploading
-                }
-                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-brand-green focus:ring-2 focus:ring-brand-green/10 disabled:bg-slate-50"
-              />
-
-            </div>
-
-            {/* =================================================
-               DESCRIPTION
-            ================================================= */}
-
-            <div>
-
-              <label
-                htmlFor="description"
-                className="mb-2 block text-sm font-bold text-slate-700"
-              >
-                Description
-              </label>
-
-              <textarea
-                id="description"
-                value={
-                  description
-                }
-                onChange={(event) =>
-                  setDescription(
-                    event.target.value
-                  )
-                }
-                placeholder="Briefly describe what students will learn from this video..."
-                rows={4}
-                disabled={
-                  saving ||
-                  uploading
-                }
-                className="w-full resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-brand-green focus:ring-2 focus:ring-brand-green/10 disabled:bg-slate-50"
-              />
-
-            </div>
-
-            {/* =================================================
-               SOURCE
-            ================================================= */}
-
-            <div>
-
-              <label className="mb-3 block text-sm font-bold text-slate-700">
-
-                Video Source
-
-                <span className="ml-1 text-red-500">
-                  *
-                </span>
-
-              </label>
-
-              {/* SOURCE SWITCH */}
-
-              <div className="mb-4 flex rounded-xl bg-slate-100 p-1">
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSourceType(
-                      'url'
-                    );
-
-                    setSelectedFile(
-                      null
-                    );
-
-                    setVideoFileName(
-                      ''
-                    );
-
-                    setVideoFileUrl(
-                      ''
-                    );
-
-                    setError('');
-                  }}
-                  disabled={
-                    saving ||
-                    uploading
-                  }
-                  className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-bold transition ${
-                    sourceType ===
-                    'url'
-                      ? 'bg-white text-brand-green shadow-sm'
-                      : 'text-slate-500 hover:text-slate-700'
-                  }`}
-                >
-
-                  <Link2 className="h-4 w-4" />
-
-                  Video URL
-
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSourceType(
-                      'upload'
-                    );
-
-                    setVideoUrl(
-                      ''
-                    );
-
-                    setError('');
-                  }}
-                  disabled={
-                    saving ||
-                    uploading
-                  }
-                  className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-bold transition ${
-                    sourceType ===
-                    'upload'
-                      ? 'bg-white text-brand-green shadow-sm'
-                      : 'text-slate-500 hover:text-slate-700'
-                  }`}
-                >
-
-                  <Upload className="h-4 w-4" />
-
-                  Upload Video
-
-                </button>
-
+                  <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                </div>
               </div>
 
-              {/* =================================================
-                 URL
-              ================================================= */}
+              {/* LESSON */}
 
-              {sourceType ===
-              'url' ? (
-                <div>
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-slate-700">
+                  Lesson
+                  <span className="ml-1 text-red-500">
+                    *
+                  </span>
+                </label>
 
-                  <div className="relative">
+                <div className="relative">
+                  <select
+                    value={
+                      selectedLessonId || ''
+                    }
+                    onChange={
+                      handleLessonChange
+                    }
+                    disabled={
+                      !selectedTopicId ||
+                      loadingLessons ||
+                      loading
+                    }
+                    className="w-full appearance-none rounded-xl border border-slate-300 bg-white px-4 py-3 pr-10 text-sm text-slate-900 outline-none transition focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:bg-slate-100"
+                  >
+                    <option value="">
+                      {!selectedTopicId
+                        ? 'Select topic first'
+                        : loadingLessons
+                          ? 'Loading lessons...'
+                          : lessons.length === 0
+                            ? 'No lessons found'
+                            : 'Select lesson'}
+                    </option>
 
-                    <Link2 className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                    {lessons.map(
+                      (item) => (
+                        <option
+                          key={item.id}
+                          value={item.id}
+                        >
+                          {item.title}
+                        </option>
+                      )
+                    )}
+                  </select>
 
-                    <input
-                      type="url"
-                      value={
-                        videoUrl
-                      }
-                      onChange={(
-                        event
-                      ) =>
-                        setVideoUrl(
-                          event.target.value
-                        )
-                      }
-                      placeholder="https://youtube.com/watch?v=..."
-                      disabled={
-                        saving ||
-                        uploading
-                      }
-                      className="w-full rounded-xl border border-slate-200 bg-white py-3 pl-10 pr-4 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-brand-green focus:ring-2 focus:ring-brand-green/10 disabled:bg-slate-50"
-                    />
+                  <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                </div>
+              </div>
+            </div>
 
-                  </div>
+            {/* SELECTED PATH */}
 
-                  <p className="mt-1.5 text-xs text-slate-400">
-                    Enter a public video URL,
-                    such as YouTube, Vimeo or
-                    another supported video host.
+            {selectedUnit &&
+              selectedTopic &&
+              selectedLesson && (
+                <div className="mx-6 mb-6 rounded-xl border border-purple-200 bg-purple-50 p-4">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-purple-700">
+                    Video will be added to
                   </p>
 
+                  <div className="flex flex-wrap items-center gap-2 text-sm text-purple-900">
+                    <span className="font-medium">
+                      {selectedUnit.course_name}
+                    </span>
+
+                    <span>→</span>
+
+                    <span>
+                      {selectedUnit.name}
+                    </span>
+
+                    <span>→</span>
+
+                    <span>
+                      {selectedTopic.title}
+                    </span>
+
+                    <span>→</span>
+
+                    <span className="font-semibold">
+                      {selectedLesson.title}
+                    </span>
+                  </div>
                 </div>
-              ) : (
+              )}
+          </section>
 
-                /* =================================================
-                   UPLOAD
-                ================================================= */
+          {/* =================================================
+              VIDEO DETAILS
+          ================================================= */}
 
-                <div>
+          <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <div className="border-b border-slate-200 px-6 py-5">
+              <h2 className="text-lg font-semibold text-slate-900">
+                2. Video Details
+              </h2>
 
-                  <label
-                    htmlFor="videoFile"
-                    className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 px-6 py-10 text-center transition hover:border-brand-green/40 hover:bg-brand-green/5"
+              <p className="mt-1 text-sm text-slate-500">
+                Enter the information students will see
+                when accessing this video.
+              </p>
+            </div>
+
+            <div className="space-y-6 p-6">
+
+              {/* TITLE */}
+
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-slate-700">
+                  Video Title
+                  <span className="ml-1 text-red-500">
+                    *
+                  </span>
+                </label>
+
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(event) =>
+                    setTitle(
+                      event.target.value
+                    )
+                  }
+                  placeholder="e.g. Introduction to the German Language"
+                  disabled={loading}
+                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:bg-slate-100"
+                />
+              </div>
+
+              {/* DESCRIPTION */}
+
+              <div>
+                <label className="mb-2 block text-sm font-semibold text-slate-700">
+                  Description
+                </label>
+
+                <textarea
+                  value={description}
+                  onChange={(event) =>
+                    setDescription(
+                      event.target.value
+                    )
+                  }
+                  rows={4}
+                  placeholder="Briefly describe what students will learn from this video..."
+                  disabled={loading}
+                  className="w-full resize-none rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:bg-slate-100"
+                />
+              </div>
+
+              {/* SOURCE */}
+
+              <div>
+                <label className="mb-3 block text-sm font-semibold text-slate-700">
+                  Video Source
+                  <span className="ml-1 text-red-500">
+                    *
+                  </span>
+                </label>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+
+                  {/* URL */}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSourceType('url');
+                      setSelectedFile(null);
+                      setVideoFileName('');
+                      setVideoFileUrl('');
+                    }}
+                    disabled={loading}
+                    className={`rounded-xl border p-4 text-left transition ${
+                      sourceType === 'url'
+                        ? 'border-purple-500 bg-purple-50 ring-2 ring-purple-100'
+                        : 'border-slate-200 hover:border-slate-300'
+                    }`}
                   >
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100">
+                        <Film className="h-5 w-5 text-slate-700" />
+                      </div>
 
-                    <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-green/10">
+                      <div>
+                        <p className="font-semibold text-slate-900">
+                          Video URL
+                        </p>
 
-                      <Upload className="h-6 w-6 text-brand-green" />
-
+                        <p className="text-xs text-slate-500">
+                          YouTube or external video
+                        </p>
+                      </div>
                     </div>
+                  </button>
 
-                    <p className="text-sm font-bold text-slate-700">
+                  {/* UPLOAD */}
 
-                      {selectedFile
-                        ? selectedFile.name
-                        : 'Click to choose a video'}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSourceType('upload');
+                      setVideoUrl('');
+                    }}
+                    disabled={loading}
+                    className={`rounded-xl border p-4 text-left transition ${
+                      sourceType === 'upload'
+                        ? 'border-purple-500 bg-purple-50 ring-2 ring-purple-100'
+                        : 'border-slate-200 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100">
+                        <Upload className="h-5 w-5 text-slate-700" />
+                      </div>
 
-                    </p>
+                      <div>
+                        <p className="font-semibold text-slate-900">
+                          Upload Video
+                        </p>
 
-                    <p className="mt-1 text-xs text-slate-400">
-                      MP4, WebM, OGG, MOV,
-                      AVI or MKV
-                    </p>
+                        <p className="text-xs text-slate-500">
+                          Maximum file size: 100 MB
+                        </p>
+                      </div>
+                    </div>
+                  </button>
+                </div>
+              </div>
 
-                    <p className="mt-1 text-xs text-slate-400">
-                      Maximum size: 100 MB
-                    </p>
+              {/* URL */}
 
-                    <input
-                      id="videoFile"
-                      type="file"
-                      accept=".mp4,.webm,.ogg,.mov,.avi,.mkv,video/*"
-                      onChange={
-                        handleFileChange
-                      }
-                      disabled={
-                        saving ||
-                        uploading
-                      }
-                      className="hidden"
-                    />
-
+              {sourceType === 'url' && (
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-slate-700">
+                    Video URL
+                    <span className="ml-1 text-red-500">
+                      *
+                    </span>
                   </label>
 
-                  {selectedFile && (
-                    <div className="mt-3 flex items-center justify-between gap-4 rounded-xl border border-green-200 bg-green-50 px-4 py-3">
+                  <input
+                    type="url"
+                    value={videoUrl}
+                    onChange={(event) =>
+                      setVideoUrl(
+                        event.target.value
+                      )
+                    }
+                    placeholder="https://www.youtube.com/watch?v=..."
+                    disabled={loading}
+                    className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:bg-slate-100"
+                  />
+                </div>
+              )}
 
-                      <div className="min-w-0">
+              {/* FILE */}
 
-                        <p className="truncate text-sm font-bold text-green-700">
-                          {
-                            selectedFile.name
-                          }
-                        </p>
+              {sourceType === 'upload' && (
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-slate-700">
+                    Upload Video
+                    <span className="ml-1 text-red-500">
+                      *
+                    </span>
+                  </label>
 
-                        <p className="mt-1 text-xs text-green-600">
-                          {formatFileSize(
-                            selectedFile.size
-                          )}
-                        </p>
+                  {!selectedFile ? (
+                    <label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 px-6 py-10 text-center transition hover:border-purple-400 hover:bg-purple-50">
+                      <Upload className="mb-3 h-8 w-8 text-slate-400" />
 
+                      <span className="text-sm font-semibold text-slate-700">
+                        Click to select a video
+                      </span>
+
+                      <span className="mt-1 text-xs text-slate-500">
+                        MP4, WebM, OGG, MOV, AVI or MKV
+                        • Maximum 100 MB
+                      </span>
+
+                      <input
+                        type="file"
+                        accept="video/*,.mp4,.webm,.ogg,.mov,.avi,.mkv"
+                        onChange={
+                          handleFileChange
+                        }
+                        disabled={loading}
+                        className="hidden"
+                      />
+                    </label>
+                  ) : (
+                    <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-purple-100">
+                          <Video className="h-5 w-5 text-purple-700" />
+                        </div>
+
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-slate-900">
+                            {selectedFile.name}
+                          </p>
+
+                          <p className="text-xs text-slate-500">
+                            {(
+                              selectedFile.size /
+                              (1024 * 1024)
+                            ).toFixed(2)}{' '}
+                            MB
+                          </p>
+                        </div>
                       </div>
 
                       <button
@@ -1146,203 +1555,133 @@ export default function CreateLessonVideoPage() {
                         onClick={
                           removeSelectedFile
                         }
-                        disabled={
-                          saving ||
-                          uploading
-                        }
-                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-green-600 transition hover:bg-green-100"
-                        aria-label="Remove selected video"
+                        disabled={loading}
+                        className="rounded-lg p-2 text-slate-500 hover:bg-red-50 hover:text-red-600"
                       >
-
-                        <X className="h-4 w-4" />
-
+                        <X className="h-5 w-5" />
                       </button>
-
                     </div>
                   )}
-
                 </div>
               )}
 
-            </div>
-
-            {/* =================================================
-               THUMBNAIL
-            ================================================= */}
-
-            <div>
-
-              <label
-                htmlFor="thumbnailUrl"
-                className="mb-2 block text-sm font-bold text-slate-700"
-              >
-                Thumbnail URL
-              </label>
-
-              <input
-                id="thumbnailUrl"
-                type="url"
-                value={
-                  thumbnailUrl
-                }
-                onChange={(event) =>
-                  setThumbnailUrl(
-                    event.target.value
-                  )
-                }
-                placeholder="https://example.com/thumbnail.jpg"
-                disabled={
-                  saving ||
-                  uploading
-                }
-                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-brand-green focus:ring-2 focus:ring-brand-green/10 disabled:bg-slate-50"
-              />
-
-              <p className="mt-1.5 text-xs text-slate-400">
-                Optional image displayed as the
-                video thumbnail.
-              </p>
-
-            </div>
-
-            {/* =================================================
-               VIDEO SETTINGS
-            ================================================= */}
-
-            <div className="grid gap-5 sm:grid-cols-2">
-
-              {/* DURATION */}
+              {/* THUMBNAIL */}
 
               <div>
-
-                <label
-                  htmlFor="duration"
-                  className="mb-2 block text-sm font-bold text-slate-700"
-                >
-                  Duration
+                <label className="mb-2 block text-sm font-semibold text-slate-700">
+                  Thumbnail URL
                 </label>
 
                 <input
-                  id="duration"
-                  type="number"
-                  min="0"
-                  value={
-                    durationSeconds
-                  }
+                  type="url"
+                  value={thumbnailUrl}
                   onChange={(event) =>
-                    setDurationSeconds(
+                    setThumbnailUrl(
                       event.target.value
                     )
                   }
-                  placeholder="e.g. 600"
-                  disabled={
-                    saving ||
-                    uploading
-                  }
-                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-brand-green focus:ring-2 focus:ring-brand-green/10 disabled:bg-slate-50"
+                  placeholder="https://..."
+                  disabled={loading}
+                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:bg-slate-100"
                 />
 
-                <p className="mt-1.5 text-xs text-slate-400">
-                  Duration in seconds.
+                <p className="mt-1 text-xs text-slate-500">
+                  Optional image displayed as the video
+                  thumbnail.
                 </p>
-
               </div>
 
-              {/* ORDER */}
+              {/* DURATION / ORDER / STATUS */}
 
-              <div>
+              <div className="grid gap-6 md:grid-cols-3">
 
-                <label
-                  htmlFor="orderNumber"
-                  className="mb-2 block text-sm font-bold text-slate-700"
-                >
-                  Order Number
-                </label>
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-slate-700">
+                    Duration (seconds)
+                  </label>
 
-                <input
-                  id="orderNumber"
-                  type="number"
-                  min="1"
-                  value={
-                    orderNumber
-                  }
-                  onChange={(event) =>
-                    setOrderNumber(
-                      event.target.value
-                    )
-                  }
-                  disabled={
-                    saving ||
-                    uploading
-                  }
-                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-brand-green focus:ring-2 focus:ring-brand-green/10 disabled:bg-slate-50"
-                />
+                  <input
+                    type="number"
+                    min="0"
+                    value={
+                      durationSeconds
+                    }
+                    onChange={(event) =>
+                      setDurationSeconds(
+                        event.target.value
+                      )
+                    }
+                    placeholder="e.g. 600"
+                    disabled={loading}
+                    className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:bg-slate-100"
+                  />
+                </div>
 
-                <p className="mt-1.5 text-xs text-slate-400">
-                  Determines the position of
-                  the video in the lesson.
-                </p>
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-slate-700">
+                    Display Order
+                  </label>
 
+                  <input
+                    type="number"
+                    min="1"
+                    value={
+                      orderNumber
+                    }
+                    onChange={(event) =>
+                      setOrderNumber(
+                        event.target.value
+                      )
+                    }
+                    disabled={loading}
+                    className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:bg-slate-100"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-slate-700">
+                    Status
+                  </label>
+
+                  <div className="relative">
+                    <select
+                      value={status}
+                      onChange={(event) =>
+                        setStatus(
+                          event.target.value
+                        )
+                      }
+                      disabled={loading}
+                      className="w-full appearance-none rounded-xl border border-slate-300 bg-white px-4 py-3 pr-10 text-sm outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-100 disabled:bg-slate-100"
+                    >
+                      <option value="active">
+                        Active
+                      </option>
+
+                      <option value="draft">
+                        Draft
+                      </option>
+
+                      <option value="inactive">
+                        Inactive
+                      </option>
+                    </select>
+
+                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  </div>
+                </div>
               </div>
-
             </div>
-
-            {/* =================================================
-               STATUS
-            ================================================= */}
-
-            <div>
-
-              <label
-                htmlFor="status"
-                className="mb-2 block text-sm font-bold text-slate-700"
-              >
-                Status
-              </label>
-
-              <select
-                id="status"
-                value={status}
-                onChange={(event) =>
-                  setStatus(
-                    event.target.value
-                  )
-                }
-                disabled={
-                  saving ||
-                  uploading
-                }
-                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-brand-green focus:ring-2 focus:ring-brand-green/10 disabled:bg-slate-50"
-              >
-
-                <option value="active">
-                  Active
-                </option>
-
-                <option value="inactive">
-                  Inactive
-                </option>
-
-              </select>
-
-              <p className="mt-1.5 text-xs text-slate-400">
-                Inactive videos remain available
-                for later editing.
-              </p>
-
-            </div>
-
-          </div>
+          </section>
 
           {/* =================================================
-             ACTIONS
+              ACTIONS
           ================================================= */}
 
-          <div className="flex flex-col-reverse gap-3 border-t border-slate-100 bg-slate-50/50 px-5 py-5 sm:flex-row sm:items-center sm:justify-end sm:px-6">
-
+          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
             <Link
-              href={`/lecturer/dashboard/lessons/${lessonId}/videos`}
-              className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-bold text-slate-600 transition hover:bg-slate-50"
+              href={backUrl}
+              className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-6 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
             >
               Cancel
             </Link>
@@ -1350,38 +1689,31 @@ export default function CreateLessonVideoPage() {
             <button
               type="submit"
               disabled={
-                saving ||
-                uploading ||
-                loadingLesson
+                loading ||
+                loadingUnits ||
+                loadingTopics ||
+                loadingLessons ||
+                !selectedUnitId ||
+                !selectedTopicId ||
+                !selectedLessonId
               }
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-brand-green px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-purple-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
-
-              {uploading ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Uploading Video...
-                </>
-              ) : saving ? (
+              {loading ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
                   Saving Video...
                 </>
               ) : (
                 <>
-                  <Save className="h-4 w-4" />
+                  <CheckCircle2 className="h-4 w-4" />
                   Save Video
                 </>
               )}
-
             </button>
-
           </div>
-
         </form>
-
       </div>
-
     </div>
   );
 }

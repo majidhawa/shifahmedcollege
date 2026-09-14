@@ -41,12 +41,6 @@ export function SiteChrome({
   ) {
     return <>{children}</>;
   }
-if (
-  pathname === '/student/login' ||
-  pathname.startsWith('/student/login/')
-) {
-  return <>{children}</>;
-}
 
   if (
     pathname === '/lecturer/dashboard' ||

@@ -9,17 +9,20 @@ import {
   BookOpen,
   CheckCircle2,
   ClipboardList,
-  FileQuestion,
   GripVertical,
   Plus,
   Save,
   Trash2,
   AlertCircle,
+  ShieldCheck,
+  ListChecks,
 } from 'lucide-react';
 
 /* =========================================================
    TYPES
 ========================================================= */
+
+type AssessmentType = 'quiz' | 'exam';
 
 type QuestionType =
   | 'multiple_choice'
@@ -37,23 +40,37 @@ type Option = {
    HELPERS
 ========================================================= */
 
-function formatQuestionType(type: string) {
-  switch (type) {
-    case 'multiple_choice':
-      return 'Multiple Choice';
+function normalizeAssessmentType(
+  value: unknown
+): AssessmentType {
+  const normalized = String(value ?? '')
+    .trim()
+    .toLowerCase();
 
-    case 'true_false':
-      return 'True / False';
-
-    case 'short_answer':
-      return 'Short Answer';
-
-    case 'essay':
-      return 'Essay';
-
-    default:
-      return 'Question';
+  if (
+    normalized === 'exam' ||
+    normalized === 'examination'
+  ) {
+    return 'exam';
   }
+
+  return 'quiz';
+}
+
+function getAssessmentLabel(
+  assessmentType: AssessmentType
+) {
+  return assessmentType === 'exam'
+    ? 'Examination'
+    : 'Quiz / CAT';
+}
+
+function getAssessmentShortLabel(
+  assessmentType: AssessmentType
+) {
+  return assessmentType === 'exam'
+    ? 'Examination'
+    : 'Quiz / CAT';
 }
 
 function createOption(
@@ -84,7 +101,8 @@ export default function CreateQuizQuestionPage() {
      STATE
   ======================================================= */
 
-  const [quiz, setQuiz] = useState<any>(null);
+  const [quiz, setQuiz] =
+    useState<any>(null);
 
   const [loadingQuiz, setLoadingQuiz] =
     useState(true);
@@ -102,7 +120,9 @@ export default function CreateQuizQuestionPage() {
     useState('');
 
   const [questionType, setQuestionType] =
-    useState<QuestionType>('multiple_choice');
+    useState<QuestionType>(
+      'multiple_choice'
+    );
 
   const [marks, setMarks] =
     useState('1');
@@ -125,7 +145,30 @@ export default function CreateQuizQuestionPage() {
     ]);
 
   /* =======================================================
-     LOAD QUIZ
+     ASSESSMENT TYPE
+  ======================================================= */
+
+  const assessmentType: AssessmentType =
+    normalizeAssessmentType(
+      quiz?.assessmentType ??
+        quiz?.assessment_type
+    );
+
+  const isExam =
+    assessmentType === 'exam';
+
+  const assessmentLabel =
+    getAssessmentLabel(
+      assessmentType
+    );
+
+  const assessmentShortLabel =
+    getAssessmentShortLabel(
+      assessmentType
+    );
+
+  /* =======================================================
+     LOAD ASSESSMENT
   ======================================================= */
 
   useEffect(() => {
@@ -148,11 +191,12 @@ export default function CreateQuizQuestionPage() {
 
         if (!response.ok) {
           throw new Error(
-            'Failed to load quiz.'
+            'Failed to load assessment.'
           );
         }
 
-        const data = await response.json();
+        const data =
+          await response.json();
 
         if (cancelled) return;
 
@@ -161,10 +205,6 @@ export default function CreateQuizQuestionPage() {
 
         setQuiz(loadedQuiz);
 
-        /*
-         * If the API provides the next question order,
-         * use it.
-         */
         if (
           loadedQuiz?.nextQuestionOrder !==
           undefined
@@ -177,13 +217,13 @@ export default function CreateQuizQuestionPage() {
         }
       } catch (err) {
         console.error(
-          'LOAD QUIZ ERROR:',
+          'LOAD ASSESSMENT ERROR:',
           err
         );
 
         if (!cancelled) {
           setError(
-            'Unable to load this quiz. Please refresh the page and try again.'
+            'Unable to load this assessment. Please refresh the page and try again.'
           );
         }
       } finally {
@@ -201,12 +241,14 @@ export default function CreateQuizQuestionPage() {
   }, [quizId]);
 
   /* =======================================================
-     OPTIONS
+     QUESTION BEHAVIOR
   ======================================================= */
 
   const objectiveQuestion =
-    questionType === 'multiple_choice' ||
-    questionType === 'true_false';
+    questionType ===
+      'multiple_choice' ||
+    questionType ===
+      'true_false';
 
   const canHaveOptions =
     objectiveQuestion;
@@ -214,7 +256,8 @@ export default function CreateQuizQuestionPage() {
   const correctOptions = useMemo(
     () =>
       options.filter(
-        (option) => option.isCorrect
+        (option) =>
+          option.isCorrect
       ),
     [options]
   );
@@ -232,9 +275,16 @@ export default function CreateQuizQuestionPage() {
 
     if (type === 'true_false') {
       setOptions([
-        createOption('True', false),
-        createOption('False', false),
+        createOption(
+          'True',
+          false
+        ),
+        createOption(
+          'False',
+          false
+        ),
       ]);
+
       return;
     }
 
@@ -245,6 +295,7 @@ export default function CreateQuizQuestionPage() {
         createOption(),
         createOption(),
       ]);
+
       return;
     }
 
@@ -271,7 +322,8 @@ export default function CreateQuizQuestionPage() {
   ) {
     setOptions((current) =>
       current.filter(
-        (option) => option.id !== optionId
+        (option) =>
+          option.id !== optionId
       )
     );
   }
@@ -328,35 +380,46 @@ export default function CreateQuizQuestionPage() {
       Number(marks);
 
     if (
-      !Number.isFinite(numericMarks) ||
+      !Number.isFinite(
+        numericMarks
+      ) ||
       numericMarks <= 0
     ) {
       return 'Question marks must be greater than 0.';
     }
 
-    if (objectiveQuestion) {
+    /* =====================================================
+       MULTIPLE CHOICE
+    ===================================================== */
+
+    if (
+      questionType ===
+      'multiple_choice'
+    ) {
       const usableOptions =
         options.filter(
           (option) =>
-            option.text.trim().length > 0
+            option.text.trim()
+              .length > 0
         );
 
       if (
-        questionType ===
-          'multiple_choice' &&
         usableOptions.length < 2
       ) {
         return 'Multiple choice questions must have at least two answer options.';
       }
 
-      if (correctOptions.length !== 1) {
+      if (
+        correctOptions.length !== 1
+      ) {
         return 'Please select one correct answer.';
       }
 
       const emptyOption =
         options.some(
           (option) =>
-            option.text.trim().length === 0
+            option.text.trim()
+              .length === 0
         );
 
       if (emptyOption) {
@@ -364,11 +427,51 @@ export default function CreateQuizQuestionPage() {
       }
     }
 
+    /* =====================================================
+       TRUE / FALSE
+    ===================================================== */
+
     if (
-      !objectiveQuestion &&
-      !correctAnswer.trim()
+      questionType ===
+      'true_false'
     ) {
-      return 'Please enter the correct/model answer.';
+      if (
+        options.length !== 2
+      ) {
+        return 'True / False questions must contain True and False options.';
+      }
+
+      if (
+        correctOptions.length !== 1
+      ) {
+        return 'Please select either True or False as the correct answer.';
+      }
+
+      const correctOption =
+        correctOptions[0];
+
+      if (
+        !correctOption ||
+        !correctOption.text.trim()
+      ) {
+        return 'Please select a valid True / False answer.';
+      }
+    }
+
+    /* =====================================================
+       WRITTEN QUESTIONS
+    ===================================================== */
+
+    if (
+      questionType ===
+        'short_answer' ||
+      questionType === 'essay'
+    ) {
+      if (
+        !correctAnswer.trim()
+      ) {
+        return 'Please enter the correct/model answer.';
+      }
     }
 
     return null;
@@ -390,12 +493,58 @@ export default function CreateQuizQuestionPage() {
       validateForm();
 
     if (validationError) {
-      setError(validationError);
+      setError(
+        validationError
+      );
       return;
     }
 
     try {
       setSaving(true);
+
+      /* ===================================================
+         DETERMINE CORRECT ANSWER
+         
+         Multiple Choice:
+           Correct answer is stored in options.
+
+         True / False:
+           Correct answer MUST also be sent as
+           correctAnswer because the API expects it.
+
+         Short Answer / Essay:
+           Correct answer comes from the model answer.
+      =================================================== */
+
+      let finalCorrectAnswer:
+        | string
+        | null = null;
+
+      if (
+        questionType ===
+        'true_false'
+      ) {
+        const correctOption =
+          correctOptions[0];
+
+        finalCorrectAnswer =
+          correctOption?.text
+            ?.trim()
+            .toLowerCase() || null;
+      }
+
+      if (
+        questionType ===
+          'short_answer' ||
+        questionType === 'essay'
+      ) {
+        finalCorrectAnswer =
+          correctAnswer.trim();
+      }
+
+      /* ===================================================
+         PAYLOAD
+      =================================================== */
 
       const payload = {
         quizId: Number(quizId),
@@ -409,49 +558,85 @@ export default function CreateQuizQuestionPage() {
 
         questionOrder:
           questionOrder
-            ? Number(questionOrder)
+            ? Number(
+                questionOrder
+              )
             : undefined,
 
         explanation:
-          explanation.trim() || null,
+          explanation.trim() ||
+          null,
 
+        /*
+         * IMPORTANT:
+         *
+         * True / False now sends "true" or "false".
+         *
+         * Multiple Choice continues to use the options
+         * table/JSON structure.
+         */
         correctAnswer:
+          finalCorrectAnswer,
+
+        /*
+         * Multiple Choice uses its options.
+         *
+         * True / False also sends the two options,
+         * while the API uses correctAnswer to determine
+         * the correct response.
+         */
+        options:
           objectiveQuestion
-            ? null
-            : correctAnswer.trim(),
+            ? options.map(
+                (
+                  option,
+                  index
+                ) => ({
+                  optionText:
+                    option.text.trim(),
 
-        options: objectiveQuestion
-          ? options.map((option, index) => ({
-              optionText:
-                option.text.trim(),
+                  isCorrect:
+                    option.isCorrect,
 
-              isCorrect:
-                option.isCorrect,
-
-              optionOrder:
-                index + 1,
-            }))
-          : [],
+                  optionOrder:
+                    index + 1,
+                })
+              )
+            : [],
       };
 
-      const response = await fetch(
-        `/api/lecturer/quizzes/${quizId}/questions`,
-        {
-          method: 'POST',
-
-          headers: {
-            'Content-Type':
-              'application/json',
-          },
-
-          body: JSON.stringify(payload),
-        }
+      console.log(
+        'CREATE QUESTION PAYLOAD:',
+        payload
       );
 
-      const data =
-        await response.json().catch(
-          () => ({})
+      /* ===================================================
+         API REQUEST
+      =================================================== */
+
+      const response =
+        await fetch(
+          `/api/lecturer/quizzes/${quizId}/questions`,
+          {
+            method: 'POST',
+
+            headers: {
+              'Content-Type':
+                'application/json',
+            },
+
+            body: JSON.stringify(
+              payload
+            ),
+          }
         );
+
+      const data =
+        await response
+          .json()
+          .catch(
+            () => ({})
+          );
 
       if (!response.ok) {
         throw new Error(
@@ -461,14 +646,14 @@ export default function CreateQuizQuestionPage() {
         );
       }
 
+      /* ===================================================
+         SUCCESS
+      =================================================== */
+
       setSuccess(
-        'Question created successfully.'
+        `${assessmentLabel} question created successfully.`
       );
 
-      /*
-       * Give the lecturer a short visual confirmation,
-       * then return to the questions list.
-       */
       setTimeout(() => {
         router.push(
           `/lecturer/dashboard/quizzes/${quizId}/questions`
@@ -512,6 +697,7 @@ export default function CreateQuizQuestionPage() {
           </div>
 
           <div className="rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-soft">
+
             <div className="mx-auto h-12 w-12 animate-spin rounded-full border-4 border-slate-200 border-t-brand-green" />
 
             <h2 className="mt-5 text-lg font-bold text-brand-dark">
@@ -519,8 +705,9 @@ export default function CreateQuizQuestionPage() {
             </h2>
 
             <p className="mt-2 text-sm text-slate-500">
-              Please wait while we load the quiz details.
+              Please wait while we load the assessment details.
             </p>
+
           </div>
 
         </div>
@@ -535,6 +722,7 @@ export default function CreateQuizQuestionPage() {
   if (!quiz) {
     return (
       <main className="min-h-screen bg-brand-cream px-4 py-8 sm:px-6 lg:px-8">
+
         <div className="mx-auto max-w-5xl">
 
           <Link
@@ -542,10 +730,11 @@ export default function CreateQuizQuestionPage() {
             className="inline-flex items-center gap-2 text-sm font-semibold text-slate-500"
           >
             <ArrowLeft className="h-4 w-4" />
-            Back to Quizzes
+            Back to Assessments
           </Link>
 
           <div className="mt-6 rounded-3xl border border-red-200 bg-red-50 p-8 text-center">
+
             <AlertCircle className="mx-auto h-10 w-10 text-red-600" />
 
             <h1 className="mt-4 text-xl font-bold text-red-900">
@@ -554,8 +743,9 @@ export default function CreateQuizQuestionPage() {
 
             <p className="mt-2 text-sm text-red-700">
               {error ||
-                'The requested quiz could not be found.'}
+                'The requested assessment could not be found.'}
             </p>
+
           </div>
 
         </div>
@@ -577,6 +767,7 @@ export default function CreateQuizQuestionPage() {
         ================================================== */}
 
         <div className="mb-5">
+
           <Link
             href={`/lecturer/dashboard/quizzes/${quizId}/questions`}
             className="inline-flex items-center gap-2 text-sm font-semibold text-slate-500 transition hover:text-brand-green"
@@ -584,13 +775,20 @@ export default function CreateQuizQuestionPage() {
             <ArrowLeft className="h-4 w-4" />
             Back to Questions
           </Link>
+
         </div>
 
         {/* ==================================================
             HEADER
         ================================================== */}
 
-        <section className="overflow-hidden rounded-3xl bg-brand-green shadow-soft">
+        <section
+          className={`overflow-hidden rounded-3xl shadow-soft ${
+            isExam
+              ? 'bg-purple-900'
+              : 'bg-brand-green'
+          }`}
+        >
 
           <div className="relative p-6 sm:p-8">
 
@@ -598,9 +796,22 @@ export default function CreateQuizQuestionPage() {
 
               <div className="flex flex-wrap items-center gap-2">
 
-                <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1.5 text-xs font-bold text-white">
-                  <FileQuestion className="h-3.5 w-3.5" />
-                  Create Question
+                <span
+                  className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-bold ${
+                    isExam
+                      ? 'bg-purple-400/20 text-white'
+                      : 'bg-white/10 text-white'
+                  }`}
+                >
+
+                  {isExam ? (
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                  ) : (
+                    <ClipboardList className="h-3.5 w-3.5" />
+                  )}
+
+                  {assessmentShortLabel}
+
                 </span>
 
                 {quiz.status && (
@@ -616,9 +827,13 @@ export default function CreateQuizQuestionPage() {
               </h1>
 
               <p className="mt-3 max-w-3xl text-sm leading-6 text-white/70">
-                Create a question for this assessment,
-                configure its answer options and set the
-                marks students will receive.
+                Create a question for this{' '}
+                {isExam
+                  ? 'examination'
+                  : 'quiz or CAT'}
+                , configure its answer options
+                and set the marks students will
+                receive.
               </p>
 
               <div className="mt-5 flex flex-wrap gap-2">
@@ -660,7 +875,76 @@ export default function CreateQuizQuestionPage() {
         </section>
 
         {/* ==================================================
-            QUIZ SUMMARY
+            ASSESSMENT TYPE NOTICE
+        ================================================== */}
+
+        <section className="mt-6">
+
+          <div
+            className={`rounded-2xl border p-4 ${
+              isExam
+                ? 'border-purple-200 bg-purple-50'
+                : 'border-blue-200 bg-blue-50'
+            }`}
+          >
+
+            <div className="flex items-start gap-3">
+
+              <div
+                className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
+                  isExam
+                    ? 'bg-purple-100'
+                    : 'bg-blue-100'
+                }`}
+              >
+
+                {isExam ? (
+                  <ShieldCheck className="h-5 w-5 text-purple-700" />
+                ) : (
+                  <ClipboardList className="h-5 w-5 text-blue-700" />
+                )}
+
+              </div>
+
+              <div>
+
+                <p
+                  className={`text-sm font-bold ${
+                    isExam
+                      ? 'text-purple-900'
+                      : 'text-blue-900'
+                  }`}
+                >
+                  Adding a question to:{' '}
+                  {assessmentLabel}
+                </p>
+
+                <p
+                  className={`mt-1 text-sm leading-6 ${
+                    isExam
+                      ? 'text-purple-800'
+                      : 'text-blue-800'
+                  }`}
+                >
+                  <strong>
+                    {quiz.title}
+                  </strong>{' '}
+                  is configured as a{' '}
+                  {assessmentLabel.toLowerCase()}.
+                  This question will automatically
+                  belong to that assessment.
+                </p>
+
+              </div>
+
+            </div>
+
+          </div>
+
+        </section>
+
+        {/* ==================================================
+            ASSESSMENT SUMMARY
         ================================================== */}
 
         <section className="mt-6 grid gap-4 sm:grid-cols-3">
@@ -669,11 +953,24 @@ export default function CreateQuizQuestionPage() {
 
             <div className="flex items-center gap-3">
 
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-green/10">
-                <ClipboardList className="h-5 w-5 text-brand-green" />
+              <div
+                className={`flex h-10 w-10 items-center justify-center rounded-xl ${
+                  isExam
+                    ? 'bg-purple-100'
+                    : 'bg-brand-green/10'
+                }`}
+              >
+
+                {isExam ? (
+                  <ShieldCheck className="h-5 w-5 text-purple-700" />
+                ) : (
+                  <ClipboardList className="h-5 w-5 text-brand-green" />
+                )}
+
               </div>
 
               <div>
+
                 <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
                   Assessment
                 </p>
@@ -681,6 +978,7 @@ export default function CreateQuizQuestionPage() {
                 <p className="mt-1 text-sm font-bold text-brand-dark">
                   {quiz.title}
                 </p>
+
               </div>
 
             </div>
@@ -692,10 +990,13 @@ export default function CreateQuizQuestionPage() {
             <div className="flex items-center gap-3">
 
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-gold/20">
+
                 <BookOpen className="h-5 w-5 text-brand-dark" />
+
               </div>
 
               <div>
+
                 <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
                   Lesson
                 </p>
@@ -704,6 +1005,7 @@ export default function CreateQuizQuestionPage() {
                   {quiz.lesson?.title ||
                     'Lesson'}
                 </p>
+
               </div>
 
             </div>
@@ -715,17 +1017,23 @@ export default function CreateQuizQuestionPage() {
             <div className="flex items-center gap-3">
 
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50">
-                <ListIcon />
+
+                <ListChecks className="h-5 w-5 text-brand-green" />
+
               </div>
 
               <div>
+
                 <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
-                  Quiz Marks
+                  Assessment Marks
                 </p>
 
                 <p className="mt-1 text-sm font-bold text-brand-dark">
-                  {quiz.totalMarks ?? 0} marks
+                  {quiz.totalMarks ??
+                    0}{' '}
+                  marks
                 </p>
+
               </div>
 
             </div>
@@ -746,6 +1054,7 @@ export default function CreateQuizQuestionPage() {
               <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
 
               <div>
+
                 <p className="text-sm font-bold text-red-900">
                   Unable to save question
                 </p>
@@ -753,6 +1062,7 @@ export default function CreateQuizQuestionPage() {
                 <p className="mt-1 text-sm leading-6 text-red-700">
                   {error}
                 </p>
+
               </div>
 
             </div>
@@ -802,15 +1112,13 @@ export default function CreateQuizQuestionPage() {
               </h2>
 
               <p className="mt-1 text-sm text-slate-500">
-                Enter the question and configure how students
-                should answer it.
+                Enter the question and configure
+                how students should answer it.
               </p>
 
             </div>
 
             <div className="space-y-6 p-6">
-
-              {/* QUESTION */}
 
               <div>
 
@@ -833,7 +1141,11 @@ export default function CreateQuizQuestionPage() {
                     )
                   }
                   rows={5}
-                  placeholder="Enter the question students will answer..."
+                  placeholder={
+                    isExam
+                      ? 'Enter the examination question students will answer...'
+                      : 'Enter the question students will answer...'
+                  }
                   className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-brand-dark outline-none transition placeholder:text-slate-400 focus:border-brand-green focus:ring-4 focus:ring-brand-green/10"
                   required
                 />
@@ -843,8 +1155,6 @@ export default function CreateQuizQuestionPage() {
                 </p>
 
               </div>
-
-              {/* TYPE + MARKS + ORDER */}
 
               <div className="grid gap-5 md:grid-cols-3">
 
@@ -868,6 +1178,7 @@ export default function CreateQuizQuestionPage() {
                     }
                     className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-brand-dark outline-none transition focus:border-brand-green focus:ring-4 focus:ring-brand-green/10"
                   >
+
                     <option value="multiple_choice">
                       Multiple Choice
                     </option>
@@ -883,6 +1194,7 @@ export default function CreateQuizQuestionPage() {
                     <option value="essay">
                       Essay
                     </option>
+
                   </select>
 
                 </div>
@@ -970,8 +1282,10 @@ export default function CreateQuizQuestionPage() {
                     </h2>
 
                     <p className="mt-1 text-sm text-slate-500">
-                      Select the correct answer and arrange
-                      the available options.
+                      {questionType ===
+                      'true_false'
+                        ? 'Select whether True or False is the correct answer.'
+                        : 'Select the correct answer and arrange the available options.'}
                     </p>
 
                   </div>
@@ -995,7 +1309,10 @@ export default function CreateQuizQuestionPage() {
               <div className="space-y-3 p-6">
 
                 {options.map(
-                  (option, index) => (
+                  (
+                    option,
+                    index
+                  ) => (
                     <div
                       key={option.id}
                       className={`rounded-2xl border p-4 transition ${
@@ -1021,16 +1338,21 @@ export default function CreateQuizQuestionPage() {
 
                           <input
                             type="text"
-                            value={option.text}
-                            onChange={(event) =>
+                            value={
+                              option.text
+                            }
+                            onChange={(
+                              event
+                            ) =>
                               updateOption(
                                 option.id,
-                                event.target.value
+                                event.target
+                                  .value
                               )
                             }
                             disabled={
                               questionType ===
-                                'true_false'
+                              'true_false'
                             }
                             placeholder={`Option ${
                               index + 1
@@ -1108,9 +1430,12 @@ export default function CreateQuizQuestionPage() {
                     </p>
 
                     <p className="mt-1 text-sm leading-6 text-blue-900">
-                      Select exactly one correct answer.
-                      Students will see the answer options
-                      when taking the assessment.
+
+                      {questionType ===
+                      'true_false'
+                        ? 'Select exactly one answer: True or False.'
+                        : 'Select exactly one correct answer. Students will see the answer options when taking the assessment.'}
+
                     </p>
 
                   </div>
@@ -1149,6 +1474,7 @@ export default function CreateQuizQuestionPage() {
                   className="text-sm font-bold text-brand-dark"
                 >
                   Correct / Model Answer
+
                   <span className="ml-1 text-red-500">
                     *
                   </span>
@@ -1182,6 +1508,7 @@ export default function CreateQuizQuestionPage() {
 
               <h2 className="text-lg font-bold text-brand-dark">
                 Explanation
+
                 <span className="ml-2 text-xs font-medium text-slate-400">
                   Optional
                 </span>
@@ -1231,6 +1558,7 @@ export default function CreateQuizQuestionPage() {
               disabled={saving}
               className="inline-flex items-center justify-center gap-2 rounded-2xl bg-brand-green px-6 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-60"
             >
+
               {saving ? (
                 <>
                   <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
@@ -1242,6 +1570,7 @@ export default function CreateQuizQuestionPage() {
                   Save Question
                 </>
               )}
+
             </button>
 
           </div>
@@ -1264,7 +1593,8 @@ export default function CreateQuizQuestionPage() {
 
           <p className="mt-2 max-w-2xl text-sm leading-6 text-white/70">
             Build clear questions, provide accurate answers
-            and explanations, and keep your assessments
+            and explanations, and keep your{' '}
+            {assessmentLabel.toLowerCase()}
             organized for students.
           </p>
 
@@ -1275,33 +1605,3 @@ export default function CreateQuizQuestionPage() {
     </main>
   );
 }
-
-/* =========================================================
-   SMALL ICON COMPONENT
-========================================================= */
-
-function ListIcon() {
-  return (
-    <ListChecksIcon />
-  );
-}
-
-function ListChecksIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      className="h-5 w-5 text-brand-green"
-    >
-      <path d="M9 6h11" />
-      <path d="M9 12h11" />
-      <path d="M9 18h11" />
-      <path d="M4 6h.01" />
-      <path d="M4 12h.01" />
-      <path d="M4 18h.01" />
-    </svg>
-  );
-}
-
