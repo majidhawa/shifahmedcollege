@@ -21,6 +21,8 @@ import {
   LogOut,
   ChevronRight,
   Camera,
+  Calendar,
+  Clipboard,
 } from 'lucide-react';
 
 interface StudentSidebarProps {
@@ -215,6 +217,18 @@ export default function StudentSidebar({
                 href="/student/dashboard/progress"
                 icon={<TrendingUp size={18} />}
                 label="Learning Progress"
+                pathname={pathname}
+              />
+               <SidebarItem
+                href="/student/dashboard/attendance"
+                icon={<Calendar size={18} />}
+                label="Attendance"
+                pathname={pathname}
+              />
+               <SidebarItem
+                href="/student/dashboard/timetable"
+                icon={<Clipboard size={18} />}
+                label="Timetable"
                 pathname={pathname}
               />
             </div>
