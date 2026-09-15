@@ -3,7 +3,10 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
-
+import {
+  BookOpenCheck,
+  FilePenLine,
+} from 'lucide-react';
 import {
   LayoutDashboard,
   BookOpen,
@@ -110,11 +113,7 @@ const navigationSections: NavigationSection[] = [
         href: '/lecturer/dashboard/lessons',
         icon: ClipboardList,
       },
-       {
-        label: 'Live classes',
-        href: '/lecturer/dashboard/live-classes',
-        icon: ClipboardList,
-      },
+       
     ],
   },
 
@@ -145,7 +144,28 @@ const navigationSections: NavigationSection[] = [
       },
     ],
   },
+ {
+    title: 'TEACHING ITEMS',
 
+    items: [
+      {
+        label: 'Live classes',
+        href: '/lecturer/dashboard/live-classes',
+        icon: ClipboardList,
+      },
+     {
+  label: 'Schemes of Work',
+  href: '/lecturer/dashboard/schemes',
+  icon: BookOpenCheck,
+},
+
+{
+  label: 'Lesson Plans',
+  href: '/lecturer/dashboard/lesson-plans',
+  icon: FilePenLine,
+},
+    ],
+  },
   /* =======================================================
      STUDENTS
   ======================================================== */
