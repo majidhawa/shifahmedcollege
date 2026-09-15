@@ -9,6 +9,7 @@ import {
   Eye,
   ArrowRight,
   GraduationCap,
+  UserPlus,
 } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
@@ -190,15 +191,25 @@ export default async function StudentsPage() {
               </p>
             </div>
 
-            <Link
-              href="/admin/dashboard/applications"
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-brand-green px-5 py-3 text-sm font-semibold text-brand-green transition hover:bg-brand-cream"
-            >
-              Applications
+           
+  <Link
+    href="/admin/dashboard/students/manual"
+    className="inline-flex items-center justify-center gap-2 rounded-xl bg-brand-green px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-dark"
+  >
+    <UserPlus className="h-4 w-4" />
 
-              <ArrowRight className="h-4 w-4" />
-            </Link>
-          </div>
+    Add Manual Student
+  </Link>
+
+  <Link
+    href="/admin/dashboard/applications"
+    className="inline-flex items-center justify-center gap-2 rounded-xl border border-brand-green px-5 py-3 text-sm font-semibold text-brand-green transition hover:bg-brand-cream"
+  >
+    Applications
+
+    <ArrowRight className="h-4 w-4" />
+  </Link>
+</div>
         </div>
       </div>
 
