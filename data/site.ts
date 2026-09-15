@@ -27,17 +27,17 @@ export const site = {
   email: 'admin@shifahmedicalcollege.co.ke',
   heroSlides: [
     {
-      image: '/images/hero1.jpeg',
+      image: '/images/emt1.jpg',
       title: 'Best Medical Training College in Kitale, Kenya.',
       text: 'Modern, clean, and practical medical training designed to prepare students for real-world service and professional growth.'
     },
     {
-      image: '/images/hero4.jpeg',
+      image: '/images/emt2.jpg',
       title: 'Phlebotomy & Caregiving Courses in Kenya — Apply Today.',
       text: 'From safe phlebotomy to clinical support skills, our programs focus on practical competence and professional readiness.'
     },
     {
-      image: '/images/hero3.jpeg',
+      image: '/images/emt3.jpg',
       title: 'Accredited Healthcare Training — Kitale, Kenya.',
       text: 'Explore healthcare-focused training supported by strong values, industry alignment, and a clear admissions pathway.'
     }

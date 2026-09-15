@@ -27,8 +27,8 @@ export default function HomePage() {
 
             <div className="mt-8 grid grid-cols-3 gap-4">
               {[
-                { value: '3+', label: 'Programmes' },
-                { value: '6mo', label: 'Shortest Course' },
+                { value: '6+', label: 'Programmes' },
+                { value: '12 weeks', label: 'Shortest Course' },
                 { value: '100%', label: 'Practical Focus' },
               ].map((s) => (
                 <div key={s.label} className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-4 text-center">
@@ -53,7 +53,7 @@ export default function HomePage() {
             <div className="absolute -right-6 -top-6 h-full w-full rounded-3xl bg-brand-cream" />
             <div className="absolute -left-3 top-8 bottom-8 w-1 rounded-full bg-gradient-to-b from-brand-green to-brand-gold" />
             <div className="relative overflow-hidden rounded-3xl shadow-xl">
-              <img src="/images/girl.jpeg" alt="Student nurse" className="h-full w-full object-cover aspect-[4/5]" />
+              <img src="/images/lab.png" alt="Student nurse" className="h-full w-full object-cover aspect-[4/5]" />
               <div className="absolute bottom-4 left-4 right-4 rounded-2xl bg-brand-dark/80 px-4 py-3 backdrop-blur-sm">
                 <p className="text-xs font-bold uppercase tracking-widest text-brand-gold">Shifah Medical Training College</p>
                 <p className="mt-0.5 text-sm text-white/80">Kitale, Kenya — {site.motto}</p>
