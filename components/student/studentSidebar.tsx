@@ -231,6 +231,18 @@ export default function StudentSidebar({
                 label="Timetable"
                 pathname={pathname}
               />
+               <SidebarItem
+            href="/student/dashboard/notifications"
+            icon={<Bell size={18} />}
+            label="Notifications"
+            pathname={pathname}
+          />
+           <SidebarItem
+            href="/student/dashboard/announcements"
+            icon={<Bell size={18} />}
+            label="Announcements"
+            pathname={pathname}
+          />
             </div>
           </>
         )}
@@ -243,12 +255,6 @@ export default function StudentSidebar({
         </SidebarSectionTitle>
 
         <div className="space-y-1">
-          <SidebarItem
-            href="/student/dashboard/notifications"
-            icon={<Bell size={18} />}
-            label="Notifications"
-            pathname={pathname}
-          />
 
           <SidebarItem
             href="/student/dashboard/contact"

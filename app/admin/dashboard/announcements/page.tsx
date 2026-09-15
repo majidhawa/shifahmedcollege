@@ -170,6 +170,90 @@ function formatDateTime(value: string | null) {
   });
 }
 
+/* =========================================================
+   KENYA TIMEZONE HELPERS
+
+   datetime-local values do not contain timezone information.
+
+   These helpers explicitly treat admin-selected times as
+   East Africa Time (EAT), which is UTC+03:00.
+========================================================= */
+
+function kenyaDateTimeToISOString(
+  value: string
+): string | null {
+  const cleanValue = value.trim();
+
+  if (!cleanValue) {
+    return null;
+  }
+
+  const match = cleanValue.match(
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/
+  );
+
+  if (!match) {
+    return null;
+  }
+
+  const [
+    ,
+    year,
+    month,
+    day,
+    hour,
+    minute,
+  ] = match;
+
+  return `${year}-${month}-${day}T${hour}:${minute}:00+03:00`;
+}
+
+function isoToKenyaDateTime(
+  value: string | null
+): string {
+  if (!value) {
+    return '';
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+
+  const kenyaTime = new Date(
+    date.getTime() + 3 * 60 * 60 * 1000
+  );
+
+  const year = kenyaTime
+    .getUTCFullYear()
+    .toString()
+    .padStart(4, '0');
+
+  const month = (
+    kenyaTime.getUTCMonth() + 1
+  )
+    .toString()
+    .padStart(2, '0');
+
+  const day = kenyaTime
+    .getUTCDate()
+    .toString()
+    .padStart(2, '0');
+
+  const hour = kenyaTime
+    .getUTCHours()
+    .toString()
+    .padStart(2, '0');
+
+  const minute = kenyaTime
+    .getUTCMinutes()
+    .toString()
+    .padStart(2, '0');
+
+  return `${year}-${month}-${day}T${hour}:${minute}`;
+}
+
 function priorityClasses(
   priority: AnnouncementPriority
 ) {
@@ -469,34 +553,31 @@ export default function AdminAnnouncementsPage() {
       audience: announcement.audience,
       priority: announcement.priority,
       status: announcement.status,
+
       program_id:
         announcement.program_id
           ? String(
               announcement.program_id
             )
           : '',
+
       unit_id:
         announcement.unit_id
           ? String(
               announcement.unit_id
             )
           : '',
+
       publish_at:
-        announcement.publish_at
-          ? new Date(
-              announcement.publish_at
-            )
-              .toISOString()
-              .slice(0, 16)
-          : '',
+        isoToKenyaDateTime(
+          announcement.publish_at
+        ),
+
       expires_at:
-        announcement.expires_at
-          ? new Date(
-              announcement.expires_at
-            )
-              .toISOString()
-              .slice(0, 16)
-          : '',
+        isoToKenyaDateTime(
+          announcement.expires_at
+        ),
+
       is_pinned:
         announcement.is_pinned,
     });
@@ -544,18 +625,33 @@ export default function AdminAnnouncementsPage() {
         audience: form.audience,
         priority: form.priority,
         status: form.status,
+
         program_id:
           form.program_id
             ? Number(form.program_id)
             : null,
+
         unit_id:
           form.unit_id
             ? Number(form.unit_id)
             : null,
+
+        /*
+         * IMPORTANT:
+         * datetime-local has no timezone.
+         * Convert the selected Kenya time to an
+         * explicit UTC+03:00 ISO timestamp.
+         */
         publish_at:
-          form.publish_at || null,
+          kenyaDateTimeToISOString(
+            form.publish_at
+          ),
+
         expires_at:
-          form.expires_at || null,
+          kenyaDateTimeToISOString(
+            form.expires_at
+          ),
+
         is_pinned:
           form.is_pinned,
       };
@@ -566,10 +662,12 @@ export default function AdminAnnouncementsPage() {
           method: form.id
             ? 'PUT'
             : 'POST',
+
           headers: {
             'Content-Type':
               'application/json',
           },
+
           body: JSON.stringify(
             payload
           ),
@@ -1651,7 +1749,7 @@ export default function AdminAnnouncementsPage() {
       =================================================== */}
 
       {deleteId !== null && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 p-4">
           <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
             <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-red-50">
               <Trash2 className="h-6 w-6 text-red-600" />
@@ -2051,3 +2149,4 @@ function InfoItem({
     </div>
   );
 }
+

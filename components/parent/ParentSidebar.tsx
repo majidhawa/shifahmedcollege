@@ -361,15 +361,7 @@ function SidebarNavigation({
 
       <div className="space-y-1">
 
-        <SidebarItem
-          href="/parent/dashboard/payment"
-          icon={<CreditCard size={19} />}
-          label="Fees & Payments"
-          active={pathname.startsWith(
-            '/parent/dashboard/payment'
-          )}
-          onClick={onNavigate}
-        />
+        
 
         <SidebarItem
           href="/parent/dashboard/documents"

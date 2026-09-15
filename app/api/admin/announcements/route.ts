@@ -3,6 +3,7 @@ import pool from '@/lib/db';
 import { requireAdmin } from '@/lib/admin-auth';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 /* =========================================================
    TYPES
@@ -24,6 +25,25 @@ type AnnouncementAudience =
   | 'lecturers'
   | 'parents'
   | 'all';
+
+type AnnouncementBody = {
+  id?: unknown;
+  title?: unknown;
+  message?: unknown;
+  audience?: unknown;
+  priority?: unknown;
+  status?: unknown;
+  program_id?: unknown;
+  unit_id?: unknown;
+  publish_at?: unknown;
+  expires_at?: unknown;
+  is_pinned?: unknown;
+};
+
+type NotificationTarget = {
+  parent_id: number | string;
+  application_id: number | string;
+};
 
 /* =========================================================
    HELPERS
@@ -96,14 +116,431 @@ function getErrorMessage(error: unknown): string {
 }
 
 /* =========================================================
+   GET ADMIN ID
+========================================================= */
+
+function getAdminId(admin: unknown): number {
+  if (
+    typeof admin !== 'object' ||
+    admin === null
+  ) {
+    return 0;
+  }
+
+  const adminRecord =
+    admin as Record<string, unknown>;
+
+  const id =
+    adminRecord.id ??
+    adminRecord.user_id ??
+    adminRecord.userId;
+
+  const adminId = Number(id);
+
+  if (
+    !Number.isInteger(adminId) ||
+    adminId <= 0
+  ) {
+    return 0;
+  }
+
+  return adminId;
+}
+
+/* =========================================================
+   CREATE / SYNCHRONIZE PARENT NOTIFICATIONS
+========================================================= */
+
+async function createParentNotifications(
+  client: {
+    query: (
+      text: string,
+      values?: unknown[]
+    ) => Promise<{
+      rows: NotificationTarget[];
+      rowCount: number | null;
+    }>;
+  },
+  announcementId: number,
+  title: string,
+  message: string,
+  audience: AnnouncementAudience,
+  programId: number | null,
+  unitId: number | null,
+  adminId: number
+): Promise<number> {
+  /*
+   * Only Parents and Everyone announcements generate
+   * parent notifications.
+   */
+  if (
+    audience !== 'parents' &&
+    audience !== 'all'
+  ) {
+    /*
+     * If the announcement was changed from Parents/Everyone
+     * to Students/Lecturers, remove its old parent
+     * notifications.
+     */
+    const deletedResult =
+      await client.query(
+        `
+        DELETE FROM lms_parent_notifications
+        WHERE announcement_id = $1
+          AND type = 'announcement'
+        `,
+        [announcementId]
+      );
+
+    return -(deletedResult.rowCount ?? 0);
+  }
+
+  /* =====================================================
+     FIND CURRENT TARGETS
+
+     Targeting rules:
+
+     1. GLOBAL
+        program_id IS NULL
+        AND unit_id IS NULL
+
+     2. PROGRAM
+        program_id IS NOT NULL
+        AND unit_id IS NULL
+
+        Child must have an active lms_enrollments record
+        for that program.
+
+     3. UNIT
+        unit_id IS NOT NULL
+
+        Child must have an active lms_enrollments record
+        containing an active lms_unit_enrollments record
+        for that unit.
+
+        If program_id is also supplied, the active
+        enrollment must match that program.
+  ===================================================== */
+
+  let targetsResult: {
+    rows: NotificationTarget[];
+    rowCount: number | null;
+  };
+
+  /* =====================================================
+     GLOBAL
+  ===================================================== */
+
+  if (
+    programId === null &&
+    unitId === null
+  ) {
+    targetsResult =
+      await client.query(
+        `
+        SELECT DISTINCT
+          ps.parent_id,
+          ps.application_id
+
+        FROM parent_students ps
+
+        INNER JOIN users parent_user
+          ON parent_user.id = ps.parent_id
+         AND parent_user.role = 'parent'
+         AND parent_user.active = TRUE
+
+        INNER JOIN applications app
+          ON app.id = ps.application_id
+        `
+      );
+  } else if (
+    programId !== null &&
+    unitId === null
+  ) {
+    /* =====================================================
+       PROGRAM TARGET
+    ===================================================== */
+
+    targetsResult =
+      await client.query(
+        `
+        SELECT DISTINCT
+          ps.parent_id,
+          ps.application_id
+
+        FROM parent_students ps
+
+        INNER JOIN users parent_user
+          ON parent_user.id = ps.parent_id
+         AND parent_user.role = 'parent'
+         AND parent_user.active = TRUE
+
+        INNER JOIN applications app
+          ON app.id = ps.application_id
+
+        INNER JOIN lms_enrollments le
+          ON le.application_id = app.id
+
+        WHERE le.enrollment_status = 'active'
+          AND le.program_id = $1
+        `,
+        [programId]
+      );
+  } else {
+    /* =====================================================
+       UNIT TARGET
+
+       The unit must belong to an active enrollment for the
+       child's application.
+
+       If a program is also supplied, it must match the
+       enrollment's program.
+    ===================================================== */
+
+    targetsResult =
+      await client.query(
+        `
+        SELECT DISTINCT
+          ps.parent_id,
+          ps.application_id
+
+        FROM parent_students ps
+
+        INNER JOIN users parent_user
+          ON parent_user.id = ps.parent_id
+         AND parent_user.role = 'parent'
+         AND parent_user.active = TRUE
+
+        INNER JOIN applications app
+          ON app.id = ps.application_id
+
+        INNER JOIN lms_enrollments le
+          ON le.application_id = app.id
+
+        INNER JOIN lms_unit_enrollments lue
+          ON lue.enrollment_id = le.id
+
+        WHERE le.enrollment_status = 'active'
+          AND lue.status = 'active'
+          AND lue.unit_id = $1
+
+          AND (
+            $2::integer IS NULL
+            OR le.program_id = $2
+          )
+        `,
+        [unitId, programId]
+      );
+  }
+
+  const targets =
+    targetsResult.rows.filter(
+      (target) => {
+        const parentId =
+          Number(target.parent_id);
+
+        const applicationId =
+          Number(target.application_id);
+
+        return (
+          Number.isInteger(parentId) &&
+          parentId > 0 &&
+          Number.isInteger(applicationId) &&
+          applicationId > 0
+        );
+      }
+    );
+
+  /* =====================================================
+     REMOVE STALE NOTIFICATIONS
+     
+     If an announcement is edited from:
+
+       Program A → Program B
+       Unit A → Unit B
+       Unit A → Global
+       Global → Unit A
+
+     parents who are no longer eligible should no longer
+     retain the old notification.
+     
+     Their existing read/unread state is otherwise preserved.
+  ===================================================== */
+
+  if (targets.length === 0) {
+    await client.query(
+      `
+      DELETE FROM lms_parent_notifications
+      WHERE announcement_id = $1
+        AND type = 'announcement'
+      `,
+      [announcementId]
+    );
+  } else {
+    for (const target of targets) {
+      /*
+       * Existing eligible notifications are retained.
+       * Only missing notifications are inserted below.
+       */
+    }
+
+    /*
+     * Build a temporary VALUES list safely using numbered
+     * PostgreSQL parameters.
+     */
+    const staleValues: unknown[] = [
+      announcementId,
+    ];
+
+    const targetConditions: string[] = [];
+
+    targets.forEach(
+      (target, index) => {
+        const parentParameter =
+          staleValues.length + 1;
+
+        const applicationParameter =
+          staleValues.length + 2;
+
+        staleValues.push(
+          Number(target.parent_id),
+          Number(target.application_id)
+        );
+
+        targetConditions.push(
+          `(n.parent_id = $${parentParameter} AND n.application_id = $${applicationParameter})`
+        );
+
+        void index;
+      }
+    );
+
+    await client.query(
+      `
+      DELETE FROM lms_parent_notifications n
+      WHERE n.announcement_id = $1
+        AND n.type = 'announcement'
+        AND NOT (
+          ${targetConditions.join(' OR ')}
+        )
+      `,
+      staleValues
+    );
+  }
+
+  /* =====================================================
+     CREATE / UPDATE CURRENT TARGETS
+     
+     Existing notifications are NOT duplicated.
+     Existing notifications have their title/message updated
+     when the announcement itself is edited.
+     
+     Their is_read/read_at values remain unchanged.
+  ===================================================== */
+
+  let notificationsCreated = 0;
+
+  for (const target of targets) {
+    const parentId =
+      Number(target.parent_id);
+
+    const applicationId =
+      Number(target.application_id);
+
+    /*
+     * Update an existing notification first.
+     */
+    const updateResult =
+      await client.query(
+        `
+        UPDATE lms_parent_notifications
+        SET
+          title = $1,
+          message = $2,
+          created_by = $3
+        WHERE parent_id = $4
+          AND application_id = $5
+          AND announcement_id = $6
+          AND type = 'announcement'
+        `,
+        [
+          title,
+          message,
+          adminId,
+          parentId,
+          applicationId,
+          announcementId,
+        ]
+      );
+
+    /*
+     * If nothing was updated, create the notification.
+     */
+    if (
+      (updateResult.rowCount ?? 0) === 0
+    ) {
+      const insertResult =
+        await client.query(
+          `
+          INSERT INTO lms_parent_notifications (
+            parent_id,
+            application_id,
+            announcement_id,
+            title,
+            message,
+            type,
+            link,
+            is_read,
+            created_by,
+            created_at
+          )
+
+          SELECT
+            $1,
+            $2,
+            $3,
+            $4,
+            $5,
+            'announcement',
+            '/parent/dashboard/announcements',
+            FALSE,
+            $6,
+            NOW()
+
+          WHERE NOT EXISTS (
+            SELECT 1
+            FROM lms_parent_notifications existing
+
+            WHERE existing.parent_id = $1
+              AND existing.application_id = $2
+              AND existing.announcement_id = $3
+              AND existing.type = 'announcement'
+          )
+          `,
+          [
+            parentId,
+            applicationId,
+            announcementId,
+            title,
+            message,
+            adminId,
+          ]
+        );
+
+      if (
+        (insertResult.rowCount ?? 0) > 0
+      ) {
+        notificationsCreated++;
+      }
+    }
+  }
+
+  return notificationsCreated;
+}
+
+/* =========================================================
    GET
    /api/admin/announcements
-
-   Returns:
-   - All announcements
-   - Programs
-   - Units
-   - Statistics
 ========================================================= */
 
 export async function GET(request: Request) {
@@ -179,7 +616,8 @@ export async function GET(request: Request) {
         return NextResponse.json(
           {
             success: false,
-            message: 'Invalid announcement status.',
+            message:
+              'Invalid announcement status.',
           },
           { status: 400 }
         );
@@ -198,7 +636,8 @@ export async function GET(request: Request) {
         return NextResponse.json(
           {
             success: false,
-            message: 'Invalid announcement audience.',
+            message:
+              'Invalid announcement audience.',
           },
           { status: 400 }
         );
@@ -217,7 +656,8 @@ export async function GET(request: Request) {
         return NextResponse.json(
           {
             success: false,
-            message: 'Invalid announcement priority.',
+            message:
+              'Invalid announcement priority.',
           },
           { status: 400 }
         );
@@ -444,11 +884,11 @@ export async function GET(request: Request) {
 /* =========================================================
    POST
    /api/admin/announcements
-
-   ADMIN CAN CREATE ANY ANNOUNCEMENT
 ========================================================= */
 
 export async function POST(request: Request) {
+  const client = await pool.connect();
+
   try {
     /* =====================================================
        ADMIN AUTHENTICATION
@@ -466,20 +906,9 @@ export async function POST(request: Request) {
       );
     }
 
-    /* =====================================================
-       GET ADMIN ID
-    ===================================================== */
+    const adminId = getAdminId(admin);
 
-    const adminId = Number(
-      (admin as any)?.id ??
-      (admin as any)?.user_id ??
-      (admin as any)?.userId
-    );
-
-    if (
-      !Number.isInteger(adminId) ||
-      adminId <= 0
-    ) {
+    if (adminId <= 0) {
       return NextResponse.json(
         {
           success: false,
@@ -494,10 +923,11 @@ export async function POST(request: Request) {
        READ BODY
     ===================================================== */
 
-    let body: any;
+    let body: AnnouncementBody;
 
     try {
-      body = await request.json();
+      body =
+        (await request.json()) as AnnouncementBody;
     } catch {
       return NextResponse.json(
         {
@@ -512,41 +942,41 @@ export async function POST(request: Request) {
        VALUES
     ===================================================== */
 
-    const title = cleanString(body?.title);
+    const title =
+      cleanString(body.title);
 
-    const message = cleanString(
-      body?.message
-    );
+    const message =
+      cleanString(body.message);
 
     const audience: AnnouncementAudience =
-      isValidAudience(body?.audience)
+      isValidAudience(body.audience)
         ? body.audience
         : 'all';
 
     const priority: AnnouncementPriority =
-      isValidPriority(body?.priority)
+      isValidPriority(body.priority)
         ? body.priority
         : 'normal';
 
     const status: AnnouncementStatus =
-      isValidStatus(body?.status)
+      isValidStatus(body.status)
         ? body.status
         : 'draft';
 
     const programId =
-      nullableNumber(body?.program_id);
+      nullableNumber(body.program_id);
 
     const unitId =
-      nullableNumber(body?.unit_id);
+      nullableNumber(body.unit_id);
 
     const publishAt =
-      cleanString(body?.publish_at) || null;
+      cleanString(body.publish_at) || null;
 
     const expiresAt =
-      cleanString(body?.expires_at) || null;
+      cleanString(body.expires_at) || null;
 
     const isPinned =
-      Boolean(body?.is_pinned);
+      Boolean(body.is_pinned);
 
     /* =====================================================
        VALIDATION
@@ -582,301 +1012,6 @@ export async function POST(request: Request) {
             'Announcement message is required.',
         },
         { status: 400 }
-      );
-    }
-
-    /* =====================================================
-       VERIFY PROGRAM
-    ===================================================== */
-
-    if (programId !== null) {
-      const programCheck =
-        await pool.query(
-          `
-          SELECT id
-          FROM lms_programs
-          WHERE id = $1
-          LIMIT 1
-          `,
-          [programId]
-        );
-
-      if (programCheck.rowCount === 0) {
-        return NextResponse.json(
-          {
-            success: false,
-            message: 'Selected program was not found.',
-          },
-          { status: 400 }
-        );
-      }
-    }
-
-    /* =====================================================
-       VERIFY UNIT
-    ===================================================== */
-
-    if (unitId !== null) {
-      const unitCheck =
-        await pool.query(
-          `
-          SELECT
-            id,
-            program_id
-          FROM lms_units
-          WHERE id = $1
-          LIMIT 1
-          `,
-          [unitId]
-        );
-
-      if (unitCheck.rowCount === 0) {
-        return NextResponse.json(
-          {
-            success: false,
-            message: 'Selected unit was not found.',
-          },
-          { status: 400 }
-        );
-      }
-
-      if (
-        programId !== null &&
-        Number(
-          unitCheck.rows[0].program_id
-        ) !== Number(programId)
-      ) {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              'The selected unit does not belong to the selected program.',
-          },
-          { status: 400 }
-        );
-      }
-    }
-
-    /* =====================================================
-       INSERT
-    ===================================================== */
-
-    const result =
-      await pool.query(
-        `
-        INSERT INTO lms_announcements (
-          title,
-          message,
-          created_by,
-          created_by_role,
-          program_id,
-          unit_id,
-          audience,
-          priority,
-          status,
-          publish_at,
-          expires_at,
-          is_pinned
-        )
-        VALUES (
-          $1,
-          $2,
-          $3,
-          'admin',
-          $4,
-          $5,
-          $6,
-          $7,
-          $8,
-          COALESCE($9::timestamptz, NOW()),
-          $10::timestamptz,
-          $11
-        )
-        RETURNING
-          id,
-          title,
-          message,
-          created_by,
-          created_by_role,
-          program_id,
-          unit_id,
-          audience,
-          priority,
-          status,
-          publish_at,
-          expires_at,
-          is_pinned,
-          created_at,
-          updated_at
-        `,
-        [
-          title,
-          message,
-          adminId,
-          programId,
-          unitId,
-          audience,
-          priority,
-          status,
-          publishAt,
-          expiresAt,
-          isPinned,
-        ]
-      );
-
-    return NextResponse.json(
-      {
-        success: true,
-        message:
-          'Announcement created successfully.',
-        announcement: result.rows[0],
-      },
-      { status: 201 }
-    );
-  } catch (error) {
-    console.error(
-      'POST /api/admin/announcements error:',
-      error
-    );
-
-    return NextResponse.json(
-      {
-        success: false,
-        message: getErrorMessage(error),
-      },
-      { status: 500 }
-    );
-  }
-}
-
-/* =========================================================
-   PUT
-   /api/admin/announcements
-
-   ADMIN CAN EDIT ANY ANNOUNCEMENT
-========================================================= */
-
-export async function PUT(request: Request) {
-  try {
-    const admin = requireAdmin();
-
-    if (!admin) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: 'Unauthorized.',
-        },
-        { status: 401 }
-      );
-    }
-
-    let body: any;
-
-    try {
-      body = await request.json();
-    } catch {
-      return NextResponse.json(
-        {
-          success: false,
-          message: 'Invalid request body.',
-        },
-        { status: 400 }
-      );
-    }
-
-    const id = nullableNumber(body?.id);
-
-    if (id === null) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            'Announcement ID is required.',
-        },
-        { status: 400 }
-      );
-    }
-
-    const title =
-      cleanString(body?.title);
-
-    const message =
-      cleanString(body?.message);
-
-    const audience: AnnouncementAudience =
-      isValidAudience(body?.audience)
-        ? body.audience
-        : 'all';
-
-    const priority: AnnouncementPriority =
-      isValidPriority(body?.priority)
-        ? body.priority
-        : 'normal';
-
-    const status: AnnouncementStatus =
-      isValidStatus(body?.status)
-        ? body.status
-        : 'draft';
-
-    const programId =
-      nullableNumber(body?.program_id);
-
-    const unitId =
-      nullableNumber(body?.unit_id);
-
-    const publishAt =
-      cleanString(body?.publish_at) || null;
-
-    const expiresAt =
-      cleanString(body?.expires_at) || null;
-
-    const isPinned =
-      Boolean(body?.is_pinned);
-
-    if (!title) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            'Announcement title is required.',
-        },
-        { status: 400 }
-      );
-    }
-
-    if (!message) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            'Announcement message is required.',
-        },
-        { status: 400 }
-      );
-    }
-
-    /* =====================================================
-       VERIFY ANNOUNCEMENT EXISTS
-    ===================================================== */
-
-    const existing =
-      await pool.query(
-        `
-        SELECT id
-        FROM lms_announcements
-        WHERE id = $1
-        LIMIT 1
-        `,
-        [id]
-      );
-
-    if (existing.rowCount === 0) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: 'Announcement not found.',
-        },
-        { status: 404 }
       );
     }
 
@@ -955,11 +1090,414 @@ export async function PUT(request: Request) {
     }
 
     /* =====================================================
-       UPDATE
+       BEGIN TRANSACTION
+    ===================================================== */
+
+    await client.query('BEGIN');
+
+    /* =====================================================
+       INSERT ANNOUNCEMENT
     ===================================================== */
 
     const result =
-      await pool.query(
+      await client.query(
+        `
+        INSERT INTO lms_announcements (
+          title,
+          message,
+          created_by,
+          created_by_role,
+          program_id,
+          unit_id,
+          audience,
+          priority,
+          status,
+          publish_at,
+          expires_at,
+          is_pinned
+        )
+        VALUES (
+          $1,
+          $2,
+          $3,
+          'admin',
+          $4,
+          $5,
+          $6,
+          $7,
+          $8,
+          COALESCE($9::timestamptz, NOW()),
+          $10::timestamptz,
+          $11
+        )
+        RETURNING
+          id,
+          title,
+          message,
+          created_by,
+          created_by_role,
+          program_id,
+          unit_id,
+          audience,
+          priority,
+          status,
+          publish_at,
+          expires_at,
+          is_pinned,
+          created_at,
+          updated_at
+        `,
+        [
+          title,
+          message,
+          adminId,
+          programId,
+          unitId,
+          audience,
+          priority,
+          status,
+          publishAt,
+          expiresAt,
+          isPinned,
+        ]
+      );
+
+    const announcement =
+      result.rows[0];
+
+    /* =====================================================
+       CREATE PARENT NOTIFICATIONS
+    ===================================================== */
+
+    let parentNotificationsCreated = 0;
+
+    if (
+      announcement &&
+      status === 'published' &&
+      (
+        audience === 'parents' ||
+        audience === 'all'
+      )
+    ) {
+      parentNotificationsCreated =
+        await createParentNotifications(
+          client,
+          Number(announcement.id),
+          title,
+          message,
+          audience,
+          programId,
+          unitId,
+          adminId
+        );
+    }
+
+    /* =====================================================
+       COMMIT
+    ===================================================== */
+
+    await client.query('COMMIT');
+
+    return NextResponse.json(
+      {
+        success: true,
+        message:
+          'Announcement created successfully.',
+        announcement,
+        parentNotificationsCreated,
+      },
+      { status: 201 }
+    );
+  } catch (error) {
+    try {
+      await client.query('ROLLBACK');
+    } catch {
+      // Ignore rollback errors.
+    }
+
+    console.error(
+      'POST /api/admin/announcements error:',
+      error
+    );
+
+    return NextResponse.json(
+      {
+        success: false,
+        message: getErrorMessage(error),
+      },
+      { status: 500 }
+    );
+  } finally {
+    client.release();
+  }
+}
+
+/* =========================================================
+   PUT
+   /api/admin/announcements
+========================================================= */
+
+export async function PUT(request: Request) {
+  const client = await pool.connect();
+
+  try {
+    /* =====================================================
+       ADMIN AUTHENTICATION
+    ===================================================== */
+
+    const admin = requireAdmin();
+
+    if (!admin) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: 'Unauthorized.',
+        },
+        { status: 401 }
+      );
+    }
+
+    const adminId = getAdminId(admin);
+
+    if (adminId <= 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            'Unable to determine administrator ID.',
+        },
+        { status: 401 }
+      );
+    }
+
+    /* =====================================================
+       READ BODY
+    ===================================================== */
+
+    let body: AnnouncementBody;
+
+    try {
+      body =
+        (await request.json()) as AnnouncementBody;
+    } catch {
+      return NextResponse.json(
+        {
+          success: false,
+          message: 'Invalid request body.',
+        },
+        { status: 400 }
+      );
+    }
+
+    const id =
+      nullableNumber(body.id);
+
+    if (id === null) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            'Announcement ID is required.',
+        },
+        { status: 400 }
+      );
+    }
+
+    const title =
+      cleanString(body.title);
+
+    const message =
+      cleanString(body.message);
+
+    const audience: AnnouncementAudience =
+      isValidAudience(body.audience)
+        ? body.audience
+        : 'all';
+
+    const priority: AnnouncementPriority =
+      isValidPriority(body.priority)
+        ? body.priority
+        : 'normal';
+
+    const status: AnnouncementStatus =
+      isValidStatus(body.status)
+        ? body.status
+        : 'draft';
+
+    const programId =
+      nullableNumber(body.program_id);
+
+    const unitId =
+      nullableNumber(body.unit_id);
+
+    const publishAt =
+      cleanString(body.publish_at) || null;
+
+    const expiresAt =
+      cleanString(body.expires_at) || null;
+
+    const isPinned =
+      Boolean(body.is_pinned);
+
+    /* =====================================================
+       VALIDATION
+    ===================================================== */
+
+    if (!title) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            'Announcement title is required.',
+        },
+        { status: 400 }
+      );
+    }
+
+    if (title.length > 255) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            'Announcement title cannot exceed 255 characters.',
+        },
+        { status: 400 }
+      );
+    }
+
+    if (!message) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            'Announcement message is required.',
+        },
+        { status: 400 }
+      );
+    }
+
+    /* =====================================================
+       BEGIN TRANSACTION
+    ===================================================== */
+
+    await client.query('BEGIN');
+
+    /* =====================================================
+       VERIFY ANNOUNCEMENT EXISTS
+    ===================================================== */
+
+    const existing =
+      await client.query(
+        `
+        SELECT
+          id
+        FROM lms_announcements
+        WHERE id = $1
+        LIMIT 1
+        FOR UPDATE
+        `,
+        [id]
+      );
+
+    if (existing.rowCount === 0) {
+      await client.query('ROLLBACK');
+
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            'Announcement not found.',
+        },
+        { status: 404 }
+      );
+    }
+
+    /* =====================================================
+       VERIFY PROGRAM
+    ===================================================== */
+
+    if (programId !== null) {
+      const programCheck =
+        await client.query(
+          `
+          SELECT id
+          FROM lms_programs
+          WHERE id = $1
+          LIMIT 1
+          `,
+          [programId]
+        );
+
+      if (programCheck.rowCount === 0) {
+        await client.query('ROLLBACK');
+
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              'Selected program was not found.',
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    /* =====================================================
+       VERIFY UNIT
+    ===================================================== */
+
+    if (unitId !== null) {
+      const unitCheck =
+        await client.query(
+          `
+          SELECT
+            id,
+            program_id
+          FROM lms_units
+          WHERE id = $1
+          LIMIT 1
+          `,
+          [unitId]
+        );
+
+      if (unitCheck.rowCount === 0) {
+        await client.query('ROLLBACK');
+
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              'Selected unit was not found.',
+          },
+          { status: 400 }
+        );
+      }
+
+      if (
+        programId !== null &&
+        Number(
+          unitCheck.rows[0].program_id
+        ) !== Number(programId)
+      ) {
+        await client.query('ROLLBACK');
+
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              'The selected unit does not belong to the selected program.',
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    /* =====================================================
+       UPDATE ANNOUNCEMENT
+    ===================================================== */
+
+    const result =
+      await client.query(
         `
         UPDATE lms_announcements
         SET
@@ -1014,13 +1552,58 @@ export async function PUT(request: Request) {
         ]
       );
 
+    const announcement =
+      result.rows[0];
+
+    /* =====================================================
+       SYNCHRONIZE PARENT NOTIFICATIONS
+       
+       This is important when an announcement is edited.
+
+       Example:
+         Unit A → Unit B
+
+       Parents enrolled in Unit A will have their old
+       notification removed.
+
+       Parents enrolled in Unit B will receive a notification.
+
+       Existing eligible notifications retain their
+       read/unread state.
+    ===================================================== */
+
+    const parentNotificationsCreated =
+      await createParentNotifications(
+        client,
+        Number(announcement.id),
+        title,
+        message,
+        audience,
+        programId,
+        unitId,
+        adminId
+      );
+
+    /* =====================================================
+       COMMIT
+    ===================================================== */
+
+    await client.query('COMMIT');
+
     return NextResponse.json({
       success: true,
       message:
         'Announcement updated successfully.',
-      announcement: result.rows[0],
+      announcement,
+      parentNotificationsCreated,
     });
   } catch (error) {
+    try {
+      await client.query('ROLLBACK');
+    } catch {
+      // Ignore rollback errors.
+    }
+
     console.error(
       'PUT /api/admin/announcements error:',
       error
@@ -1033,14 +1616,14 @@ export async function PUT(request: Request) {
       },
       { status: 500 }
     );
+  } finally {
+    client.release();
   }
 }
 
 /* =========================================================
    DELETE
    /api/admin/announcements?id=123
-
-   ADMIN CAN DELETE ANY ANNOUNCEMENT
 ========================================================= */
 
 export async function DELETE(request: Request) {
@@ -1096,6 +1679,12 @@ export async function DELETE(request: Request) {
         { status: 404 }
       );
     }
+
+    /*
+     * lms_parent_notifications.announcement_id has
+     * ON DELETE CASCADE, so linked parent notifications
+     * are automatically removed.
+     */
 
     return NextResponse.json({
       success: true,
