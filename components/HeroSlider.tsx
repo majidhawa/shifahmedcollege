@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { site } from '@/data/site';
-import { AdmissionsCountdown } from '@/components/AdmissionsCountdown';
+import { AdmissionsCountdown } from '@/components/SMTCNoticeBoard';
 
 const stats = [
   { label: 'Programmes', value: '3+' },
