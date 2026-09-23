@@ -1,6 +1,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import HeartEmergencyQuiz from './HeartEmergencyQuiz';
+import HeartDayEpisodes from './HeartDayEpisodes';
 
 export default function WorldHeartDayPage() {
   return (
@@ -243,7 +244,7 @@ export default function WorldHeartDayPage() {
               >
 
                 <Image
-                  src="/images/world-heart-day.jpg"
+                  src="/images/Save_heart.png"
                   alt="World Heart Day: Could You Save a Heart? campaign"
                   width={1080}
                   height={1350}
@@ -515,6 +516,11 @@ export default function WorldHeartDayPage() {
 <section className="border-t border-white/10 bg-white/[0.02]">
   <HeartEmergencyQuiz />
 </section>
+{/* ========================================================= */}
+{/* HEART DAY EPISODES */}
+{/* ========================================================= */}
+
+<HeartDayEpisodes />
       <section className="bg-brand-green">
 
         <div className="mx-auto max-w-5xl px-5 py-16 text-center sm:px-6">

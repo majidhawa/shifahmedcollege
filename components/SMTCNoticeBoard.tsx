@@ -42,6 +42,18 @@ const notices: Notice[] = [
     buttonText: 'Join the Campaign',
     buttonHref: '/world-heart-day',
   },
+  {
+    id: 3,
+    image: '/images/save.png',
+    status: 'NOW RUNNING',
+    statusType: 'live',
+    title: 'World Heart Day: Could You Save a Heart?',
+    description:
+      'Join Shifah Medical Training College as we raise awareness about heart health, emergency response and the importance of knowing what to do when every second matters.',
+    date: 'World Heart Day Campaign',
+    buttonText: 'Join the Campaign',
+    buttonHref: '/world-heart-day',
+  },
 ];
 
 const statusStyles: Record<Notice['statusType'], string> = {
