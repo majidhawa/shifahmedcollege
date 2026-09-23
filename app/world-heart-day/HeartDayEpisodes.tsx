@@ -23,10 +23,10 @@ const episodes: Episode[] = [
   },
   {
     number: 2,
-    title: 'What Do You Check First?',
+    title: 'Heart attack vs Cardiac Arrest: What Do You Check First?',
     description:
       'In an emergency, knowing what to check first can help you respond appropriately.',
-    image: '/images/world-heart-day/episode-2.png',
+    image: '/images/episode-2.png',
     status: 'COMING SOON',
   },
   {
