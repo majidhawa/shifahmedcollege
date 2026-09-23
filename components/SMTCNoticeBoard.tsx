@@ -19,7 +19,7 @@ type Notice = {
 const notices: Notice[] = [
   {
     id: 1,
-    image: '/images/world-heart-day.png',
+    image: '/images/world-heart-day.jpg',
     status: 'NOW RUNNING',
     statusType: 'live',
     title: 'World Heart Day: Could You Save a Heart?',
