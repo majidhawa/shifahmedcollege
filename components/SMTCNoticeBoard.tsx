@@ -226,7 +226,7 @@ export function AdmissionsCountdown() {
             fill
             priority={activeNotice === 0}
             className="
-              object-cover
+              object-contain
               transition-transform
               duration-500
             "
