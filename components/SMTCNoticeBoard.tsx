@@ -30,19 +30,18 @@ const notices: Notice[] = [
     buttonHref: '/world-heart-day',
   },
 
-  // Add future notices here
-  // {
-  //   id: 2,
-  //   image: '/images/notices/september-intake.jpg',
-  //   status: 'ADMISSIONS OPEN',
-  //   statusType: 'admissions',
-  //   title: 'September Intake Admissions',
-  //   description:
-  //     'Applications are ongoing for our healthcare training programmes.',
-  //   date: 'September 2026 Intake',
-  //   buttonText: 'Apply Now',
-  //   buttonHref: '/apply',
-  // },
+   {
+    id: 2,
+    image: '/images/world-heart-day.jpg',
+    status: 'NOW RUNNING',
+    statusType: 'live',
+    title: 'World Heart Day: Could You Save a Heart?',
+    description:
+      'Join Shifah Medical Training College as we raise awareness about heart health, emergency response and the importance of knowing what to do when every second matters.',
+    date: 'World Heart Day Campaign',
+    buttonText: 'Join the Campaign',
+    buttonHref: '/world-heart-day',
+  },
 ];
 
 const statusStyles: Record<Notice['statusType'], string> = {
