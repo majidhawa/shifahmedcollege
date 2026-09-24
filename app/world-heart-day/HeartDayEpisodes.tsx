@@ -27,14 +27,15 @@ const episodes: Episode[] = [
     description:
       'In an emergency, knowing what to check first can help you respond appropriately.',
     image: '/images/episode-2.png',
-    status: 'COMING SOON',
+    status: 'LIVE',
+    tiktokUrl: 'https://vt.tiktok.com/ZSbdSg5m2/',
   },
   {
     number: 3,
     title: 'CPR: Would You Know What to Do?',
     description:
       'Learn the basic principles behind responding to a person who is unresponsive and not breathing normally.',
-    image: '/images/world-heart-day/episode-3.png',
+    image: '/images/episode3.png',
     status: 'COMING SOON',
   },
 ];
