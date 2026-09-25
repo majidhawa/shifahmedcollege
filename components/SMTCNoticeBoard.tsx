@@ -53,7 +53,18 @@ const notices: Notice[] = [
     date: 'World Heart Day Campaign',
     buttonText: 'Join the Campaign',
     buttonHref: '/world-heart-day',
-  },
+  },{
+  id: 4,
+  image: '/images/episode-4.png',
+  status: 'COMING SOON',
+  statusType: 'upcoming',
+  title: 'Episode 4: AED — Could It Save a Life?',
+  description:
+    'An AED can deliver a life-saving shock during certain cardiac emergencies. In Episode 4, discover what an AED does, when it is needed and how it can help save a life when every second matters.',
+  date: 'World Heart Day Campaign • Episode 4',
+  buttonText: 'Watch Episode 4',
+  buttonHref: '/world-heart-day',
+},
 ];
 
 const statusStyles: Record<Notice['statusType'], string> = {

@@ -36,7 +36,18 @@ const episodes: Episode[] = [
     description:
       'Learn the basic principles behind responding to a person who is unresponsive and not breathing normally.',
     image: '/images/episode3.png',
-    status: 'COMING SOON',
+    status: 'LIVE',
+    tiktokUrl: 'https://vt.tiktok.com/ZSb8wudMC/',
+    
+  },
+{
+  number: 4,
+  title: 'AED — Could It Save a Life?',
+  description:
+    'An AED can deliver a life-saving shock during certain cardiac emergencies. In Episode 4, discover what an AED does, when it is needed and how it can help save a life when every second matters.',
+
+  image: '/images/episode-4.png',
+  status: 'COMING SOON',
   },
 ];
 
