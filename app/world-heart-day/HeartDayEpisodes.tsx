@@ -57,8 +57,8 @@ const episodes: Episode[] = [
     'Heart attack and cardiac arrest are not the same emergency. In Episode 5, learn the warning signs of a heart attack, recognize cardiac arrest and understand why knowing the difference can help you respond quickly when every second matters.',
 
   image: '/images/episode-5.png',
-  status: 'COMING SOON',
-  tiktokUrl: 'YOUR_EPISODE_5_TIKTOK_URL',
+  status: 'LIVE',
+  tiktokUrl: 'https://vt.tiktok.com/ZSbMgN9vu/',
 },
 
 {
