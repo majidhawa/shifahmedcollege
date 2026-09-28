@@ -50,7 +50,29 @@ const episodes: Episode[] = [
   status: 'LIVE',
   tiktokUrl: 'https://vt.tiktok.com/ZSbMB7YEo/',
   },
+  {
+  number: 5,
+  title: 'Heart Attack & Cardiac Arrest — Know the Signs',
+  description:
+    'Heart attack and cardiac arrest are not the same emergency. In Episode 5, learn the warning signs of a heart attack, recognize cardiac arrest and understand why knowing the difference can help you respond quickly when every second matters.',
+
+  image: '/images/episode-5.png',
+  status: 'COMING SOON',
+  tiktokUrl: 'YOUR_EPISODE_5_TIKTOK_URL',
+},
+
+{
+  number: 6,
+  title: 'World Heart Day — Could You Save a Heart?',
+  description:
+    'Every second matters when a life is at risk. In our final episode, bring it all together: recognize the signs, respond to cardiac emergencies, start CPR and know how an AED can help. This World Heart Day, ask yourself: Could you save a heart?',
+
+  image: '/images/episode-6.png',
+  status: 'COMING SOON',
+  tiktokUrl: 'YOUR_EPISODE_6_TIKTOK_URL',
+},
 ];
+
 
 export default function HeartDayEpisodes() {
   return (
