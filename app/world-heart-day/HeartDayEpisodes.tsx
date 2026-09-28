@@ -47,7 +47,8 @@ const episodes: Episode[] = [
     'An AED can deliver a life-saving shock during certain cardiac emergencies. In Episode 4, discover what an AED does, when it is needed and how it can help save a life when every second matters.',
 
   image: '/images/episode-4.png',
-  status: 'COMING SOON',
+  status: 'LIVE',
+  tiktokUrl: 'https://vt.tiktok.com/ZSbMB7YEo/',
   },
 ];
 
