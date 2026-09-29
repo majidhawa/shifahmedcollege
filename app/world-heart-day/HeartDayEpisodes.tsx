@@ -68,8 +68,8 @@ const episodes: Episode[] = [
     'Every second matters when a life is at risk. In our final episode, bring it all together: recognize the signs, respond to cardiac emergencies, start CPR and know how an AED can help. This World Heart Day, ask yourself: Could you save a heart?',
 
   image: '/images/episode-6.png',
-  status: 'COMING SOON',
-  tiktokUrl: 'YOUR_EPISODE_6_TIKTOK_URL',
+  status: 'LIVE',
+  tiktokUrl: 'https://vt.tiktok.com/ZSbhoWHEx/',
 },
 ];
 
