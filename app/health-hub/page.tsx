@@ -6,7 +6,7 @@ const featuredTopics = [
     title: 'Mental Health',
     description:
       'Learn about mental wellbeing, healthy conversations, support and the importance of caring for the whole person.',
-    image: '/images/mental-health-day.jpg',
+    image: '/images/mental-health-day.png',
     href: '/health-hub/mental-health',
     label: 'FEATURED',
   },
