@@ -88,7 +88,7 @@ export default function DiabetesAwarenessPage() {
 
             <div className="relative mx-auto w-full max-w-md overflow-hidden rounded-3xl border border-white/10 shadow-2xl">
               <Image
-                src="/images/diabetes-awareness.jpg"
+                src="/images/diabetes-awareness.png"
                 alt="Diabetes awareness"
                 width={800}
                 height={1000}

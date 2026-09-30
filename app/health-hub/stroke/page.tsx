@@ -93,7 +93,7 @@ export default function StrokeAwarenessPage() {
 
             <div className="relative mx-auto w-full max-w-md overflow-hidden rounded-3xl border border-white/10 shadow-2xl">
               <Image
-                src="/images/stroke-awareness.jpg"
+                src="/images/stroke-awareness.png"
                 alt="Stroke awareness"
                 width={800}
                 height={1000}
