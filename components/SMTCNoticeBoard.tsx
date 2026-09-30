@@ -19,52 +19,55 @@ type Notice = {
 const notices: Notice[] = [
   {
     id: 1,
-    image: '/images/Save_heart.png',
-    status: 'NOW RUNNING',
-    statusType: 'live',
-    title: 'World Heart Day: Could You Save a Heart?',
+    image: '/images/mental-health-day.png',
+    status: 'COMING SOON',
+    statusType: 'upcoming',
+    title: 'World Mental Health Day 2026',
     description:
-      'Join Shifah Medical Training College as we raise awareness about heart health, emergency response and the importance of knowing what to do when every second matters.',
-    date: 'World Heart Day Campaign',
-    buttonText: 'Join the Campaign',
+      'Mental health is an essential part of overall health. Join SMTC as we create awareness, encourage meaningful conversations and promote a culture of care, understanding and support.',
+    date: '10 OCTOBER 2026 • HEALTH AWARENESS',
+    buttonText: 'Coming Soon',
+    buttonHref: '/health-hub/mental-health',
+  },
+
+  {
+    id: 2,
+    image: '/images/Save_heart.png',
+    status: 'CAMPAIGN COMPLETE',
+    statusType: 'info',
+    title: 'Could You Save a Heart?',
+    description:
+      'Our World Heart Day campaign explored heart health, cardiac emergencies, CPR, AEDs and the importance of knowing what to do when every second matters.',
+    date: 'WORLD HEART DAY • CAMPAIGN ARCHIVE',
+    buttonText: 'View Campaign',
     buttonHref: '/world-heart-day',
   },
 
-   {
-    id: 2,
-    image: '/images/world-heart-day.jpg',
-    status: 'NOW RUNNING',
-    statusType: 'live',
-    title: 'World Heart Day: Could You Save a Heart?',
-    description:
-      'Join Shifah Medical Training College as we raise awareness about heart health, emergency response and the importance of knowing what to do when every second matters.',
-    date: 'World Heart Day Campaign',
-    buttonText: 'Join the Campaign',
-    buttonHref: '/world-heart-day',
-  },
   {
     id: 3,
-    image: '/images/save.png',
-    status: 'NOW RUNNING',
-    statusType: 'live',
-    title: 'World Heart Day: Could You Save a Heart?',
+    image: '/images/health-hub.png',
+    status: 'HEALTH HUB',
+    statusType: 'info',
+    title: 'Learn. Understand. Make a Difference.',
     description:
-      'Join Shifah Medical Training College as we raise awareness about heart health, emergency response and the importance of knowing what to do when every second matters.',
-    date: 'World Heart Day Campaign',
-    buttonText: 'Join the Campaign',
-    buttonHref: '/world-heart-day',
-  },{
-  id: 4,
-  image: '/images/episode-4.png',
-  status: 'COMING SOON',
-  statusType: 'upcoming',
-  title: 'Episode 4: AED — Could It Save a Life?',
-  description:
-    'An AED can deliver a life-saving shock during certain cardiac emergencies. In Episode 4, discover what an AED does, when it is needed and how it can help save a life when every second matters.',
-  date: 'World Heart Day Campaign • Episode 4',
-  buttonText: 'Watch Episode 4',
-  buttonHref: '/world-heart-day',
-},
+      'Explore practical healthcare knowledge, public health awareness, student insights and educational content from Shifah Medical Training College.',
+    date: 'SMTC HEALTH & AWARENESS',
+    buttonText: 'Explore Health Hub',
+    buttonHref: '/health-hub',
+  },
+
+  {
+    id: 4,
+    image: '/images/admissions.png',
+    status: 'ADMISSIONS ONGOING',
+    statusType: 'admissions',
+    title: 'Start Your Healthcare Journey',
+    description:
+      'Ready to build a career in healthcare? Explore our programmes and discover training opportunities designed to equip you with practical knowledge and professional skills.',
+    date: 'SEPTEMBER 2026 INTAKE • SMTC KITale',
+    buttonText: 'Explore Courses',
+    buttonHref: '/courses',
+  },
 ];
 
 const statusStyles: Record<Notice['statusType'], string> = {
@@ -199,7 +202,7 @@ export function AdmissionsCountdown() {
                 text-brand-gold
               "
             >
-              SMTC Notice Board
+              SMTC Health & Notice Board
             </p>
 
           </div>
@@ -468,3 +471,4 @@ export function AdmissionsCountdown() {
     </div>
   );
 }
+
