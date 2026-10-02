@@ -26,7 +26,7 @@ const notices: Notice[] = [
     description:
       'Mental health is an essential part of overall health. Join SMTC as we create awareness, encourage meaningful conversations and promote a culture of care, understanding and support.',
     date: '10 OCTOBER 2026 • HEALTH AWARENESS',
-    buttonText: 'Coming Soon',
+    buttonText: 'Join the Campaign',
     buttonHref: '/health-hub/mental-health',
   },
 
