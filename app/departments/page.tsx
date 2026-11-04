@@ -117,7 +117,8 @@ const departmentDetails: Record<
     text:
       'Focusing on language learning, communication, pronunciation, listening, reading, and writing skills. Students develop practical German language proficiency to support international communication, education, and employment opportunities.',
     courses: [
-      'German Language (A1) Proficiency',
+      'Proficiency in German Language A1 & A2',
+      'Proficiency in German Language B1 & B2',
     ],
   },
 
