@@ -103,12 +103,14 @@ export const site = {
   ],
 
   departments: [
-    'Department of Emergency Medicine',
-    'Department of Pathology',
-    'Department of Laboratory',
-    'Department of Nursing Support Services',
-    'Department of Linguistics'
-  ],
+  'Department of Emergency Medicine',
+  'Department of Nursing Support Services',
+  'Department of Laboratory',
+  'Department of Pathology',
+  'Department of Linguistics',
+  'Department of Community Health',
+],
+  
 
   partners: [
     { name: 'NITA', image: '/images/NITA.jpeg' },
