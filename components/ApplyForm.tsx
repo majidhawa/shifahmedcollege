@@ -205,15 +205,22 @@ const steps = [
 ];
 
 const courses = [
-  'EMT',
-  'Diploma in Paramedicine',
-  'Safe Phlebotomy',
-  'German Language',
-  'Caregiving Level 4',
+  'Diploma in Mortuary Science Level 6 (Technologist) + German Language (A1)',
+  'Certificate in Mortuary Science Level 5 (Technician) + German Language (A1)',
+  'Certificate in Caregiving Level 4 + German Language (A1)',
+  'Phlebotomy + German Language (A1)',
+  'Certificate in EMT + German Language (A1)',
+  'Diploma in EMT + German Language (A1)',
+  'Paramedicine Level 6 + German Language (A1)',
+  'Dialysis Technology + German Language (A1)',
+  'ACLS and BLS + German Language (A1)',
+  'German Language (A1) Proficiency',
+  'Certificate in Community Health Level 5 + German Language (A1)',
+  'Diploma in Community Health Level 6 + German Language (A1)',
+  'Certificate in Health Service Support Level 5 + German Language (A1)',
 ];
 
 const intakes = [
-  'September 2026 Intake',
   'January 2027 Intake',
   'March 2027 Intake',
   'May 2027 Intake',
