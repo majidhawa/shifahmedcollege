@@ -157,7 +157,7 @@ export const courses: Course[] = [
   {
     slug: 'mortuary-science-diploma',
     title: 'Diploma in Mortuary Science Level 6 (Technologist)',
-    cardTitle: 'Diploma in Mortuary Science',
+    cardTitle: 'Diploma in Mortuary Science Level 6',
     duration: '2 Years',
     fee: 'Contact admissions for fee guidance',
     entry: 'KCSE C- (Minus) or relevant Level 5 certificate',
@@ -198,7 +198,7 @@ export const courses: Course[] = [
   {
     slug: 'mortuary-science-certificate',
     title: 'Certificate in Mortuary Science Level 5 (Technician)',
-    cardTitle: 'Certificate in Mortuary Science',
+    cardTitle: 'Certificate in Mortuary Science Level 5',
     duration: '1 Year',
     fee: 'Contact admissions for fee guidance',
     entry: 'KCSE D (Plain) and above',
@@ -277,7 +277,7 @@ export const courses: Course[] = [
   {
     slug: 'phlebotomy',
     title: 'Phlebotomy',
-    cardTitle: 'Phlebotomy',
+    cardTitle: 'Safe Phlebotomy',
     duration: '3 Months',
     fee: 'Contact admissions for fee guidance',
     entry: 'KCSE D- (Minus) and above',
@@ -594,7 +594,7 @@ export const courses: Course[] = [
   {
     slug: 'community-health-diploma',
     title: 'Diploma in Community Health Level 6',
-    cardTitle: 'Diploma in Community Health',
+    cardTitle: 'Diploma in Community Health Level 6',
     duration: '2 Years',
     fee: 'Contact admissions for fee guidance',
     entry: 'KCSE C- with specified subject requirements or Community Health Level 5 qualification',
