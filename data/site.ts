@@ -175,7 +175,7 @@ export const courses: Course[] = [
       'Mortuary hygiene and infection prevention',
       'Post-mortem support procedures',
       'Professional ethics and dignity',
-      'German Language A1'
+      'German Language A1 included'
     ],
     targetAudience: [
       'KCSE graduates interested in mortuary science',
@@ -216,7 +216,7 @@ export const courses: Course[] = [
       'Professional body handling',
       'Basic mortuary operations',
       'Ethical conduct and professional responsibility',
-      'German Language A1'
+        'German Language A1 included'
     ],
     entryRequirements: [
       'KCSE D (Plain) and above'
@@ -500,8 +500,8 @@ export const courses: Course[] = [
 
   {
     slug: 'german',
-    title: 'German Language A1 (Proficiency)',
-    cardTitle: 'German Language A1',
+    title: 'German Language A1&A2, B1&B2',
+    cardTitle: 'German Language A1&A2, B1&B2',
     duration: '7 Months',
     fee: 'Contact admissions for fee guidance',
     entry: 'Open entry – no fixed KCSE grade',

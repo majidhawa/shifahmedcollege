@@ -29,9 +29,9 @@ const departmentDetails: Record<
     text:
       'Training competent emergency healthcare professionals equipped with skills in emergency response, trauma management, patient stabilization, advanced life support, and pre-hospital care.',
     courses: [
-      'Certificate in Emergency Medical Technology (EMT) + German Language (A1)',
-      'Diploma in EMT / Paramedicine Level 6 + German Language (A1)',
-      'ACLS and BLS + German Language (A1)',
+      'Certificate in Emergency Medical Technology (EMT) ',
+      'Diploma in EMT / Paramedicine Level 6 ',
+      'ACLS and BLS ',
     ],
   },
 
@@ -51,9 +51,9 @@ const departmentDetails: Record<
     text:
       'Preparing compassionate and skilled healthcare professionals who provide quality patient care, personal support, health education, and specialized clinical assistance. The department emphasizes caregiving, dialysis support, patient safety, and professional healthcare service.',
     courses: [
-      'Certificate in Caregiving Level 4 + German Language (A1)',
-      'Dialysis Technology + German Language (A1)',
-      'Certificate in Health Service Support Level 5 + German Language (A1)',
+      'Certificate in Caregiving Level 4',
+      'Dialysis Technology ',
+      'Certificate in Health Service Support Level 5 ',
     ],
   },
 
@@ -74,7 +74,7 @@ const departmentDetails: Record<
     text:
       'Equipping students with practical diagnostic support skills, including specimen collection, blood handling procedures, patient interaction, and laboratory safety practices.',
     courses: [
-      'Phlebotomy + German Language (A1)',
+      'Phlebotomy ',
     ],
   },
 
@@ -94,8 +94,8 @@ const departmentDetails: Record<
     text:
       'Providing specialized training in mortuary science, post-mortem care, professional handling of deceased persons, and related technical procedures. The department emphasizes dignity, ethical practice, safety, and professional competence.',
     courses: [
-      'Diploma in Mortuary Science Level 6 (Technologist) + German Language (A1)',
-      'Certificate in Mortuary Science Level 5 (Technician) + German Language (A1)',
+      'Diploma in Mortuary Science Level 6 (Technologist) ',
+      'Certificate in Mortuary Science Level 5 (Technician) ',
     ],
   },
 

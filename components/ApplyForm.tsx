@@ -205,19 +205,22 @@ const steps = [
 ];
 
 const courses = [
-  'Diploma in Mortuary Science Level 6 (Technologist) + German Language (A1)',
-  'Certificate in Mortuary Science Level 5 (Technician) + German Language (A1)',
-  'Certificate in Caregiving Level 4 + German Language (A1)',
-  'Phlebotomy + German Language (A1)',
-  'Certificate in EMT + German Language (A1)',
-  'Diploma in EMT + German Language (A1)',
-  'Paramedicine Level 6 + German Language (A1)',
-  'Dialysis Technology + German Language (A1)',
-  'ACLS and BLS + German Language (A1)',
+  'Diploma in Mortuary Science Level 6 (Technologist) ',
+  'Certificate in Mortuary Science Level 5 (Technician) ',
+  'Certificate in Caregiving Level 4 ',
+  'Phlebotomy ',
+  'Certificate in EMT ',
+  'Diploma in EMT ',
+  'Paramedicine Level 6 ',
+  'Dialysis Technology ',
+  'ACLS and BLS ',
   'German Language (A1) Proficiency',
-  'Certificate in Community Health Level 5 + German Language (A1)',
-  'Diploma in Community Health Level 6 + German Language (A1)',
-  'Certificate in Health Service Support Level 5 + German Language (A1)',
+  'German Language (A2) Proficiency',
+  'German Language (B1) Proficiency',
+  'German Language (B2) Proficiency',
+  'Certificate in Community Health Level 5 ',
+  'Diploma in Community Health Level 6 ',
+  'Certificate in Health Service Support Level 5 ',
 ];
 
 const intakes = [
