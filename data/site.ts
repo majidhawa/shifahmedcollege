@@ -236,7 +236,7 @@ export const courses: Course[] = [
   {
     slug: 'caregiving',
     title: 'Certificate in Caregiving Level 4',
-    cardTitle: 'CCertificate in Caregiving Level 4',
+    cardTitle: 'Certificate in Caregiving Level 4',
     duration: '6 Months',
     fee: 'Contact admissions for fee guidance',
     entry: 'KCSE D- (Minus) and above',
