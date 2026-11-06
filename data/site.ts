@@ -277,7 +277,7 @@ export const courses: Course[] = [
   {
     slug: 'phlebotomy',
     title: 'Phlebotomy',
-    cardTitle: 'Safe Phlebotomy',
+    cardTitle: 'Certificate in Safe Phlebotomy',
     duration: '3 Months',
     fee: 'Contact admissions for fee guidance',
     entry: 'KCSE D- (Minus) and above',
@@ -420,7 +420,7 @@ export const courses: Course[] = [
   {
     slug: 'dialysis',
     title: 'Dialysis Technology',
-    cardTitle: 'Dialysis Technology',
+    cardTitle: 'Certificate in Dialysis Technology',
     duration: '6 Months',
     fee: 'Contact admissions for fee guidance',
     entry: 'Certificate in a related healthcare field',
@@ -501,7 +501,7 @@ export const courses: Course[] = [
   {
     slug: 'german',
     title: 'German Language A1&A2, B1&B2',
-    cardTitle: 'German Language A1&A2, B1&B2',
+    cardTitle: 'Certificate in German Language A1&A2, B1&B2',
     duration: '7 Months',
     fee: 'Contact admissions for fee guidance',
     entry: 'Open entry – no fixed KCSE grade',
@@ -551,7 +551,7 @@ export const courses: Course[] = [
   {
     slug: 'community-health-certificate',
     title: 'Certificate in Community Health Level 5',
-    cardTitle: 'Community Health Level 5',
+    cardTitle: 'Certificate in Community Health Level 5',
     duration: '1 Year',
     fee: 'Contact admissions for fee guidance',
     entry: 'KCSE D+ (Plus) and above or related Level 4 certificate',
@@ -642,7 +642,7 @@ export const courses: Course[] = [
   {
     slug: 'health-service-support',
     title: 'Certificate in Health Service Support Level 5',
-    cardTitle: 'Health Service Support Level 5',
+    cardTitle: 'Certificate inHealth Service Support Level 5',
     duration: '1 Year',
     fee: 'Contact admissions for fee guidance',
     entry: 'KCSE D (Plain) and above',
