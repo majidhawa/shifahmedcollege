@@ -17,16 +17,29 @@ type Notice = {
 };
 
 const notices: Notice[] = [
-  {
+   {
     id: 1,
+    image: '/images/intake.png',
+    status: 'JANUARY INTAKE ONGOING',
+    statusType: 'admissions',
+    title: 'January intake 2027 — Apply Now',
+    description:
+      'Ready to build a career in healthcare? Explore our programmes and discover training opportunities designed to equip you with practical knowledge and professional skills.',
+    date: 'SEPTEMBER 2026 INTAKE • SMTC KITale',
+    buttonText: 'Explore Courses',
+    buttonHref: '/courses',
+  },
+
+  {
+    id: 2,
     image: '/images/mental-health-day.png',
-    status: 'COMING SOON',
-    statusType: 'upcoming',
+    status: 'CAMPAIGN COMPLETE',
+    statusType: 'info',
     title: 'World Mental Health Day 2026',
     description:
       'Mental health is an essential part of overall health. Join SMTC as we create awareness, encourage meaningful conversations and promote a culture of care, understanding and support.',
     date: '10 OCTOBER 2026 • HEALTH AWARENESS',
-    buttonText: 'Join the Campaign',
+    buttonText: 'view the campaign',
     buttonHref: '/health-hub/mental-health',
   },
 
