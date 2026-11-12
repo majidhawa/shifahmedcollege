@@ -15,17 +15,28 @@ const ALLOWED_FILE_TYPES = [
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
+
 const ALLOWED_COURSES = [
-  'EMT',
-  'Diploma in Paramedicine',
-  'Safe Phlebotomy',
-  'German Language',
-  'Caregiving Level 4',
+  'Diploma in Mortuary Science Level 6 (Technologist)',
+  'Certificate in Mortuary Science Level 5 (Technician)',
+  'Certificate in Caregiving Level 4',
+  'Phlebotomy',
+  'Certificate in EMT',
+  'Diploma in EMT',
+  'Paramedicine Level 6',
   'Dialysis Technology',
+  'ACLS and BLS',
+  'German Language (A1) Proficiency',
+  'German Language (A2) Proficiency',
+  'German Language (B1) Proficiency',
+  'German Language (B2) Proficiency',
+  'Certificate in Community Health Level 5',
+  'Diploma in Community Health Level 6',
+  'Certificate in Health Service Support Level 5',
 ];
 
+
 const ALLOWED_INTAKES = [
-  'September 2026 Intake',
   'January 2027 Intake',
   'March 2027 Intake',
   'May 2027 Intake',
@@ -793,12 +804,14 @@ export async function POST(request: Request) {
       kcseCertificate,
       passportPhoto,
 
+
+
       /* APPLICATION STATUS */
 
-      true,
-      1500,
-      'Pending',
-      'Pending',
+declaration,
+1500,
+'Pending',
+'Pending',
     ];
 
     console.log(
