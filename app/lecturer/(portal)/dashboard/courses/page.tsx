@@ -603,7 +603,7 @@ export default function LecturerCoursesPage() {
                         {/* OPEN COURSE */}
 
                         <Link
-                          href={`/lecturer/courses/${course.id}`}
+                          href={`/lecturer/dashboard/courses/${course.id}`}
                           className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-brand-green px-4 py-3 text-sm font-bold text-white transition hover:bg-brand-dark"
                         >
 
