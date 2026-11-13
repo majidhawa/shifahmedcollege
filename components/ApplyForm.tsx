@@ -1005,7 +1005,7 @@ export function ApplyForm() {
     if (step === 6) {
       if (!data.idDocument) {
         newErrors.idDocument =
-          'National ID or Passport is required.';
+          'National ID or Passport is required for those who don\'t have Their National ID use Parent\'s ID.';
       }
 
       if (!data.kcseCertificate) {
