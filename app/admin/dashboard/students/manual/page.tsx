@@ -21,15 +21,26 @@ CONSTANTS
 ========================================================= */
 
 const COURSES = [
-'EMT',
-'Diploma in Paramedicine',
-'Safe Phlebotomy',
-'German Language',
-'Caregiving Level 4',
-'Dialysis Technology',
+ 'Diploma in Mortuary Science Level 6 (Technologist) ',
+  'Certificate in Mortuary Science Level 5 (Technician) ',
+  'Certificate in Caregiving Level 4 ',
+  'Phlebotomy ',
+  'Certificate in EMT ',
+  'Diploma in EMT ',
+  'Paramedicine Level 6 ',
+  'Dialysis Technology ',
+  'ACLS and BLS ',
+  'German Language (A1) Proficiency',
+  'German Language (A2) Proficiency',
+  'German Language (B1) Proficiency',
+  'German Language (B2) Proficiency',
+  'Certificate in Community Health Level 5 ',
+  'Diploma in Community Health Level 6 ',
+  'Certificate in Health Service Support Level 5 ',
 ];
 
 const INTAKES = [
+'July 2026 Intake',
 'September 2026 Intake',
 'January 2027 Intake',
 'March 2027 Intake',
