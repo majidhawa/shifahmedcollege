@@ -2,6 +2,7 @@
 import Link from 'next/link';
 import pool from '@/lib/db';
 import { requireAdmin } from '@/lib/admin-auth';
+import PaymentsManager from './PaymentsManager';
 
 import {
   CreditCard,
@@ -202,6 +203,7 @@ export default async function PaymentsPage() {
       ================================================= */}
 
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <PaymentsManager />
 
         {/* =================================================
             MANUAL PAYMENT NOTICE
