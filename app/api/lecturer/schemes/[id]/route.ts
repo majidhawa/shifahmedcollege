@@ -1,32 +1,180 @@
+
 import {
   NextRequest,
   NextResponse,
 } from 'next/server';
+import type { PoolClient } from 'pg';
 
 import pool from '@/lib/db';
 import { requireLecturer } from '@/lib/lecturer-auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
-function parseId(
-  value: string,
-): number | null {
+// ============================================
+// TYPES
+// ============================================
+
+type SchemeEntryInput = {
+  id?: unknown;
+  weekNumber?: unknown;
+
+  lessonTitle?: unknown;
+  objectives?: unknown;
+  keyPoints?: unknown;
+  applicationActivities?: unknown;
+  referencesAids?: unknown;
+  remarks?: unknown;
+  dateTaught?: unknown;
+
+  // Legacy compatibility
+  topic?: unknown;
+  subtopic?: unknown;
+  learningOutcomes?: unknown;
+  activities?: unknown;
+  resources?: unknown;
+  assessment?: unknown;
+  startDate?: unknown;
+  endDate?: unknown;
+};
+
+type SchemeUpdateInput = {
+  title?: unknown;
+  academicYear?: unknown;
+  term?: unknown;
+  status?: unknown;
+
+  trainerName?: unknown;
+  trainerTelephone?: unknown;
+  trainerEmail?: unknown;
+
+  courseNameLevel?: unknown;
+  competencyArea?: unknown;
+  dateOfPreparation?: unknown;
+
+  institution?: unknown;
+  intake?: unknown;
+  module?: unknown;
+
+  supervisorName?: unknown;
+  supervisorSignature?: unknown;
+
+  entries?: unknown;
+};
+
+type NormalizedEntry = {
+  weekNumber: number;
+  lessonTitle: string;
+  objectives: string;
+  keyPoints: string;
+  applicationActivities: string;
+  referencesAids: string;
+  remarks: string;
+  dateTaught: string;
+};
+
+// ============================================
+// HELPERS
+// ============================================
+
+function parseId(value: string): number | null {
   const id = Number(value);
 
-  return Number.isInteger(id) &&
-    id > 0
+  return Number.isInteger(id) && id > 0
     ? id
     : null;
 }
 
-function text(
-  value: unknown,
-): string {
-  return typeof value === 'string'
-    ? value.trim()
-    : '';
+function text(value: unknown): string {
+  if (typeof value === 'string') {
+    return value.trim();
+  }
+
+  if (typeof value === 'number') {
+    return String(value);
+  }
+
+  return '';
 }
+
+function dateString(value: unknown): string {
+  if (!value) return '';
+
+  const raw = String(value);
+
+  // PostgreSQL DATE values should not shift because of timezone.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    return raw;
+  }
+
+  const date = new Date(raw);
+
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+
+  return date.toISOString().slice(0, 10);
+}
+
+function isValidDate(value: string): boolean {
+  if (!value) return true;
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+
+  const date = new Date(`${value}T00:00:00.000Z`);
+
+  return (
+    !Number.isNaN(date.getTime()) &&
+    date.toISOString().slice(0, 10) === value
+  );
+}
+
+function normalizeEntry(
+  raw: SchemeEntryInput,
+  index: number,
+): NormalizedEntry {
+  const weekNumber = Number(raw.weekNumber);
+
+  return {
+    weekNumber:
+      Number.isInteger(weekNumber) && weekNumber > 0
+        ? weekNumber
+        : index + 1,
+
+    lessonTitle:
+      text(raw.lessonTitle) ||
+      text(raw.topic),
+
+    objectives:
+      text(raw.objectives) ||
+      text(raw.learningOutcomes),
+
+    keyPoints:
+      text(raw.keyPoints) ||
+      text(raw.subtopic),
+
+    applicationActivities:
+      text(raw.applicationActivities) ||
+      text(raw.activities),
+
+    referencesAids:
+      text(raw.referencesAids) ||
+      text(raw.resources),
+
+    remarks: text(raw.remarks),
+
+    dateTaught:
+      text(raw.dateTaught) ||
+      text(raw.startDate),
+  };
+}
+
+// ============================================
+// GET: FETCH ONE SCHEME
+// ============================================
 
 export async function GET(
   _request: NextRequest,
@@ -37,84 +185,95 @@ export async function GET(
   },
 ) {
   try {
-    const lecturer =
-      await requireLecturer();
+    const lecturer = await requireLecturer();
 
     if (!lecturer) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            'Authentication required.',
+          message: 'Authentication required.',
         },
         { status: 401 },
       );
     }
 
-    const { id } =
-      await context.params;
-
-    const schemeId =
-      parseId(id);
+    const { id } = await context.params;
+    const schemeId = parseId(id);
 
     if (!schemeId) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            'Invalid scheme ID.',
+          message: 'Invalid scheme ID.',
         },
         { status: 400 },
       );
     }
 
-    const schemeResult =
-      await pool.query(
-        `
-          SELECT
-            s.id,
-            s.program_id,
-            s.unit_id,
-            s.academic_year,
-            s.term,
-            s.title,
-            s.status,
+    // ----------------------------------------
+    // FETCH SCHEME INFORMATION
+    // ----------------------------------------
 
-            p.name AS program_name,
+    const schemeResult = await pool.query(
+      `
+        SELECT
+          s.id,
+          s.program_id,
+          s.unit_id,
 
-            u.code AS unit_code,
-            u.name AS unit_name
+          s.reference_number,
+          s.academic_year,
+          s.term,
+          s.title,
+          s.status,
 
-          FROM lms_schemes_of_work s
+          s.trainer_name,
+          s.trainer_telephone,
+          s.trainer_email,
 
-          INNER JOIN lms_programs p
-            ON p.id = s.program_id
+          s.course_name_level,
+          s.competency_area,
+          s.date_of_preparation,
 
-          INNER JOIN lms_units u
-            ON u.id = s.unit_id
+          s.institution,
+          s.intake,
+          s.module,
 
-          INNER JOIN lms_lecturer_programs lp
-            ON lp.program_id =
-               p.id
-           AND lp.lecturer_id =
-               $2
+          s.supervisor_name,
+          s.supervisor_signature,
 
-          WHERE s.id = $1
-            AND s.lecturer_id =
-                $2
+          s.created_at,
+          s.updated_at,
 
-          LIMIT 1
-        `,
-        [
-          schemeId,
-          lecturer.id,
-        ],
-      );
+          p.name AS program_name,
 
-    if (
-      schemeResult.rows.length ===
-      0
-    ) {
+          u.code AS unit_code,
+          u.name AS unit_name
+
+        FROM lms_schemes_of_work s
+
+        INNER JOIN lms_programs p
+          ON p.id = s.program_id
+
+        INNER JOIN lms_units u
+          ON u.id = s.unit_id
+
+        INNER JOIN lms_lecturer_programs lp
+          ON lp.program_id = p.id
+         AND lp.lecturer_id = $2
+
+        WHERE s.id = $1
+          AND s.lecturer_id = $2
+
+        LIMIT 1
+      `,
+      [
+        schemeId,
+        lecturer.id,
+      ],
+    );
+
+    if (schemeResult.rows.length === 0) {
       return NextResponse.json(
         {
           success: false,
@@ -125,130 +284,149 @@ export async function GET(
       );
     }
 
-    const entriesResult =
-      await pool.query(
-        `
-          SELECT
-            id,
-            week_number,
-            start_date,
-            end_date,
-            topic,
-            subtopic,
-            learning_outcomes,
-            activities,
-            resources,
-            assessment,
-            remarks
+    // ----------------------------------------
+    // FETCH WEEKLY TEACHING ENTRIES
+    // ----------------------------------------
 
-          FROM
-            lms_scheme_of_work_entries
+    const entriesResult = await pool.query(
+      `
+        SELECT
+          id,
+          week_number,
 
-          WHERE scheme_id = $1
+          -- Official SMTC fields
+          lesson_title,
+          objectives,
+          key_points,
+          application_activities,
+          references_aids,
+          date_taught,
 
-          ORDER BY
-            week_number ASC
-        `,
-        [schemeId],
-      );
+          -- Legacy fields
+          start_date,
+          end_date,
+          topic,
+          subtopic,
+          learning_outcomes,
+          activities,
+          resources,
+          assessment,
+          remarks
 
-    const scheme =
-      schemeResult.rows[0];
+        FROM lms_scheme_of_work_entries
+
+        WHERE scheme_id = $1
+
+        ORDER BY
+          week_number ASC,
+          id ASC
+      `,
+      [schemeId],
+    );
+
+    const scheme = schemeResult.rows[0];
+
+    // ----------------------------------------
+    // RETURN NORMALIZED SCHEME
+    // ----------------------------------------
 
     return NextResponse.json({
       success: true,
 
       scheme: {
-        id: Number(
-          scheme.id,
+        id: Number(scheme.id),
+
+        programId: Number(scheme.program_id),
+        unitId: Number(scheme.unit_id),
+
+        programName: scheme.program_name || '',
+        unitCode: scheme.unit_code ?? null,
+        unitName: scheme.unit_name || '',
+
+        referenceNumber: scheme.reference_number || '',
+
+        academicYear: scheme.academic_year || '',
+        term: scheme.term || '',
+        title: scheme.title || '',
+        status: scheme.status || 'draft',
+
+        trainerName: scheme.trainer_name || '',
+        trainerTelephone: scheme.trainer_telephone || '',
+        trainerEmail: scheme.trainer_email || '',
+
+        courseNameLevel: scheme.course_name_level || '',
+        competencyArea: scheme.competency_area || '',
+
+        dateOfPreparation: dateString(
+          scheme.date_of_preparation,
         ),
 
-        programId:
-          Number(
-            scheme.program_id,
-          ),
+        institution:
+          scheme.institution ||
+          'Shifah Medical Training College',
 
-        unitId:
-          Number(
-            scheme.unit_id,
-          ),
+        intake: scheme.intake || '',
+        module: scheme.module || '',
 
-        academicYear:
-          scheme.academic_year,
+        supervisorName: scheme.supervisor_name || '',
+        supervisorSignature: scheme.supervisor_signature || '',
 
-        term:
-          scheme.term,
+        createdAt: scheme.created_at,
+        updatedAt: scheme.updated_at,
 
-        title:
-          scheme.title,
+        entries: entriesResult.rows.map((entry) => {
+          const lessonTitle =
+            entry.lesson_title || entry.topic || '';
 
-        status:
-          scheme.status,
+          const objectives =
+            entry.objectives ||
+            entry.learning_outcomes ||
+            '';
 
-        programName:
-          scheme.program_name,
+          const keyPoints =
+            entry.key_points ||
+            entry.subtopic ||
+            '';
 
-        unitCode:
-          scheme.unit_code ??
-          null,
+          const applicationActivities =
+            entry.application_activities ||
+            entry.activities ||
+            '';
 
-        unitName:
-          scheme.unit_name,
+          const referencesAids =
+            entry.references_aids ||
+            entry.resources ||
+            '';
 
-        entries:
-          entriesResult.rows.map(
-            (entry) => ({
-              id: Number(
-                entry.id,
-              ),
+          const dateTaught = dateString(
+            entry.date_taught || entry.start_date,
+          );
 
-              weekNumber:
-                Number(
-                  entry.week_number,
-                ),
+          return {
+            id: Number(entry.id),
 
-              startDate:
-                entry.start_date
-                  ? String(
-                      entry.start_date,
-                    ).slice(0, 10)
-                  : '',
+            weekNumber: Number(entry.week_number),
 
-              endDate:
-                entry.end_date
-                  ? String(
-                      entry.end_date,
-                    ).slice(0, 10)
-                  : '',
+            // Official fields
+            lessonTitle,
+            objectives,
+            keyPoints,
+            applicationActivities,
+            referencesAids,
+            dateTaught,
+            remarks: entry.remarks || '',
 
-              topic:
-                entry.topic,
-
-              subtopic:
-                entry.subtopic ??
-                '',
-
-              learningOutcomes:
-                entry.learning_outcomes ??
-                '',
-
-              activities:
-                entry.activities ??
-                '',
-
-              resources:
-                entry.resources ??
-                '',
-
-              assessment:
-                entry.assessment ??
-                '',
-
-              remarks:
-                entry.remarks ??
-                '',
-            }),
-          ),
+            // Legacy aliases for compatibility
+            startDate: dateTaught,
+            endDate: dateString(entry.end_date),
+            topic: lessonTitle,
+            subtopic: keyPoints,
+            learningOutcomes: objectives,
+            activities: applicationActivities,
+            resources: referencesAids,
+            assessment: entry.assessment || '',
+          };
+        }),
       },
     });
   } catch (error: unknown) {
@@ -270,6 +448,10 @@ export async function GET(
   }
 }
 
+// ============================================
+// PUT: UPDATE SCHEME
+// ============================================
+
 export async function PUT(
   request: NextRequest,
   context: {
@@ -278,106 +460,248 @@ export async function PUT(
     }>;
   },
 ) {
-  const client =
-    await pool.connect();
+  let client: PoolClient | null = null;
+
+  let transactionStarted = false;
 
   try {
-    const lecturer =
-      await requireLecturer();
+    const lecturer = await requireLecturer();
 
     if (!lecturer) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            'Authentication required.',
+          message: 'Authentication required.',
         },
         { status: 401 },
       );
     }
 
-    const { id } =
-      await context.params;
-
-    const schemeId =
-      parseId(id);
+    const { id } = await context.params;
+    const schemeId = parseId(id);
 
     if (!schemeId) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            'Invalid scheme ID.',
+          message: 'Invalid scheme ID.',
         },
         { status: 400 },
       );
     }
 
-    const body =
-      (await request.json()) as {
-        title?: unknown;
-        academicYear?: unknown;
-        term?: unknown;
-        status?: unknown;
-        entries?: unknown;
-      };
+    const body = (
+      await request.json()
+    ) as SchemeUpdateInput;
 
-    const title =
-      text(body.title);
+    // ----------------------------------------
+    // VALIDATE MAIN SCHEME INFORMATION
+    // ----------------------------------------
 
-    const academicYear =
-      text(
-        body.academicYear,
-      );
-
-    const term =
-      text(body.term);
+    const title = text(body.title);
+    const academicYear = text(body.academicYear);
+    const term = text(body.term);
 
     const status =
-      text(body.status) ===
-      'published'
+      text(body.status).toLowerCase() === 'published'
         ? 'published'
         : 'draft';
 
-    if (
-      !title ||
-      !academicYear ||
-      !term
-    ) {
+    const trainerName = text(body.trainerName);
+    const trainerTelephone = text(body.trainerTelephone);
+    const trainerEmail = text(body.trainerEmail);
+
+    const courseNameLevel = text(body.courseNameLevel);
+    const competencyArea = text(body.competencyArea);
+
+    const dateOfPreparation = text(body.dateOfPreparation);
+
+    const institution =
+      text(body.institution) ||
+      'Shifah Medical Training College';
+
+    const intake = text(body.intake);
+    const module = text(body.module);
+
+    const supervisorName = text(body.supervisorName);
+    const supervisorSignature = text(body.supervisorSignature);
+
+    if (!title || !academicYear || !term) {
       return NextResponse.json(
         {
           success: false,
           message:
-            'Title, academic year and term are required.',
+            'Scheme title, academic year and term are required.',
         },
         { status: 400 },
       );
     }
 
-    const ownership =
-      await client.query(
-        `
-          SELECT
-            id
+    if (!trainerName) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: 'Trainer name is required.',
+        },
+        { status: 400 },
+      );
+    }
 
-          FROM
-            lms_schemes_of_work
+    if (!courseNameLevel || !competencyArea) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            'Course name and competency area are required.',
+        },
+        { status: 400 },
+      );
+    }
 
-          WHERE id = $1
-            AND lecturer_id = $2
+    if (!isValidDate(dateOfPreparation)) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: 'Invalid date of preparation.',
+        },
+        { status: 400 },
+      );
+    }
 
-          LIMIT 1
-        `,
-        [
-          schemeId,
-          lecturer.id,
-        ],
+    // ----------------------------------------
+    // VALIDATE WEEKLY ENTRIES
+    // ----------------------------------------
+
+    if (!Array.isArray(body.entries)) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: 'Weekly entries must be provided as an array.',
+        },
+        { status: 400 },
+      );
+    }
+
+    const normalizedEntries: NormalizedEntry[] = [];
+
+    const usedWeekNumbers = new Set<number>();
+
+    for (let index = 0; index < body.entries.length; index++) {
+      const rawEntry = body.entries[index];
+
+      if (
+        !rawEntry ||
+        typeof rawEntry !== 'object' ||
+        Array.isArray(rawEntry)
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: `Invalid weekly entry at position ${index + 1}.`,
+          },
+          { status: 400 },
+        );
+      }
+
+      const entry = normalizeEntry(
+        rawEntry as SchemeEntryInput,
+        index,
       );
 
-    if (
-      ownership.rows.length ===
-      0
-    ) {
+      if (!entry.lessonTitle) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: `Lesson title is required for Week ${entry.weekNumber}.`,
+          },
+          { status: 400 },
+        );
+      }
+
+      if (
+        !Number.isInteger(entry.weekNumber) ||
+        entry.weekNumber <= 0
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: `Invalid week number at entry ${index + 1}.`,
+          },
+          { status: 400 },
+        );
+      }
+
+      if (usedWeekNumbers.has(entry.weekNumber)) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: `Week ${entry.weekNumber} has been entered more than once.`,
+          },
+          { status: 400 },
+        );
+      }
+
+      usedWeekNumbers.add(entry.weekNumber);
+
+      if (!isValidDate(entry.dateTaught)) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: `Invalid date taught for Week ${entry.weekNumber}.`,
+          },
+          { status: 400 },
+        );
+      }
+
+      normalizedEntries.push(entry);
+    }
+
+    if (normalizedEntries.length === 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            'At least one weekly teaching entry is required.',
+        },
+        { status: 400 },
+      );
+    }
+
+    // ----------------------------------------
+    // START TRANSACTION
+    // ----------------------------------------
+
+    client = await pool.connect();
+
+    await client.query('BEGIN');
+    transactionStarted = true;
+
+    // ----------------------------------------
+    // VERIFY SCHEME OWNERSHIP
+    // ----------------------------------------
+
+    const ownership = await client.query(
+      `
+        SELECT
+          id
+
+        FROM lms_schemes_of_work
+
+        WHERE id = $1
+          AND lecturer_id = $2
+
+        FOR UPDATE
+      `,
+      [
+        schemeId,
+        lecturer.id,
+      ],
+    );
+
+    if (ownership.rows.length === 0) {
+      await client.query('ROLLBACK');
+      transactionStarted = false;
+
       return NextResponse.json(
         {
           success: false,
@@ -388,164 +712,167 @@ export async function PUT(
       );
     }
 
-    const rawEntries =
-      Array.isArray(
-        body.entries,
-      )
-        ? body.entries
-        : [];
-
-    await client.query(
-      'BEGIN',
-    );
+    // ----------------------------------------
+    // UPDATE SCHEME INFORMATION
+    // ----------------------------------------
 
     await client.query(
       `
-        UPDATE
-          lms_schemes_of_work
+        UPDATE lms_schemes_of_work
 
         SET
           title = $1,
           academic_year = $2,
           term = $3,
           status = $4,
+
+          trainer_name = $5,
+          trainer_telephone = $6,
+          trainer_email = $7,
+
+          course_name_level = $8,
+          competency_area = $9,
+          date_of_preparation =
+            NULLIF($10::TEXT, '')::DATE,
+
+          institution = $11,
+          intake = $12,
+          module = $13,
+
+          supervisor_name = $14,
+          supervisor_signature = $15,
+
           updated_at = NOW()
 
-        WHERE id = $5
+        WHERE id = $16
+          AND lecturer_id = $17
       `,
       [
         title,
         academicYear,
         term,
         status,
+
+        trainerName,
+        trainerTelephone,
+        trainerEmail,
+
+        courseNameLevel,
+        competencyArea,
+        dateOfPreparation,
+
+        institution,
+        intake,
+        module,
+
+        supervisorName,
+        supervisorSignature,
+
         schemeId,
+        lecturer.id,
       ],
     );
 
+    // ----------------------------------------
+    // REPLACE WEEKLY ENTRIES
+    // ----------------------------------------
+
     await client.query(
       `
-        DELETE FROM
-          lms_scheme_of_work_entries
+        DELETE FROM lms_scheme_of_work_entries
 
         WHERE scheme_id = $1
       `,
       [schemeId],
     );
 
-    for (
-      const rawEntry
-      of rawEntries
-    ) {
-      if (
-        !rawEntry ||
-        typeof rawEntry !==
-          'object'
-      ) {
-        continue;
-      }
-
-      const entry =
-        rawEntry as Record<
-          string,
-          unknown
-        >;
-
-      const weekNumber =
-        Number(
-          entry.weekNumber,
-        );
-
-      const topic =
-        text(entry.topic);
-
-      if (
-        !Number.isInteger(
-          weekNumber,
-        ) ||
-        weekNumber <= 0 ||
-        !topic
-      ) {
-        continue;
-      }
-
+    for (const entry of normalizedEntries) {
       await client.query(
         `
-          INSERT INTO
-            lms_scheme_of_work_entries (
-              scheme_id,
-              week_number,
-              start_date,
-              end_date,
-              topic,
-              subtopic,
-              learning_outcomes,
-              activities,
-              resources,
-              assessment,
-              remarks
-            )
+          INSERT INTO lms_scheme_of_work_entries (
+            scheme_id,
+            week_number,
+
+            -- Official SMTC fields
+            lesson_title,
+            objectives,
+            key_points,
+            application_activities,
+            references_aids,
+            date_taught,
+
+            -- Legacy fields retained for compatibility
+            start_date,
+            end_date,
+            topic,
+            subtopic,
+            learning_outcomes,
+            activities,
+            resources,
+            assessment,
+            remarks
+          )
 
           VALUES (
             $1,
             $2,
-            NULLIF($3, '')::DATE,
-            NULLIF($4, '')::DATE,
-            $5,
-            NULLIF($6, ''),
-            NULLIF($7, ''),
-            NULLIF($8, ''),
-            NULLIF($9, ''),
-            NULLIF($10, ''),
-            NULLIF($11, '')
+
+            NULLIF($3::TEXT, ''),
+            NULLIF($4::TEXT, ''),
+            NULLIF($5::TEXT, ''),
+            NULLIF($6::TEXT, ''),
+            NULLIF($7::TEXT, ''),
+            NULLIF($8::TEXT, '')::DATE,
+
+            NULLIF($8::TEXT, '')::DATE,
+            NULL,
+
+            NULLIF($3::TEXT, ''),
+            NULLIF($5::TEXT, ''),
+            NULLIF($4::TEXT, ''),
+            NULLIF($6::TEXT, ''),
+            NULLIF($7::TEXT, ''),
+            NULL,
+            NULLIF($9::TEXT, '')
           )
         `,
         [
           schemeId,
-          weekNumber,
-          text(
-            entry.startDate,
-          ),
-          text(
-            entry.endDate,
-          ),
-          topic,
-          text(
-            entry.subtopic,
-          ),
-          text(
-            entry.learningOutcomes,
-          ),
-          text(
-            entry.activities,
-          ),
-          text(
-            entry.resources,
-          ),
-          text(
-            entry.assessment,
-          ),
-          text(
-            entry.remarks,
-          ),
+          entry.weekNumber,
+
+          entry.lessonTitle,
+          entry.objectives,
+          entry.keyPoints,
+          entry.applicationActivities,
+          entry.referencesAids,
+          entry.dateTaught,
+          entry.remarks,
         ],
       );
     }
 
-    await client.query(
-      'COMMIT',
-    );
+    // ----------------------------------------
+    // COMMIT TRANSACTION
+    // ----------------------------------------
+
+    await client.query('COMMIT');
+    transactionStarted = false;
 
     return NextResponse.json({
       success: true,
-      message:
-        'Scheme of work updated successfully.',
+      message: 'Scheme of Work updated successfully.',
     });
   } catch (error: unknown) {
-    try {
-      await client.query(
-        'ROLLBACK',
-      );
-    } catch {}
+    if (client && transactionStarted) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackError) {
+        console.error(
+          'Scheme update rollback error:',
+          rollbackError,
+        );
+      }
+    }
 
     console.error(
       'PUT /api/lecturer/schemes/[id] ERROR:',
@@ -563,9 +890,13 @@ export async function PUT(
       { status: 500 },
     );
   } finally {
-    client.release();
+    client?.release();
   }
 }
+
+// ============================================
+// DELETE: DELETE SCHEME
+// ============================================
 
 export async function DELETE(
   _request: NextRequest,
@@ -576,57 +907,47 @@ export async function DELETE(
   },
 ) {
   try {
-    const lecturer =
-      await requireLecturer();
+    const lecturer = await requireLecturer();
 
     if (!lecturer) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            'Authentication required.',
+          message: 'Authentication required.',
         },
         { status: 401 },
       );
     }
 
-    const { id } =
-      await context.params;
-
-    const schemeId =
-      parseId(id);
+    const { id } = await context.params;
+    const schemeId = parseId(id);
 
     if (!schemeId) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            'Invalid scheme ID.',
+          message: 'Invalid scheme ID.',
         },
         { status: 400 },
       );
     }
 
-    const result =
-      await pool.query(
-        `
-          DELETE FROM
-            lms_schemes_of_work
+    const result = await pool.query(
+      `
+        DELETE FROM lms_schemes_of_work
 
-          WHERE id = $1
-            AND lecturer_id = $2
+        WHERE id = $1
+          AND lecturer_id = $2
 
-          RETURNING id
-        `,
-        [
-          schemeId,
-          lecturer.id,
-        ],
-      );
+        RETURNING id
+      `,
+      [
+        schemeId,
+        lecturer.id,
+      ],
+    );
 
-    if (
-      result.rows.length === 0
-    ) {
+    if (result.rows.length === 0) {
       return NextResponse.json(
         {
           success: false,
@@ -639,8 +960,7 @@ export async function DELETE(
 
     return NextResponse.json({
       success: true,
-      message:
-        'Scheme of work deleted successfully.',
+      message: 'Scheme of Work deleted successfully.',
     });
   } catch (error: unknown) {
     console.error(

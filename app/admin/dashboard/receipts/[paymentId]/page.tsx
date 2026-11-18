@@ -205,7 +205,7 @@ export default async function FeeReceiptPage({
 
                 <div className="flex justify-between gap-4 border-b border-slate-100 p-4">
                   <span className="text-sm text-slate-500">
-                    M-Pesa Transaction Code
+                    M-Pesa/Bank Transaction Code
                   </span>
 
                   <span className="font-mono text-sm font-bold text-brand-dark">

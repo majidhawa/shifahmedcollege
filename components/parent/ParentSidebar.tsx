@@ -360,7 +360,15 @@ function SidebarNavigation({
       </p>
 
       <div className="space-y-1">
-
+ <SidebarItem
+          href="/parent/dashboard/payment"
+          icon={<FileText size={19} />}
+          label="Fee Payment"
+          active={pathname.startsWith(
+            '/parent/dashboard/payment'
+          )}
+          onClick={onNavigate}
+        />
         
 
         <SidebarItem
@@ -421,6 +429,23 @@ function SidebarNavigation({
         label="Contact College"
          active={pathname.startsWith(
             '/parent/dashboard/contact'
+          )}
+          onClick={onNavigate}
+        />
+         {/* ===================================================
+          ACCOUNT
+      ==================================================== */}
+
+      <p className="mb-3 mt-7 px-3 text-[10px] font-bold uppercase tracking-[0.2em] text-white/30">
+        Account
+      </p>
+
+      <SidebarItem
+        href="/parent/dashboard/profile"
+        icon={<UserRound size={19} />}
+        label="My Profile"
+         active={pathname.startsWith(
+            '/parent/dashboard/profile'
           )}
           onClick={onNavigate}
         />
