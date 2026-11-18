@@ -145,12 +145,24 @@ const navigationSections: NavigationSection[] = [
     ],
   },
  {
-    title: 'TEACHING ITEMS',
+    title: 'Live meetings',
 
     items: [
       {
         label: 'Live classes',
         href: '/lecturer/dashboard/live-classes',
+        icon: ClipboardList,
+      },
+   
+    ],
+  },
+  {
+    title: 'PROFESSIONAL RECORDS',
+
+    items: [
+      {
+        label: 'Records of Work',
+        href: '/lecturer/dashboard/records-of-work',
         icon: ClipboardList,
       },
      {
@@ -164,6 +176,7 @@ const navigationSections: NavigationSection[] = [
   href: '/lecturer/dashboard/lesson-plans',
   icon: FilePenLine,
 },
+
     ],
   },
   /* =======================================================

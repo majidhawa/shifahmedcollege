@@ -463,6 +463,15 @@ export default async function LecturerDashboardPage() {
               </p>
 
               <div className="mt-5 flex flex-wrap gap-3">
+            <Link
+              href="/lecturer/dashboard/records-of-work"
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-5 py-3 text-sm font-bold text-brand-dark transition hover:border-brand-green hover:text-brand-green"
+            >
+              <ClipboardList className="h-4 w-4" />
+              Records of Work
+            </Link>
+
+
 
                 <Link
                   href="/lecturer/dashboard/courses"
@@ -675,6 +684,18 @@ export default async function LecturerDashboardPage() {
               icon={ClipboardList}
               iconBackground="bg-brand-gold/15"
               iconColor="text-brand-gold"
+            />
+
+            {/* RECORDS OF WORK */}
+
+            <ManagementCard
+              href="/lecturer/dashboard/records-of-work"
+              title="Records of Work"
+              description="Create, maintain and download official records of work covered for your assigned courses and units."
+              action="Manage Records"
+              icon={ClipboardList}
+              iconBackground="bg-brand-green/10"
+              iconColor="text-brand-green"
             />
 
             {/* MATERIALS */}

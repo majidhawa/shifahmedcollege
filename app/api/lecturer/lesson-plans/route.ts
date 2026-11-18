@@ -1,13 +1,15 @@
-import {
-  NextRequest,
-  NextResponse,
-} from 'next/server';
+
+import { NextRequest, NextResponse } from 'next/server';
 
 import pool from '@/lib/db';
 import { requireLecturer } from '@/lib/lecturer-auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+/* -------------------------------------------------------------------------- */
+/* TYPES                                                                      */
+/* -------------------------------------------------------------------------- */
 
 type LessonPlanBody = {
   programId?: unknown;
@@ -16,6 +18,7 @@ type LessonPlanBody = {
   topicId?: unknown;
 
   lessonDate?: unknown;
+  lessonTime?: unknown;
   durationMinutes?: unknown;
 
   topic?: unknown;
@@ -35,281 +38,446 @@ type LessonPlanBody = {
   assignment?: unknown;
   remarks?: unknown;
 
+  trainerPhone?: unknown;
+  intake?: unknown;
+  studentCount?: unknown;
+  competencyArea?: unknown;
+  supervisorSignature?: unknown;
+  references?: unknown;
+  presentation?: unknown;
+
   status?: unknown;
 };
 
-function positiveId(
-  value: unknown,
-): number | null {
+/* -------------------------------------------------------------------------- */
+/* HELPERS                                                                    */
+/* -------------------------------------------------------------------------- */
+
+function positiveId(value: unknown): number | null {
   const id = Number(value);
 
-  return Number.isInteger(id) && id > 0
-    ? id
-    : null;
+  return Number.isInteger(id) && id > 0 ? id : null;
 }
 
-function text(
-  value: unknown,
-): string {
-  return typeof value === 'string'
-    ? value.trim()
-    : '';
+function text(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
 }
 
-/* =========================================================
-   GET
-   /api/lecturer/lesson-plans
-========================================================= */
+function optionalInteger(value: unknown): number | null {
+  if (
+    value === null ||
+    value === undefined ||
+    String(value).trim() === ''
+  ) {
+    return null;
+  }
 
-export async function GET(
-  _request: NextRequest,
-) {
+  const number = Number(value);
+
+  return Number.isInteger(number) ? number : null;
+}
+
+function validDate(value: string): boolean {
+  if (!value) return true;
+
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+
+  if (!match) return false;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+
+  const date = new Date(Date.UTC(year, month - 1, day));
+
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
+}
+
+function validTime(value: string): boolean {
+  if (!value) return true;
+
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+}
+
+/* -------------------------------------------------------------------------- */
+/* GET                                                                        */
+/* /api/lecturer/lesson-plans                                                 */
+/*                                                                            */
+/* Returns programmes, units, Scheme of Work entries, lesson plans and        */
+/* previously saved references.                                              */
+/* -------------------------------------------------------------------------- */
+
+export async function GET(_request: NextRequest) {
   try {
-    const lecturer =
-      await requireLecturer();
+    const lecturer = await requireLecturer();
 
     if (!lecturer) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            'Authentication required.',
+          message: 'Authentication required.',
         },
         { status: 401 },
       );
     }
 
-    const result =
-      await pool.query(
-        `
-          SELECT
-            lp.id,
+    /* ---------------------------------------------------------------------- */
+    /* ASSIGNED PROGRAMMES AND UNITS                                          */
+    /* ---------------------------------------------------------------------- */
 
-            lp.program_id,
-            lp.unit_id,
+    const programsResult = await pool.query(
+      `
+        SELECT
+          p.id,
+          p.name,
+          p.level,
 
-            lp.lecturer_id,
+          COALESCE(
+            JSON_AGG(
+              JSON_BUILD_OBJECT(
+                'id', u.id,
+                'code', u.code,
+                'name', u.name
+              )
+              ORDER BY u.name
+            ) FILTER (WHERE u.id IS NOT NULL),
+            '[]'::json
+          ) AS units
 
-            lp.scheme_entry_id,
-            lp.topic_id,
+        FROM lms_lecturer_programs lpr
 
-            lp.lesson_date,
-            lp.duration_minutes,
+        INNER JOIN lms_programs p
+          ON p.id = lpr.program_id
 
-            lp.topic,
-            lp.subtopic,
+        LEFT JOIN lms_units u
+          ON u.program_id = p.id
 
-            lp.general_objective,
-            lp.specific_objectives,
+        WHERE lpr.lecturer_id = $1
 
-            lp.prior_knowledge,
-            lp.resources,
+        GROUP BY
+          p.id,
+          p.name,
+          p.level
 
-            lp.introduction,
-            lp.teacher_activities,
-            lp.learner_activities,
+        ORDER BY p.name
+      `,
+      [lecturer.id],
+    );
 
-            lp.assessment,
-            lp.conclusion,
-            lp.assignment,
-            lp.remarks,
+    const programs = programsResult.rows.map((row) => ({
+      id: Number(row.id),
+      name: row.name,
+      level: row.level ?? '',
 
-            lp.status,
+      units: Array.isArray(row.units)
+        ? row.units.map((unit: {
+            id: number | string;
+            code: string | null;
+            name: string;
+          }) => ({
+            id: Number(unit.id),
+            code: unit.code ?? null,
+            name: unit.name,
+          }))
+        : [],
+    }));
 
-            lp.created_at,
-            lp.updated_at,
+    /* ---------------------------------------------------------------------- */
+    /* SCHEME OF WORK ENTRIES                                                 */
+    /* ---------------------------------------------------------------------- */
 
-            p.name AS program_name,
+    const schemesResult = await pool.query(
+      `
+        SELECT
+          se.id,
+          se.scheme_id,
+          se.week_number,
+          se.topic,
+          se.subtopic,
 
-            u.code AS unit_code,
-            u.name AS unit_name,
+          s.title AS scheme_title,
+          s.program_id,
+          s.unit_id
 
-            s.id AS scheme_id,
-            s.title AS scheme_title,
+        FROM lms_scheme_of_work_entries se
 
-            se.week_number,
+        INNER JOIN lms_schemes_of_work s
+          ON s.id = se.scheme_id
 
-            se.topic AS scheme_week_topic,
+        INNER JOIN lms_lecturer_programs lp
+          ON lp.program_id = s.program_id
+         AND lp.lecturer_id = s.lecturer_id
 
-            se.subtopic AS scheme_week_subtopic
+        WHERE s.lecturer_id = $1
 
-          FROM lms_lesson_plans lp
+        ORDER BY
+          s.program_id,
+          s.unit_id,
+          s.title,
+          se.week_number,
+          se.id
+      `,
+      [lecturer.id],
+    );
 
-          INNER JOIN lms_programs p
-            ON p.id = lp.program_id
+    const schemeEntries = schemesResult.rows.map((row) => ({
+      id: Number(row.id),
+      schemeId: Number(row.scheme_id),
 
-          INNER JOIN lms_units u
-            ON u.id = lp.unit_id
+      weekNumber: Number(row.week_number),
 
-          INNER JOIN lms_lecturer_programs lpr
-            ON lpr.program_id = lp.program_id
-           AND lpr.lecturer_id = $1
+      topic: row.topic ?? '',
+      subtopic: row.subtopic ?? '',
 
-          LEFT JOIN lms_scheme_of_work_entries se
-            ON se.id = lp.scheme_entry_id
+      schemeTitle: row.scheme_title ?? '',
 
-          LEFT JOIN lms_schemes_of_work s
-            ON s.id = se.scheme_id
+      programId: Number(row.program_id),
+      unitId: Number(row.unit_id),
+    }));
 
-          WHERE lp.lecturer_id = $1
+    /* ---------------------------------------------------------------------- */
+    /* PREVIOUSLY SAVED REFERENCES                                            */
+    /* ---------------------------------------------------------------------- */
 
-          ORDER BY
-            lp.lesson_date DESC NULLS LAST,
-            lp.created_at DESC
-        `,
-        [lecturer.id],
-      );
+    const referencesResult = await pool.query(
+      `
+        SELECT DISTINCT
+          program_id,
+          unit_id,
+          lesson_references
 
-    const lessonPlans =
-      result.rows.map(
-        (row) => ({
-          id: Number(
-            row.id,
-          ),
+        FROM lms_lesson_plans
 
-          programId:
-            Number(
-              row.program_id,
-            ),
+        WHERE lecturer_id = $1
 
-          unitId:
-            Number(
-              row.unit_id,
-            ),
+          AND lesson_references IS NOT NULL
 
-          lecturerId:
-            Number(
-              row.lecturer_id,
-            ),
+          AND BTRIM(lesson_references) <> ''
 
-          schemeEntryId:
-            row.scheme_entry_id
-              ? Number(
-                  row.scheme_entry_id,
-                )
-              : null,
+        ORDER BY
+          program_id,
+          unit_id,
+          lesson_references
+      `,
+      [lecturer.id],
+    );
 
-          topicId:
-            row.topic_id
-              ? Number(
-                  row.topic_id,
-                )
-              : null,
+    const savedReferences = referencesResult.rows.map((row) => ({
+      programId: Number(row.program_id),
+      unitId: Number(row.unit_id),
+      references: row.lesson_references ?? '',
+    }));
 
-          lessonDate:
-            row.lesson_date
-              ? String(
-                  row.lesson_date,
-                ).slice(0, 10)
-              : '',
+    /* ---------------------------------------------------------------------- */
+    /* LESSON PLANS                                                           */
+    /* ---------------------------------------------------------------------- */
 
-          durationMinutes:
-            row.duration_minutes
-              ? Number(
-                  row.duration_minutes,
-                )
-              : null,
+    const result = await pool.query(
+      `
+        SELECT
+          lp.id,
 
-          topic:
-            row.topic,
+          lp.program_id,
+          lp.unit_id,
+          lp.lecturer_id,
 
-          subtopic:
-            row.subtopic ?? '',
+          lp.scheme_entry_id,
+          lp.topic_id,
 
-          generalObjective:
-            row.general_objective ??
-            '',
+          lp.lesson_date,
+          lp.lesson_time,
+          lp.duration_minutes,
 
-          specificObjectives:
-            row.specific_objectives ??
-            '',
+          lp.topic,
+          lp.subtopic,
 
-          priorKnowledge:
-            row.prior_knowledge ??
-            '',
+          lp.general_objective,
+          lp.specific_objectives,
 
-          resources:
-            row.resources ??
-            '',
+          lp.prior_knowledge,
+          lp.resources,
 
-          introduction:
-            row.introduction ??
-            '',
+          lp.introduction,
+          lp.teacher_activities,
+          lp.learner_activities,
 
-          teacherActivities:
-            row.teacher_activities ??
-            '',
+          lp.assessment,
+          lp.conclusion,
+          lp.assignment,
+          lp.remarks,
 
-          learnerActivities:
-            row.learner_activities ??
-            '',
+          lp.trainer_name,
+          lp.trainer_phone,
+          lp.course_level,
 
-          assessment:
-            row.assessment ??
-            '',
+          lp.intake,
+          lp.student_count,
+          lp.competency_area,
 
-          conclusion:
-            row.conclusion ??
-            '',
+          lp.lesson_references,
+          lp.supervisor_signature,
+          lp.presentation,
 
-          assignment:
-            row.assignment ??
-            '',
+          lp.status,
 
-          remarks:
-            row.remarks ?? '',
+          lp.created_at,
+          lp.updated_at,
 
-          status:
-            row.status,
+          p.name AS program_name,
+          p.level AS program_level,
 
-          programName:
-            row.program_name,
+          u.code AS unit_code,
+          u.name AS unit_name,
 
-          unitCode:
-            row.unit_code ??
-            null,
+          s.id AS scheme_id,
+          s.title AS scheme_title,
 
-          unitName:
-            row.unit_name,
+          se.week_number,
+          se.topic AS scheme_week_topic,
+          se.subtopic AS scheme_week_subtopic
 
-          schemeId:
-            row.scheme_id
-              ? Number(
-                  row.scheme_id,
-                )
-              : null,
+        FROM lms_lesson_plans lp
 
-          schemeTitle:
-            row.scheme_title ??
-            null,
+        INNER JOIN lms_programs p
+          ON p.id = lp.program_id
 
-          weekNumber:
-            row.week_number
-              ? Number(
-                  row.week_number,
-                )
-              : null,
+        INNER JOIN lms_units u
+          ON u.id = lp.unit_id
 
-          schemeWeekTopic:
-            row.scheme_week_topic ??
-            null,
+        INNER JOIN lms_lecturer_programs lpr
+          ON lpr.program_id = lp.program_id
+         AND lpr.lecturer_id = $1
 
-          schemeWeekSubtopic:
-            row.scheme_week_subtopic ??
-            null,
+        LEFT JOIN lms_scheme_of_work_entries se
+          ON se.id = lp.scheme_entry_id
 
-          createdAt:
-            row.created_at,
+        LEFT JOIN lms_schemes_of_work s
+          ON s.id = se.scheme_id
+         AND s.lecturer_id = $1
 
-          updatedAt:
-            row.updated_at,
-        }),
-      );
+        WHERE lp.lecturer_id = $1
+
+        ORDER BY
+          lp.lesson_date DESC NULLS LAST,
+          lp.created_at DESC
+      `,
+      [lecturer.id],
+    );
+
+    const lessonPlans = result.rows.map((row) => ({
+      id: Number(row.id),
+
+      programId: Number(row.program_id),
+      unitId: Number(row.unit_id),
+      lecturerId: Number(row.lecturer_id),
+
+      schemeEntryId: row.scheme_entry_id
+        ? Number(row.scheme_entry_id)
+        : null,
+
+      topicId: row.topic_id
+        ? Number(row.topic_id)
+        : null,
+
+      lessonDate: row.lesson_date
+        ? String(row.lesson_date).slice(0, 10)
+        : '',
+
+      lessonTime: row.lesson_time
+        ? String(row.lesson_time).slice(0, 5)
+        : '',
+
+      durationMinutes: row.duration_minutes !== null
+        ? Number(row.duration_minutes)
+        : null,
+
+      topic: row.topic ?? '',
+      subtopic: row.subtopic ?? '',
+
+      generalObjective: row.general_objective ?? '',
+      specificObjectives: row.specific_objectives ?? '',
+
+      priorKnowledge: row.prior_knowledge ?? '',
+      resources: row.resources ?? '',
+
+      introduction: row.introduction ?? '',
+      teacherActivities: row.teacher_activities ?? '',
+      learnerActivities: row.learner_activities ?? '',
+
+      assessment: row.assessment ?? '',
+      conclusion: row.conclusion ?? '',
+      assignment: row.assignment ?? '',
+      remarks: row.remarks ?? '',
+
+      trainerName: row.trainer_name ?? '',
+      trainerPhone: row.trainer_phone ?? '',
+      courseLevel: row.course_level ?? row.program_level ?? '',
+
+      week: row.week_number !== null &&
+        row.week_number !== undefined
+        ? String(row.week_number)
+        : '',
+
+      weekNumber: row.week_number !== null &&
+        row.week_number !== undefined
+        ? Number(row.week_number)
+        : null,
+
+      intake: row.intake ?? '',
+
+      studentCount: row.student_count !== null
+        ? Number(row.student_count)
+        : null,
+
+      competencyArea: row.competency_area ?? '',
+      references: row.lesson_references ?? '',
+
+      supervisorSignature: row.supervisor_signature ?? '',
+
+      presentation: row.presentation ?? [],
+
+      status: row.status,
+
+      programName: row.program_name,
+      programLevel: row.program_level ?? '',
+
+      unitCode: row.unit_code ?? null,
+      unitName: row.unit_name,
+
+      schemeId: row.scheme_id
+        ? Number(row.scheme_id)
+        : null,
+
+      schemeTitle: row.scheme_title ?? null,
+
+      schemeWeekTopic: row.scheme_week_topic ?? null,
+      schemeWeekSubtopic: row.scheme_week_subtopic ?? null,
+
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+
+    /* ---------------------------------------------------------------------- */
+    /* SUCCESS RESPONSE                                                       */
+    /* ---------------------------------------------------------------------- */
 
     return NextResponse.json({
       success: true,
+
+      lecturerName: lecturer.name,
+
+      programs,
+      schemeEntries,
+
       lessonPlans,
+
+      savedReferences,
     });
+
   } catch (error: unknown) {
     console.error(
       'GET /api/lecturer/lesson-plans ERROR:',
@@ -319,144 +487,124 @@ export async function GET(
     return NextResponse.json(
       {
         success: false,
-        message:
-          error instanceof Error
-            ? error.message
-            : 'Unable to load lesson plans.',
+        message: error instanceof Error
+          ? error.message
+          : 'Unable to load lesson plans.',
       },
       { status: 500 },
     );
   }
 }
 
-/* =========================================================
-   POST
-   /api/lecturer/lesson-plans
-========================================================= */
+/* -------------------------------------------------------------------------- */
+/* POST                                                                       */
+/* /api/lecturer/lesson-plans                                                 */
+/*                                                                            */
+/* Creates a lesson plan linked to a Scheme of Work entry.                    */
+/* -------------------------------------------------------------------------- */
 
-export async function POST(
-  request: NextRequest,
-) {
+export async function POST(request: NextRequest) {
   try {
-    const lecturer =
-      await requireLecturer();
+    const lecturer = await requireLecturer();
 
     if (!lecturer) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            'Authentication required.',
+          message: 'Authentication required.',
         },
         { status: 401 },
       );
     }
 
-    const body =
-      (await request.json()) as LessonPlanBody;
+    let body: LessonPlanBody;
 
-    const programId =
-      positiveId(
-        body.programId,
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json(
+        {
+          success: false,
+          message: 'Invalid request body.',
+        },
+        { status: 400 },
       );
+    }
 
-    const unitId =
-      positiveId(
-        body.unitId,
-      );
+    /* ---------------------------------------------------------------------- */
+    /* IDENTIFIERS                                                            */
+    /* ---------------------------------------------------------------------- */
 
-    const schemeEntryId =
-      positiveId(
-        body.schemeEntryId,
-      );
+    const programId = positiveId(body.programId);
+    const unitId = positiveId(body.unitId);
+    const schemeEntryId = positiveId(body.schemeEntryId);
+    const topicId = positiveId(body.topicId);
 
-    const topicId =
-      positiveId(
-        body.topicId,
-      );
+    /* ---------------------------------------------------------------------- */
+    /* LESSON DETAILS                                                         */
+    /* ---------------------------------------------------------------------- */
 
-    const lessonDate =
-      text(body.lessonDate);
+    const lessonDate = text(body.lessonDate);
+    const lessonTime = text(body.lessonTime);
 
-    const durationRaw =
-      body.durationMinutes;
+    const durationRaw = body.durationMinutes;
 
     const durationMinutes =
       durationRaw === null ||
       durationRaw === undefined ||
-      String(
-        durationRaw,
-      ).trim() === ''
+      String(durationRaw).trim() === ''
         ? null
-        : Number(
-            durationRaw,
-          );
+        : Number(durationRaw);
 
-    const topic =
-      text(body.topic);
+    let topic = text(body.topic);
+    let subtopic = text(body.subtopic);
 
-    const subtopic =
-      text(body.subtopic);
+    const generalObjective = text(body.generalObjective);
+    const specificObjectives = text(body.specificObjectives);
 
-    const generalObjective =
-      text(
-        body.generalObjective,
-      );
+    const priorKnowledge = text(body.priorKnowledge);
+    const resources = text(body.resources);
 
-    const specificObjectives =
-      text(
-        body.specificObjectives,
-      );
+    const introduction = text(body.introduction);
+    const teacherActivities = text(body.teacherActivities);
+    const learnerActivities = text(body.learnerActivities);
 
-    const priorKnowledge =
-      text(
-        body.priorKnowledge,
-      );
+    const assessment = text(body.assessment);
+    const conclusion = text(body.conclusion);
+    const assignment = text(body.assignment);
+    const remarks = text(body.remarks);
 
-    const resources =
-      text(body.resources);
+    /* ---------------------------------------------------------------------- */
+    /* ADDITIONAL TEMPLATE DETAILS                                            */
+    /* ---------------------------------------------------------------------- */
 
-    const introduction =
-      text(body.introduction);
+    const trainerPhone = text(body.trainerPhone);
+    const intake = text(body.intake);
 
-    const teacherActivities =
-      text(
-        body.teacherActivities,
-      );
+    const studentCount = optionalInteger(body.studentCount);
 
-    const learnerActivities =
-      text(
-        body.learnerActivities,
-      );
+    const competencyArea = text(body.competencyArea);
+    const lessonReferences = text(body.references);
 
-    const assessment =
-      text(body.assessment);
+    const supervisorSignature = text(
+      body.supervisorSignature,
+    );
 
-    const conclusion =
-      text(body.conclusion);
+    const presentation = text(body.presentation);
 
-    const assignment =
-      text(body.assignment);
+    const status = text(body.status) === 'completed'
+      ? 'completed'
+      : 'draft';
 
-    const remarks =
-      text(body.remarks);
-
-    const status =
-      text(body.status) ===
-      'completed'
-        ? 'completed'
-        : 'draft';
-
-    /* -------------------------------------------------------
-       BASIC VALIDATION
-    ------------------------------------------------------- */
+    /* ---------------------------------------------------------------------- */
+    /* BASIC VALIDATION                                                       */
+    /* ---------------------------------------------------------------------- */
 
     if (!programId) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            'Programme is required.',
+          message: 'Course name is required.',
         },
         { status: 400 },
       );
@@ -466,302 +614,399 @@ export async function POST(
       return NextResponse.json(
         {
           success: false,
-          message:
-            'Unit is required.',
+          message: 'Course unit is required.',
         },
         { status: 400 },
       );
     }
 
-    if (!topic) {
+    if (!schemeEntryId) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            'Lesson topic is required.',
+          message: 'Please select a Scheme of Work week before creating the lesson plan.',
         },
         { status: 400 },
       );
     }
 
     if (
-      durationMinutes !==
-        null &&
+      durationMinutes !== null &&
       (
-        !Number.isInteger(
-          durationMinutes,
-        ) ||
+        !Number.isInteger(durationMinutes) ||
         durationMinutes <= 0
       )
     ) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            'Duration must be a positive whole number.',
+          message: 'Time estimate must be a positive whole number.',
         },
         { status: 400 },
       );
     }
 
-    /* -------------------------------------------------------
-       VERIFY PROGRAMME ACCESS
-    ------------------------------------------------------- */
-
-    const assignmentResult =
-      await pool.query(
-        `
-          SELECT 1
-          FROM lms_lecturer_programs lp
-          INNER JOIN lms_units u
-            ON u.program_id =
-              lp.program_id
-           AND u.id = $3
-          WHERE lp.lecturer_id = $1
-            AND lp.program_id = $2
-          LIMIT 1
-        `,
-        [
-          lecturer.id,
-          programId,
-          unitId,
-        ],
+    if (!validDate(lessonDate)) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: 'Please provide a valid lesson date.',
+        },
+        { status: 400 },
       );
+    }
+
+    if (!validTime(lessonTime)) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: 'Please provide a valid lesson time.',
+        },
+        { status: 400 },
+      );
+    }
 
     if (
-      assignmentResult.rows.length ===
-      0
+      body.studentCount !== null &&
+      body.studentCount !== undefined &&
+      String(body.studentCount).trim() !== '' &&
+      (
+        studentCount === null ||
+        studentCount < 0
+      )
     ) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            'You are not assigned to the selected programme and unit.',
+          message: 'Number of students must be a valid non-negative whole number.',
+        },
+        { status: 400 },
+      );
+    }
+
+    /* ---------------------------------------------------------------------- */
+    /* VERIFY PROGRAMME AND UNIT ACCESS                                       */
+    /* ---------------------------------------------------------------------- */
+
+    const assignmentResult = await pool.query(
+      `
+        SELECT
+          p.id,
+          p.name,
+          p.level
+
+        FROM lms_lecturer_programs lp
+
+        INNER JOIN lms_programs p
+          ON p.id = lp.program_id
+
+        INNER JOIN lms_units u
+          ON u.program_id = lp.program_id
+         AND u.id = $3
+
+        WHERE lp.lecturer_id = $1
+          AND lp.program_id = $2
+
+        LIMIT 1
+      `,
+      [
+        lecturer.id,
+        programId,
+        unitId,
+      ],
+    );
+
+    if (assignmentResult.rows.length === 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: 'You are not assigned to the selected course and unit.',
         },
         { status: 403 },
       );
     }
 
-    /* -------------------------------------------------------
-       VERIFY SCHEME WEEK
-    ------------------------------------------------------- */
+    const selectedProgram = assignmentResult.rows[0];
 
-    if (schemeEntryId) {
-      const schemeEntryResult =
-        await pool.query(
-          `
-            SELECT
-              se.id,
-              se.scheme_id,
-              s.program_id,
-              s.unit_id,
-              s.lecturer_id
-            FROM lms_scheme_of_work_entries se
-            INNER JOIN lms_schemes_of_work s
-              ON s.id = se.scheme_id
-            WHERE se.id = $1
-              AND s.lecturer_id = $2
-              AND s.program_id = $3
-              AND s.unit_id = $4
-            LIMIT 1
-          `,
-          [
-            schemeEntryId,
-            lecturer.id,
-            programId,
-            unitId,
-          ],
-        );
+    const courseLevel = text(selectedProgram.level);
 
-      if (
-        schemeEntryResult.rows.length ===
-        0
-      ) {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              'The selected scheme week does not belong to this programme, unit or lecturer.',
-          },
-          { status: 403 },
-        );
-      }
+    /* ---------------------------------------------------------------------- */
+    /* VERIFY AND RETRIEVE SCHEME OF WORK ENTRY                               */
+    /* ---------------------------------------------------------------------- */
+
+    const schemeEntryResult = await pool.query(
+      `
+        SELECT
+          se.id,
+          se.scheme_id,
+          se.week_number,
+          se.topic,
+          se.subtopic,
+
+          s.title AS scheme_title
+
+        FROM lms_scheme_of_work_entries se
+
+        INNER JOIN lms_schemes_of_work s
+          ON s.id = se.scheme_id
+
+        WHERE se.id = $1
+          AND s.lecturer_id = $2
+          AND s.program_id = $3
+          AND s.unit_id = $4
+
+        LIMIT 1
+      `,
+      [
+        schemeEntryId,
+        lecturer.id,
+        programId,
+        unitId,
+      ],
+    );
+
+    if (schemeEntryResult.rows.length === 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: 'The selected Scheme of Work week does not belong to this course, unit or lecturer.',
+        },
+        { status: 403 },
+      );
     }
 
-    /* -------------------------------------------------------
-       VERIFY TOPIC
-    ------------------------------------------------------- */
+    const selectedSchemeEntry = schemeEntryResult.rows[0];
+
+    topic = topic || text(selectedSchemeEntry.topic);
+    subtopic = subtopic || text(selectedSchemeEntry.subtopic);
+
+    if (!topic) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: 'The selected Scheme of Work entry has no topic. Please update the scheme first.',
+        },
+        { status: 400 },
+      );
+    }
+
+    /* ---------------------------------------------------------------------- */
+    /* VERIFY OPTIONAL TOPIC                                                  */
+    /* ---------------------------------------------------------------------- */
 
     if (topicId) {
-      const topicResult =
-        await pool.query(
-          `
-            SELECT
-              t.id
-            FROM lms_topics t
-            INNER JOIN lms_units u
-              ON u.id = t.unit_id
-            INNER JOIN lms_lecturer_programs lp
-              ON lp.program_id =
-                u.program_id
-             AND lp.lecturer_id = $2
-            WHERE t.id = $1
-              AND u.id = $3
-            LIMIT 1
-          `,
-          [
-            topicId,
-            lecturer.id,
-            unitId,
-          ],
-        );
+      const topicResult = await pool.query(
+        `
+          SELECT t.id
 
-      if (
-        topicResult.rows.length ===
-        0
-      ) {
+          FROM lms_topics t
+
+          INNER JOIN lms_units u
+            ON u.id = t.unit_id
+
+          INNER JOIN lms_lecturer_programs lp
+            ON lp.program_id = u.program_id
+           AND lp.lecturer_id = $2
+
+          WHERE t.id = $1
+            AND u.id = $3
+
+          LIMIT 1
+        `,
+        [
+          topicId,
+          lecturer.id,
+          unitId,
+        ],
+      );
+
+      if (topicResult.rows.length === 0) {
         return NextResponse.json(
           {
             success: false,
-            message:
-              'The selected topic does not belong to the selected unit.',
+            message: 'The selected topic does not belong to the selected unit.',
           },
           { status: 403 },
         );
       }
     }
 
-    /* -------------------------------------------------------
-       CREATE LESSON PLAN
-    ------------------------------------------------------- */
+    /* ---------------------------------------------------------------------- */
+    /* PREPARE PRESENTATION JSON                                              */
+    /* ---------------------------------------------------------------------- */
 
-    const result =
-      await pool.query(
-        `
-          INSERT INTO lms_lesson_plans (
-            program_id,
-            unit_id,
-            lecturer_id,
+    const presentationData = presentation
+      ? [{ content: presentation }]
+      : [];
 
-            scheme_entry_id,
-            topic_id,
+    /* ---------------------------------------------------------------------- */
+    /* CREATE LESSON PLAN                                                     */
+    /* ---------------------------------------------------------------------- */
 
-            lesson_date,
-            duration_minutes,
+    const result = await pool.query(
+      `
+        INSERT INTO lms_lesson_plans (
+          program_id,
+          unit_id,
+          lecturer_id,
 
-            topic,
-            subtopic,
+          scheme_entry_id,
+          topic_id,
 
-            general_objective,
-            specific_objectives,
-
-            prior_knowledge,
-            resources,
-
-            introduction,
-            teacher_activities,
-            learner_activities,
-
-            assessment,
-            conclusion,
-            assignment,
-            remarks,
-
-            status
-          )
-
-          VALUES (
-            $1,
-            $2,
-            $3,
-
-            $4,
-            $5,
-
-            NULLIF($6, '')::DATE,
-            $7,
-
-            $8,
-            NULLIF($9, ''),
-
-            NULLIF($10, ''),
-            NULLIF($11, ''),
-
-            NULLIF($12, ''),
-            NULLIF($13, ''),
-
-            NULLIF($14, ''),
-            NULLIF($15, ''),
-            NULLIF($16, ''),
-
-            NULLIF($17, ''),
-            NULLIF($18, ''),
-            NULLIF($19, ''),
-            NULLIF($20, ''),
-
-            $21
-          )
-
-          RETURNING id
-        `,
-        [
-          programId,
-          unitId,
-          lecturer.id,
-
-          schemeEntryId,
-          topicId,
-
-          lessonDate,
-          durationMinutes,
+          lesson_date,
+          lesson_time,
+          duration_minutes,
 
           topic,
           subtopic,
 
-          generalObjective,
-          specificObjectives,
+          general_objective,
+          specific_objectives,
 
-          priorKnowledge,
+          prior_knowledge,
           resources,
 
           introduction,
-          teacherActivities,
-          learnerActivities,
+          teacher_activities,
+          learner_activities,
 
           assessment,
           conclusion,
           assignment,
           remarks,
 
-          status,
-        ],
-      );
+          trainer_name,
+          trainer_phone,
+          course_level,
 
-    const lessonPlanId =
-      Number(
-        result.rows[0].id,
-      );
+          intake,
+          student_count,
+          competency_area,
+
+          lesson_references,
+          supervisor_signature,
+          presentation,
+
+          status
+        )
+
+        VALUES (
+          $1, $2, $3,
+          $4, $5,
+          NULLIF($6, '')::DATE,
+          NULLIF($7, '')::TIME,
+          $8,
+          $9, NULLIF($10, ''),
+          NULLIF($11, ''),
+          NULLIF($12, ''),
+          NULLIF($13, ''),
+          NULLIF($14, ''),
+          NULLIF($15, ''),
+          NULLIF($16, ''),
+          NULLIF($17, ''),
+          NULLIF($18, ''),
+          NULLIF($19, ''),
+          NULLIF($20, ''),
+          NULLIF($21, ''),
+          NULLIF($22, ''),
+          NULLIF($23, ''),
+          NULLIF($24, ''),
+          NULLIF($25, ''),
+          $26,
+          NULLIF($27, ''),
+          NULLIF($28, ''),
+          NULLIF($29, ''),
+          $30::jsonb,
+          $31
+        )
+
+        RETURNING id
+      `,
+      [
+        programId,
+        unitId,
+        lecturer.id,
+
+        schemeEntryId,
+        topicId,
+
+        lessonDate,
+        lessonTime,
+        durationMinutes,
+
+        topic,
+        subtopic,
+
+        generalObjective,
+        specificObjectives,
+
+        priorKnowledge,
+        resources,
+
+        introduction,
+        teacherActivities || presentation,
+        learnerActivities,
+
+        assessment,
+        conclusion,
+        assignment,
+        remarks,
+
+        lecturer.name,
+        trainerPhone,
+        courseLevel,
+
+        intake,
+        studentCount,
+        competencyArea,
+
+        lessonReferences,
+        supervisorSignature,
+        JSON.stringify(presentationData),
+
+        status,
+      ],
+    );
+
+    const lessonPlanId = Number(result.rows[0].id);
+
+    /* ---------------------------------------------------------------------- */
+    /* SUCCESS RESPONSE                                                       */
+    /* ---------------------------------------------------------------------- */
 
     return NextResponse.json(
       {
         success: true,
-        message:
-          'Lesson plan created successfully.',
+        message: 'Lesson plan created successfully.',
 
         lessonPlan: {
           id: lessonPlanId,
 
           programId,
+          programName: selectedProgram.name,
+          courseLevel,
+
           unitId,
 
-          schemeEntryId,
-          topicId,
+          lecturerId: lecturer.id,
+          trainerName: lecturer.name,
+          trainerPhone,
 
-          lessonDate,
-          durationMinutes,
+          schemeEntryId,
+          schemeId: Number(selectedSchemeEntry.scheme_id),
+          schemeTitle: selectedSchemeEntry.scheme_title,
+
+          week: String(selectedSchemeEntry.week_number),
+          weekNumber: Number(selectedSchemeEntry.week_number),
 
           topic,
           subtopic,
+
+          topicId,
+
+          lessonDate,
+          lessonTime,
+          durationMinutes,
 
           generalObjective,
           specificObjectives,
@@ -770,19 +1015,29 @@ export async function POST(
           resources,
 
           introduction,
-          teacherActivities,
+          teacherActivities: teacherActivities || presentation,
           learnerActivities,
 
           assessment,
           conclusion,
           assignment,
           remarks,
+
+          intake,
+          studentCount,
+          competencyArea,
+
+          references: lessonReferences,
+          supervisorSignature,
+
+          presentation: presentationData,
 
           status,
         },
       },
       { status: 201 },
     );
+
   } catch (error: unknown) {
     console.error(
       'POST /api/lecturer/lesson-plans ERROR:',
@@ -792,10 +1047,9 @@ export async function POST(
     return NextResponse.json(
       {
         success: false,
-        message:
-          error instanceof Error
-            ? error.message
-            : 'Unable to create lesson plan.',
+        message: error instanceof Error
+          ? error.message
+          : 'Unable to create lesson plan.',
       },
       { status: 500 },
     );
