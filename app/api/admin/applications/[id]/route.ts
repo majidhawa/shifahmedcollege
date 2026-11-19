@@ -1,14 +1,11 @@
-
 import { NextResponse } from 'next/server';
+import type { PoolClient } from 'pg';
+
 import pool from '@/lib/db';
 import { requireAdmin } from '@/lib/admin-auth';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
-
-/* =========================================================
-   TYPES
-========================================================= */
 
 type RouteContext = {
   params: Promise<{
@@ -16,10 +13,7 @@ type RouteContext = {
   }>;
 };
 
-type ApplicationStatus =
-  | 'Pending'
-  | 'Approved'
-  | 'Rejected';
+type ApplicationStatus = 'Pending' | 'Approved' | 'Rejected';
 
 type PaymentStatus =
   | 'Pending'
@@ -29,9 +23,6 @@ type PaymentStatus =
 
 /* =========================================================
    OFFICIAL SMTC PROGRAMMES
-
-   Keep these labels consistent with the application form,
-   application edit page and course management system.
 ========================================================= */
 
 const COURSE_OPTIONS = [
@@ -53,6 +44,19 @@ const COURSE_OPTIONS = [
   'Certificate in Health Service Support Level 5',
 ] as const;
 
+const APPLICATION_STATUSES: readonly ApplicationStatus[] = [
+  'Pending',
+  'Approved',
+  'Rejected',
+];
+
+const PAYMENT_STATUSES: readonly PaymentStatus[] = [
+  'Pending',
+  'Awaiting Approval',
+  'Paid',
+  'Rejected',
+];
+
 /* =========================================================
    HELPERS
 ========================================================= */
@@ -61,68 +65,68 @@ function normalizeStatus(
   value: unknown,
   allowedValues: readonly string[]
 ): string | undefined | null {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  if (value === null) {
-    return null;
-  }
+  if (value === undefined) return undefined;
+  if (value === null) return null;
 
   const normalized = String(value).trim();
 
-  if (!normalized) {
-    return null;
-  }
+  if (!normalized) return null;
 
-  return allowedValues.find(
-    (item) =>
-      item.toLowerCase() === normalized.toLowerCase()
-  ) ?? null;
+  return (
+    allowedValues.find(
+      (item) => item.toLowerCase() === normalized.toLowerCase()
+    ) ?? null
+  );
 }
 
-function cleanValue(value: unknown) {
-  if (value === undefined) {
-    return undefined;
-  }
-
-  if (value === null) {
-    return null;
-  }
+function cleanValue(value: unknown): unknown {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
 
   if (typeof value === 'string') {
     const trimmed = value.trim();
-
     return trimmed === '' ? null : trimmed;
   }
 
   return value;
 }
 
-function normalizeNullableString(value: unknown) {
-  if (
-    value === undefined ||
-    value === null
-  ) {
-    return null;
-  }
+function normalizeNullableString(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
 
   const normalized = String(value).trim();
 
   return normalized || null;
 }
 
-function getApplicationId(idParam: string) {
-  const id = Number(idParam);
-
-  if (!Number.isSafeInteger(id) || id <= 0) {
-    return null;
+function isValidEmail(value: unknown): boolean {
+  if (value === null || value === undefined || value === '') {
+    return true;
   }
 
-  return id;
+  return (
+    typeof value === 'string' &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
+  );
 }
 
-function getPaymentDetails(application: Record<string, any>) {
+function errorCode(error: unknown): string | undefined {
+  if (
+    error &&
+    typeof error === 'object' &&
+    'code' in error
+  ) {
+    return String(
+      (error as { code?: unknown }).code ?? ''
+    );
+  }
+
+  return undefined;
+}
+
+function applicationResponse(
+  application: Record<string, any>
+) {
   const paymentStatus = String(
     application.payment_status || 'Pending'
   ).trim();
@@ -153,6 +157,8 @@ function getPaymentDetails(application: Record<string, any>) {
     application.manual_payment_verified_by || null;
 
   return {
+    ...application,
+
     manualMpesaCode,
     manualMpesaPhone,
 
@@ -164,12 +170,10 @@ function getPaymentDetails(application: Record<string, any>) {
     manualMpesaPayment: {
       code: manualMpesaCode,
       phone: manualMpesaPhone,
-
       submittedAt,
       verifiedAt,
       verifiedBy,
       rejectionReason,
-
       status: paymentStatus,
 
       awaitingApproval:
@@ -181,43 +185,76 @@ function getPaymentDetails(application: Record<string, any>) {
         'verified',
       ].includes(normalizedStatus),
 
-      rejected:
-        normalizedStatus === 'rejected',
-
-      submitted:
-        Boolean(manualMpesaCode),
+      rejected: normalizedStatus === 'rejected',
+      submitted: Boolean(manualMpesaCode),
     },
   };
 }
 
-function applicationResponse(
-  application: Record<string, any>
-) {
-  return {
-    ...application,
-    ...getPaymentDetails(application),
-  };
-}
+/**
+ * Resolves either:
+ * - Numeric database ID, e.g. 49
+ * - Application number, e.g. SMTC/2026/0EC71D68
+ *
+ * Returns the numeric applications.id in both cases.
+ */
+async function resolveApplicationId(
+  identifier: string
+): Promise<number | null> {
+  const value = String(identifier ?? '').trim();
 
-function isValidEmail(value: unknown) {
-  if (value === null || value === undefined || value === '') {
-    return true;
+  if (!value) return null;
+
+  let result;
+
+  if (/^\d+$/.test(value)) {
+    const numericId = Number(value);
+
+    if (
+      !Number.isSafeInteger(numericId) ||
+      numericId <= 0
+    ) {
+      return null;
+    }
+
+    result = await pool.query(
+      `
+        SELECT id
+        FROM applications
+        WHERE id = $1
+        LIMIT 1
+      `,
+      [numericId]
+    );
+  } else {
+    result = await pool.query(
+      `
+        SELECT id
+        FROM applications
+        WHERE application_number = $1
+        LIMIT 1
+      `,
+      [value]
+    );
   }
 
-  return (
-    typeof value === 'string' &&
-    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
-  );
+  if (!result.rows.length) {
+    return null;
+  }
+
+  const resolvedId = Number(result.rows[0].id);
+
+  return Number.isSafeInteger(resolvedId) && resolvedId > 0
+    ? resolvedId
+    : null;
 }
 
 /* =========================================================
    EDITABLE APPLICATION FIELDS
-
-   Only fields listed here can be changed through PATCH.
 ========================================================= */
 
 const EDITABLE_FIELDS = [
-  /* PERSONAL */
+  // Personal
   'surname',
   'middle_name',
   'first_name',
@@ -228,7 +265,7 @@ const EDITABLE_FIELDS = [
   'id_passport_number',
   'marital_status',
 
-  /* CONTACT */
+  // Contact
   'postal_address',
   'postal_code',
   'town',
@@ -236,7 +273,7 @@ const EDITABLE_FIELDS = [
   'mobile',
   'email',
 
-  /* ACADEMIC */
+  // Academic
   'kcse_index',
   'kcse_year',
   'kcse_mean_grade',
@@ -249,37 +286,37 @@ const EDITABLE_FIELDS = [
   'previous_institution',
   'highest_qualification',
 
-  /* COURSE */
+  // Programme
   'course',
   'intake',
 
-  /* SPONSOR */
+  // Sponsor
   'sponsor_type',
   'sponsor_name',
   'sponsor_relationship',
   'sponsor_mobile',
   'sponsor_email',
 
-  /* GUARDIAN */
+  // Guardian
   'guardian_name',
   'guardian_relationship',
   'guardian_mobile',
   'guardian_email',
 
-  /* DOCUMENTS */
+  // Documents
   'id_document',
   'kcse_certificate',
   'passport_photo',
   'previous_qualification_certificate',
   'academic_transcripts',
 
-  /* DECLARATION */
+  // Declaration
   'declaration',
 
-  /* APPLICATION */
+  // Application
   'application_fee',
 
-  /* ADMISSION */
+  // Admission
   'admission_number',
 ] as const;
 
@@ -288,12 +325,10 @@ const EDITABLE_FIELDS = [
 ========================================================= */
 
 export async function GET(
-  request: Request,
+  _request: Request,
   context: RouteContext
 ) {
   try {
-    /* ADMIN AUTHENTICATION */
-
     const admin = requireAdmin();
 
     if (!admin) {
@@ -306,22 +341,20 @@ export async function GET(
       );
     }
 
-    /* APPLICATION ID */
+    const { id: identifier } = await context.params;
 
-    const { id: idParam } = await context.params;
-    const id = getApplicationId(idParam);
+    const id = await resolveApplicationId(identifier);
 
     if (!id) {
       return NextResponse.json(
         {
           success: false,
-          message: 'Invalid application ID.',
+          message:
+            'Application not found. Check the application ID or application number.',
         },
-        { status: 400 }
+        { status: 404 }
       );
     }
-
-    /* FETCH APPLICATION */
 
     const result = await pool.query(
       `
@@ -416,15 +449,13 @@ export async function GET(
           updated_at
 
         FROM applications
-
         WHERE id = $1
-
         LIMIT 1
       `,
       [id]
     );
 
-    if (result.rows.length === 0) {
+    if (!result.rows.length) {
       return NextResponse.json(
         {
           success: false,
@@ -436,15 +467,10 @@ export async function GET(
 
     return NextResponse.json({
       success: true,
-      application: applicationResponse(
-        result.rows[0]
-      ),
+      application: applicationResponse(result.rows[0]),
     });
   } catch (error) {
-    console.error(
-      'GET ADMIN APPLICATION ERROR:',
-      error
-    );
+    console.error('GET ADMIN APPLICATION ERROR:', error);
 
     return NextResponse.json(
       {
@@ -468,8 +494,6 @@ export async function PATCH(
   context: RouteContext
 ) {
   try {
-    /* ADMIN AUTHENTICATION */
-
     const admin = requireAdmin();
 
     if (!admin) {
@@ -482,27 +506,25 @@ export async function PATCH(
       );
     }
 
-    /* APPLICATION ID */
+    const { id: identifier } = await context.params;
 
-    const { id: idParam } = await context.params;
-    const id = getApplicationId(idParam);
+    const id = await resolveApplicationId(identifier);
 
     if (!id) {
       return NextResponse.json(
         {
           success: false,
-          message: 'Invalid application ID.',
+          message:
+            'Application not found. Check the application ID or application number.',
         },
-        { status: 400 }
+        { status: 404 }
       );
     }
 
-    /* READ REQUEST BODY */
-
-    let body: Record<string, unknown>;
+    let parsedBody: unknown;
 
     try {
-      body = await request.json();
+      parsedBody = await request.json();
     } catch {
       return NextResponse.json(
         {
@@ -514,9 +536,9 @@ export async function PATCH(
     }
 
     if (
-      !body ||
-      typeof body !== 'object' ||
-      Array.isArray(body)
+      !parsedBody ||
+      typeof parsedBody !== 'object' ||
+      Array.isArray(parsedBody)
     ) {
       return NextResponse.json(
         {
@@ -527,7 +549,7 @@ export async function PATCH(
       );
     }
 
-    /* FETCH EXISTING APPLICATION */
+    const body = parsedBody as Record<string, unknown>;
 
     const existingResult = await pool.query(
       `
@@ -539,7 +561,7 @@ export async function PATCH(
       [id]
     );
 
-    if (existingResult.rows.length === 0) {
+    if (!existingResult.rows.length) {
       return NextResponse.json(
         {
           success: false,
@@ -549,35 +571,21 @@ export async function PATCH(
       );
     }
 
-    const existingApplication =
-      existingResult.rows[0];
+    const existingApplication = existingResult.rows[0];
 
-    /* =====================================================
+    /* -----------------------------------------------------
        NORMALIZE STATUS VALUES
-    ===================================================== */
-
-    const validApplicationStatuses: ApplicationStatus[] = [
-      'Pending',
-      'Approved',
-      'Rejected',
-    ];
-
-    const validPaymentStatuses: PaymentStatus[] = [
-      'Pending',
-      'Awaiting Approval',
-      'Paid',
-      'Rejected',
-    ];
+    ----------------------------------------------------- */
 
     const applicationStatus = normalizeStatus(
       body.application_status,
-      validApplicationStatuses
-    );
+      APPLICATION_STATUSES
+    ) as ApplicationStatus | undefined | null;
 
     const paymentStatus = normalizeStatus(
       body.payment_status,
-      validPaymentStatuses
-    );
+      PAYMENT_STATUSES
+    ) as PaymentStatus | undefined | null;
 
     if (
       applicationStatus === null &&
@@ -587,7 +595,7 @@ export async function PATCH(
         {
           success: false,
           message: 'Invalid application status.',
-          allowedStatuses: validApplicationStatuses,
+          allowedStatuses: APPLICATION_STATUSES,
         },
         { status: 400 }
       );
@@ -601,25 +609,20 @@ export async function PATCH(
         {
           success: false,
           message: 'Invalid payment status.',
-          allowedStatuses: validPaymentStatuses,
+          allowedStatuses: PAYMENT_STATUSES,
         },
         { status: 400 }
       );
     }
 
-    /* =====================================================
-       VALIDATE COURSE
-    ===================================================== */
+    /* -----------------------------------------------------
+       VALIDATE PROGRAMME
+    ----------------------------------------------------- */
 
     if (
-      Object.prototype.hasOwnProperty.call(
-        body,
-        'course'
-      )
+      Object.prototype.hasOwnProperty.call(body, 'course')
     ) {
-      const course = normalizeNullableString(
-        body.course
-      );
+      const course = normalizeNullableString(body.course);
 
       if (!course) {
         return NextResponse.json(
@@ -631,21 +634,16 @@ export async function PATCH(
         );
       }
 
-      /*
-       * Allow an existing legacy course to remain unchanged.
-       * New course selections must match the official catalogue.
-       */
-
       const existingCourse = String(
         existingApplication.course || ''
       ).trim();
 
-      if (
-        !COURSE_OPTIONS.includes(
-          course as (typeof COURSE_OPTIONS)[number]
-        ) &&
-        course !== existingCourse
-      ) {
+      const isOfficialCourse = (
+        COURSE_OPTIONS as readonly string[]
+      ).includes(course);
+
+      // Allow an existing legacy programme to remain unchanged.
+      if (!isOfficialCourse && course !== existingCourse) {
         return NextResponse.json(
           {
             success: false,
@@ -657,19 +655,14 @@ export async function PATCH(
       }
     }
 
-    /* =====================================================
+    /* -----------------------------------------------------
        VALIDATE INTAKE
-    ===================================================== */
+    ----------------------------------------------------- */
 
     if (
-      Object.prototype.hasOwnProperty.call(
-        body,
-        'intake'
-      )
+      Object.prototype.hasOwnProperty.call(body, 'intake')
     ) {
-      const intake = normalizeNullableString(
-        body.intake
-      );
+      const intake = normalizeNullableString(body.intake);
 
       if (!intake) {
         return NextResponse.json(
@@ -692,9 +685,9 @@ export async function PATCH(
       }
     }
 
-    /* =====================================================
+    /* -----------------------------------------------------
        VALIDATE EMAIL ADDRESSES
-    ===================================================== */
+    ----------------------------------------------------- */
 
     const emailFields = [
       'email',
@@ -704,10 +697,7 @@ export async function PATCH(
 
     for (const field of emailFields) {
       if (
-        Object.prototype.hasOwnProperty.call(
-          body,
-          field
-        ) &&
+        Object.prototype.hasOwnProperty.call(body, field) &&
         !isValidEmail(body[field])
       ) {
         return NextResponse.json(
@@ -720,9 +710,9 @@ export async function PATCH(
       }
     }
 
-    /* =====================================================
+    /* -----------------------------------------------------
        VALIDATE APPLICATION FEE
-    ===================================================== */
+    ----------------------------------------------------- */
 
     let applicationFee: number | null | undefined;
 
@@ -734,9 +724,11 @@ export async function PATCH(
     ) {
       const rawFee = body.application_fee;
 
-      if (
-        rawFee === null ||
-        rawFee === ''
+      if (rawFee === null) {
+        applicationFee = null;
+      } else if (
+        typeof rawFee === 'string' &&
+        rawFee.trim() === ''
       ) {
         applicationFee = null;
       } else {
@@ -758,39 +750,28 @@ export async function PATCH(
       }
     }
 
-    /* =====================================================
-       BUILD SAFE SQL UPDATE
-
-       A Map prevents duplicate column assignments when
-       multiple status-related updates are requested.
-    ===================================================== */
+    /* -----------------------------------------------------
+       BUILD SAFE UPDATE MAP
+    ----------------------------------------------------- */
 
     const updates = new Map<string, unknown>();
 
     for (const field of EDITABLE_FIELDS) {
       if (
-        Object.prototype.hasOwnProperty.call(
-          body,
-          field
-        )
+        Object.prototype.hasOwnProperty.call(body, field)
       ) {
-        if (field === 'application_fee') {
-          updates.set(
-            field,
-            applicationFee
-          );
-        } else {
-          updates.set(
-            field,
-            cleanValue(body[field])
-          );
-        }
+        updates.set(
+          field,
+          field === 'application_fee'
+            ? applicationFee
+            : cleanValue(body[field])
+        );
       }
     }
 
-    /* =====================================================
+    /* -----------------------------------------------------
        APPLICATION STATUS
-    ===================================================== */
+    ----------------------------------------------------- */
 
     if (applicationStatus !== undefined) {
       updates.set(
@@ -799,22 +780,12 @@ export async function PATCH(
       );
 
       if (applicationStatus === 'Approved') {
-        updates.set(
-          'approved_at',
-          new Date()
-        );
-
-        updates.set(
-          'rejection_reason',
-          null
-        );
+        updates.set('approved_at', new Date());
+        updates.set('rejection_reason', null);
       }
 
       if (applicationStatus === 'Rejected') {
-        updates.set(
-          'approved_at',
-          null
-        );
+        updates.set('approved_at', null);
 
         if (
           Object.prototype.hasOwnProperty.call(
@@ -824,47 +795,29 @@ export async function PATCH(
         ) {
           updates.set(
             'rejection_reason',
-            cleanValue(
-              body.rejection_reason
-            )
+            cleanValue(body.rejection_reason)
           );
         }
       }
 
       if (applicationStatus === 'Pending') {
-        updates.set(
-          'approved_at',
-          null
-        );
-
-        updates.set(
-          'rejection_reason',
-          null
-        );
+        updates.set('approved_at', null);
+        updates.set('rejection_reason', null);
       }
     }
 
-    /* =====================================================
+    /* -----------------------------------------------------
        PAYMENT STATUS
-    ===================================================== */
+    ----------------------------------------------------- */
 
     if (paymentStatus !== undefined) {
-      updates.set(
-        'payment_status',
-        paymentStatus
-      );
+      updates.set('payment_status', paymentStatus);
     }
 
-    /* =====================================================
+    /* -----------------------------------------------------
        PAYMENT APPROVED
-
-       Supports both:
-       1. Manually submitted M-Pesa payments.
-       2. Daraja STK Push payments.
-
-       A valid existing M-Pesa transaction or receipt is
-       accepted even when no manual code was submitted.
-    ===================================================== */
+       Supports manual M-Pesa and Daraja STK payments.
+    ----------------------------------------------------- */
 
     if (paymentStatus === 'Paid') {
       const manualCode = normalizeNullableString(
@@ -897,79 +850,55 @@ export async function PATCH(
         );
       }
 
-      updates.set(
-        'manual_payment_verified_at',
-        new Date()
-      );
+      const verifiedAt = new Date();
 
-      updates.set(
-        'manual_payment_verified_by',
-        admin.email
-      );
-
-      updates.set(
-        'payment_verified_at',
-        new Date()
-      );
-
-      updates.set(
-        'paid_at',
-        new Date()
-      );
-
+      updates.set('payment_verified_at', verifiedAt);
+      updates.set('paid_at', verifiedAt);
       updates.set(
         'manual_payment_rejection_reason',
         null
       );
 
-      /*
-       * If a manual M-Pesa code exists, save it as the
-       * official transaction code.
-       */
-
+      // Record manual verification details only when a
+      // manually submitted M-Pesa code exists.
       if (manualCode) {
+        updates.set(
+          'manual_payment_verified_at',
+          verifiedAt
+        );
+
+        updates.set(
+          'manual_payment_verified_by',
+          admin.email
+        );
+
         updates.set(
           'mpesa_transaction_code',
           manualCode
         );
-      }
 
-      const manualPhone = normalizeNullableString(
-        existingApplication.manual_mpesa_phone
-      );
-
-      if (manualPhone) {
-        updates.set(
-          'mpesa_phone_number',
-          manualPhone
+        const manualPhone = normalizeNullableString(
+          existingApplication.manual_mpesa_phone
         );
+
+        if (manualPhone) {
+          updates.set(
+            'mpesa_phone_number',
+            manualPhone
+          );
+        }
       }
     }
 
-    /* =====================================================
+    /* -----------------------------------------------------
        PAYMENT REJECTED
-    ===================================================== */
+    ----------------------------------------------------- */
 
     if (paymentStatus === 'Rejected') {
-      updates.set(
-        'manual_payment_verified_at',
-        null
-      );
-
-      updates.set(
-        'manual_payment_verified_by',
-        null
-      );
-
-      updates.set(
-        'payment_verified_at',
-        null
-      );
-
-      updates.set(
-        'paid_at',
-        null
-      );
+      updates.set('manual_payment_verified_at', null);
+      updates.set('manual_payment_verified_by', null);
+      updates.set('payment_verified_at', null);
+      updates.set('paid_at', null);
 
       if (
         Object.prototype.hasOwnProperty.call(
@@ -986,88 +915,43 @@ export async function PATCH(
       }
     }
 
-    /* =====================================================
-       PAYMENT RESET TO PENDING
-    ===================================================== */
-
-    if (paymentStatus === 'Pending') {
-      updates.set(
-        'manual_payment_verified_at',
-        null
-      );
-
-      updates.set(
-        'manual_payment_verified_by',
-        null
-      );
-
-      updates.set(
-        'manual_payment_rejection_reason',
-        null
-      );
-
-      updates.set(
-        'payment_verified_at',
-        null
-      );
-
-      updates.set(
-        'paid_at',
-        null
-      );
-    }
-
-    /* =====================================================
-       PAYMENT AWAITING APPROVAL
-    ===================================================== */
+    /* -----------------------------------------------------
+       PAYMENT RESET / AWAITING APPROVAL
+    ----------------------------------------------------- */
 
     if (
+      paymentStatus === 'Pending' ||
       paymentStatus === 'Awaiting Approval'
     ) {
-      updates.set(
-        'manual_payment_verified_at',
-        null
-      );
-
-      updates.set(
-        'manual_payment_verified_by',
-        null
-      );
+      updates.set('manual_payment_verified_at', null);
+      updates.set('manual_payment_verified_by', null);
 
       updates.set(
         'manual_payment_rejection_reason',
         null
       );
 
-      updates.set(
-        'payment_verified_at',
-        null
-      );
-
-      updates.set(
-        'paid_at',
-        null
-      );
+      updates.set('payment_verified_at', null);
+      updates.set('paid_at', null);
     }
 
-    /* =====================================================
+    /* -----------------------------------------------------
        CHECK FOR CHANGES
-    ===================================================== */
+    ----------------------------------------------------- */
 
     if (updates.size === 0) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            'No editable fields were provided.',
+          message: 'No editable fields were provided.',
         },
         { status: 400 }
       );
     }
 
-    /* =====================================================
+    /* -----------------------------------------------------
        BUILD PARAMETERIZED SQL
-    ===================================================== */
+    ----------------------------------------------------- */
 
     const values: unknown[] = [];
     const assignments: string[] = [];
@@ -1075,12 +959,6 @@ export async function PATCH(
     let parameterIndex = 1;
 
     for (const [column, value] of updates.entries()) {
-      /*
-       * Column names are safe because they originate
-       * exclusively from the hard-coded allowlists and
-       * status-handling code above.
-       */
-
       assignments.push(
         `${column} = $${parameterIndex}`
       );
@@ -1089,50 +967,38 @@ export async function PATCH(
       parameterIndex++;
     }
 
-    assignments.push(
-      'updated_at = NOW()'
-    );
+    assignments.push('updated_at = NOW()');
 
     values.push(id);
 
-    /* =====================================================
+    /* -----------------------------------------------------
        EXECUTE UPDATE
-    ===================================================== */
+    ----------------------------------------------------- */
 
     const result = await pool.query(
       `
         UPDATE applications
-
-        SET
-          ${assignments.join(', ')}
-
+        SET ${assignments.join(', ')}
         WHERE id = $${parameterIndex}
-
         RETURNING *
       `,
       values
     );
 
-    if (result.rows.length === 0) {
+    if (!result.rows.length) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            'Application could not be updated.',
+          message: 'Application could not be updated.',
         },
         { status: 404 }
       );
     }
 
-    const updatedApplication =
-      result.rows[0];
-
-    /* =====================================================
-       ADMIN LOGGING
-    ===================================================== */
+    const updatedApplication = result.rows[0];
 
     console.log(
-      `Admin ${admin.email} updated application #${id}`
+      `Admin ${admin.email} updated application #${id} (${updatedApplication.application_number})`
     );
 
     if (applicationStatus !== undefined) {
@@ -1147,38 +1013,28 @@ export async function PATCH(
       );
     }
 
-    /* =====================================================
+    /* -----------------------------------------------------
        RESPONSE MESSAGE
-    ===================================================== */
+    ----------------------------------------------------- */
 
-    let message =
-      'Application updated successfully.';
+    let message = 'Application updated successfully.';
 
     if (paymentStatus === 'Paid') {
       message =
         'M-Pesa payment verified and approved successfully.';
     } else if (paymentStatus === 'Rejected') {
-      message =
-        'M-Pesa payment has been rejected.';
+      message = 'M-Pesa payment has been rejected.';
     } else if (
       paymentStatus === 'Awaiting Approval'
     ) {
-      message =
-        'Payment marked as awaiting approval.';
+      message = 'Payment marked as awaiting approval.';
     } else if (paymentStatus === 'Pending') {
-      message =
-        'Payment status reset to pending.';
+      message = 'Payment status reset to pending.';
     } else if (applicationStatus === 'Approved') {
-      message =
-        'Application approved successfully.';
+      message = 'Application approved successfully.';
     } else if (applicationStatus === 'Rejected') {
-      message =
-        'Application rejected successfully.';
+      message = 'Application rejected successfully.';
     }
-
-    /* =====================================================
-       RETURN UPDATED APPLICATION
-    ===================================================== */
 
     return NextResponse.json({
       success: true,
@@ -1211,12 +1067,13 @@ export async function PATCH(
 ========================================================= */
 
 export async function DELETE(
-  request: Request,
+  _request: Request,
   context: RouteContext
 ) {
-  try {
-    /* ADMIN AUTHENTICATION */
+  let client: PoolClient | null = null;
+  let transactionStarted = false;
 
+  try {
     const admin = requireAdmin();
 
     if (!admin) {
@@ -1229,24 +1086,31 @@ export async function DELETE(
       );
     }
 
-    /* APPLICATION ID */
+    const { id: identifier } = await context.params;
 
-    const { id: idParam } = await context.params;
-    const id = getApplicationId(idParam);
+    const id = await resolveApplicationId(identifier);
 
     if (!id) {
       return NextResponse.json(
         {
           success: false,
-          message: 'Invalid application ID.',
+          message:
+            'Application not found. Check the application ID or application number.',
         },
-        { status: 400 }
+        { status: 404 }
       );
     }
 
-    /* CHECK APPLICATION */
+    client = await pool.connect();
 
-    const existingResult = await pool.query(
+    await client.query('BEGIN');
+    transactionStarted = true;
+
+    /* -----------------------------------------------------
+       LOCK APPLICATION
+    ----------------------------------------------------- */
+
+    const existingResult = await client.query(
       `
         SELECT
           id,
@@ -1256,17 +1120,18 @@ export async function DELETE(
           surname,
           application_status,
           payment_status
-
         FROM applications
-
         WHERE id = $1
-
         LIMIT 1
+        FOR UPDATE
       `,
       [id]
     );
 
-    if (existingResult.rows.length === 0) {
+    if (!existingResult.rows.length) {
+      await client.query('ROLLBACK');
+      transactionStarted = false;
+
       return NextResponse.json(
         {
           success: false,
@@ -1276,40 +1141,68 @@ export async function DELETE(
       );
     }
 
-    const application =
-      existingResult.rows[0];
+    const application = existingResult.rows[0];
 
-    /* DELETE APPLICATION */
+    /* -----------------------------------------------------
+       DELETE RELATED STUDENT FEE PAYMENT RECORDS
 
-    await pool.query(
+       The records are deleted first because they reference
+       applications.id through a foreign key.
+    ----------------------------------------------------- */
+
+    await client.query(
       `
-        DELETE FROM applications
-
-        WHERE id = $1
+        DELETE FROM student_fee_payments
+        WHERE application_id = $1
       `,
       [id]
     );
 
-    /* ADMIN LOGGING */
+    /* -----------------------------------------------------
+       DELETE APPLICATION
+    ----------------------------------------------------- */
+
+    const deleteResult = await client.query(
+      `
+        DELETE FROM applications
+        WHERE id = $1
+        RETURNING id
+      `,
+      [id]
+    );
+
+    if (!deleteResult.rows.length) {
+      await client.query('ROLLBACK');
+      transactionStarted = false;
+
+      return NextResponse.json(
+        {
+          success: false,
+          message: 'Application could not be deleted.',
+        },
+        { status: 404 }
+      );
+    }
+
+    /* -----------------------------------------------------
+       COMMIT TRANSACTION
+    ----------------------------------------------------- */
+
+    await client.query('COMMIT');
+    transactionStarted = false;
 
     console.log(
       `Admin ${admin.email} deleted application #${id} (${application.application_number})`
     );
 
-    /* RESPONSE */
-
     return NextResponse.json({
       success: true,
-
       message:
-        'Application deleted successfully.',
-
+        'Application and its related student fee payment records were deleted successfully.',
       application: {
         id: application.id,
-
         application_number:
           application.application_number,
-
         applicant_name: [
           application.first_name,
           application.middle_name,
@@ -1320,30 +1213,32 @@ export async function DELETE(
       },
     });
   } catch (error) {
+    if (client && transactionStarted) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackError) {
+        console.error(
+          'APPLICATION DELETE ROLLBACK ERROR:',
+          rollbackError
+        );
+      }
+    }
+
     console.error(
       'DELETE ADMIN APPLICATION ERROR:',
       error
     );
 
-    /* FOREIGN KEY CONSTRAINT */
-
-    if (
-      error &&
-      typeof error === 'object' &&
-      'code' in error &&
-      error.code === '23503'
-    ) {
+    if (errorCode(error) === '23503') {
       return NextResponse.json(
         {
           success: false,
           message:
-            'This application cannot be deleted because it has related records in the system. Remove or handle the related records first.',
+            'This application is still referenced by other records in the system. No records were deleted. Check the related tables and handle those records before deleting this application.',
         },
         { status: 409 }
       );
     }
-
-    /* GENERAL ERROR */
 
     return NextResponse.json(
       {
@@ -1355,5 +1250,7 @@ export async function DELETE(
       },
       { status: 500 }
     );
+  } finally {
+    client?.release();
   }
 }

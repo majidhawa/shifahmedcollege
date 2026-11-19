@@ -397,7 +397,7 @@ export async function POST(request: NextRequest) {
     const student = studentResult.rows[0];
 
     const feeResult = await client.query(
-      courseMatchSql(),
+      courseMatchSql("COALESCE(NULLIF(ad.course, ''), a.course)"),
       [YEAR, student.course || ''],
     );
 
