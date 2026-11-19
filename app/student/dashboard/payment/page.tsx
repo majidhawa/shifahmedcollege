@@ -19,6 +19,9 @@ import {
   GraduationCap,
   CreditCard,
   Download,
+  BookOpen,
+  CalendarDays,
+  Banknote,
 } from 'lucide-react';
 
 import PaymentClient from './PaymentClient';
@@ -29,6 +32,8 @@ export const dynamic = 'force-dynamic';
    TYPES
 ========================================================= */
 
+type Component = 'TUITION' | 'ADMIN' | 'PROGRAMME';
+
 type FeePayment = {
   id: number;
   receipt_number: string | null;
@@ -38,51 +43,71 @@ type FeePayment = {
   payment_method: string | null;
   payment_date: string | Date | null;
   recorded_at: string | Date | null;
+  payment_component: Component | null;
+  term_number: number | null;
+};
+
+type TermPayment = {
+  term_number: number;
+  amount_paid: number | string;
 };
 
 type StudentRow = {
   id: number;
   application_number: string;
-
   first_name: string | null;
   middle_name: string | null;
   surname: string | null;
-
   mobile: string | null;
-
   application_course: string | null;
   application_intake: string | null;
-
   application_fee: number | string | null;
   payment_status: string | null;
   application_status: string | null;
-
   mpesa_phone_number: string | null;
   mpesa_receipt_number: string | null;
   mpesa_transaction_date: string | null;
-
   created_at: string | Date | null;
-
   admission_number: string | null;
   admission_course: string | null;
   admission_intake: string | null;
   admission_status: string | null;
   student_name: string | null;
-};
 
-type FeeAccount = {
-  id: number;
+  fee_structure_id: number | null;
+  fee_course_name: string | null;
+  course_duration: string | null;
+  duration_months: number | null;
+  billing_type: string | null;
+  tuition_fee: number | string | null;
+  admin_charge: number | string | null;
+  total_terms: number | null;
+  terms_per_year: number | null;
   total_fee: number | string;
+  fee_configured: boolean;
+
+  tuition_paid: number | string;
+  admin_paid: number | string;
+  programme_paid: number | string;
   total_paid: number | string;
+  balance: number | string;
+  unallocated_tuition: number | string;
+
+  academic_current_term: number;
+  academic_completed_terms: number;
+  academic_progress_percent: number | string;
+  academic_status: string;
+  course_start_date: string | Date | null;
+  expected_completion_date: string | Date | null;
+
+  term_payments: TermPayment[] | null;
 };
 
 /* =========================================================
    HELPERS
 ========================================================= */
 
-function formatKES(
-  value: number | string | null | undefined
-) {
+function formatKES(value: number | string | null | undefined) {
   return `KSh ${Number(value || 0).toLocaleString('en-KE', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
@@ -121,7 +146,6 @@ function formatMpesaDate(value: unknown) {
 
   const rawDate = String(value);
 
-  // M-Pesa format: YYYYMMDDHHmmss
   if (/^\d{14}$/.test(rawDate)) {
     const date = new Date(
       Number(rawDate.substring(0, 4)),
@@ -129,7 +153,7 @@ function formatMpesaDate(value: unknown) {
       Number(rawDate.substring(6, 8)),
       Number(rawDate.substring(8, 10)),
       Number(rawDate.substring(10, 12)),
-      Number(rawDate.substring(12, 14))
+      Number(rawDate.substring(12, 14)),
     );
 
     return Number.isNaN(date.getTime())
@@ -140,14 +164,24 @@ function formatMpesaDate(value: unknown) {
   return formatDateTime(rawDate);
 }
 
+function paymentComponentLabel(component: string | null, term: number | null) {
+  if (component === 'ADMIN') return 'Administrative Charge';
+
+  if (component === 'PROGRAMME') return 'Programme Tuition';
+
+  if (component === 'TUITION') {
+    return term ? `Term ${term} Tuition` : 'Unallocated Tuition';
+  }
+
+  return 'Course Fee Payment';
+}
+
 /* =========================================================
    STUDENT PAYMENT PAGE
 ========================================================= */
 
 export default async function StudentPaymentPage() {
-  /* =======================================================
-     AUTHENTICATION
-  ======================================================= */
+  /* AUTHENTICATION */
 
   const session = await getStudentSession();
 
@@ -155,68 +189,165 @@ export default async function StudentPaymentPage() {
     redirect('/student/login');
   }
 
-  /* =======================================================
-     GET AUTHENTICATED APPLICATION
-  ======================================================= */
+  /* STUDENT DETAILS AND COURSE FEE STRUCTURE */
 
   const result = await pool.query(
     `
+    SELECT
+      app.id,
+      app.application_number,
+      app.first_name,
+      app.middle_name,
+      app.surname,
+      app.mobile,
+      app.course AS application_course,
+      app.intake AS application_intake,
+      app.application_fee,
+      app.payment_status,
+      app.application_status,
+      app.mpesa_phone_number,
+      app.mpesa_receipt_number,
+      app.mpesa_transaction_date,
+      app.created_at,
+
+      admission.admission_number,
+      admission.course AS admission_course,
+      admission.intake AS admission_intake,
+      admission.admission_status,
+      admission.student_name,
+
+      fee.id AS fee_structure_id,
+      fee.course_name AS fee_course_name,
+      fee.course_duration,
+      fee.duration_months,
+      fee.billing_type,
+      fee.tuition_fee,
+      fee.admin_charge,
+      fee.total_terms,
+      fee.terms_per_year,
+
+      CASE
+        WHEN fee.id IS NULL THEN COALESCE(fa.total_fee, 0)
+        WHEN fee.billing_type = 'PER_TERM'
+          THEN fee.tuition_fee * fee.total_terms + fee.admin_charge
+        ELSE fee.tuition_fee + fee.admin_charge
+      END AS total_fee,
+
+      COALESCE(paid.tuition_paid, 0) AS tuition_paid,
+      COALESCE(paid.admin_paid, 0) AS admin_paid,
+      COALESCE(paid.programme_paid, 0) AS programme_paid,
+      COALESCE(paid.total_paid, 0) AS total_paid,
+      COALESCE(paid.unallocated_tuition, 0) AS unallocated_tuition,
+
+      GREATEST(
+        CASE
+          WHEN fee.id IS NULL THEN COALESCE(fa.total_fee, 0)
+          WHEN fee.billing_type = 'PER_TERM'
+            THEN fee.tuition_fee * fee.total_terms + fee.admin_charge
+          ELSE fee.tuition_fee + fee.admin_charge
+        END - COALESCE(paid.total_paid, 0),
+        0
+      ) AS balance,
+
+      COALESCE(fa.academic_current_term, 1) AS academic_current_term,
+      COALESCE(fa.academic_completed_terms, 0) AS academic_completed_terms,
+      COALESCE(fa.academic_progress_percent, 0) AS academic_progress_percent,
+      COALESCE(fa.academic_status, 'IN_PROGRESS') AS academic_status,
+      fa.course_start_date,
+      fa.expected_completion_date,
+
+      COALESCE(term_data.term_payments, '[]'::json) AS term_payments,
+
+      (fee.id IS NOT NULL) AS fee_configured
+
+    FROM applications app
+
+    LEFT JOIN LATERAL (
       SELECT
-        app.id,
-        app.application_number,
-
-        app.first_name,
-        app.middle_name,
-        app.surname,
-
-        app.mobile,
-        app.course AS application_course,
-        app.intake AS application_intake,
-
-        app.application_fee,
-        app.payment_status,
-        app.application_status,
-
-        app.mpesa_phone_number,
-        app.mpesa_receipt_number,
-        app.mpesa_transaction_date,
-
-        app.created_at,
-
-        admission.admission_number,
-        admission.course AS admission_course,
-        admission.intake AS admission_intake,
-        admission.admission_status,
-        admission.student_name
-
-      FROM applications app
-
-      LEFT JOIN LATERAL (
-        SELECT
-          a.admission_number,
-          a.course,
-          a.intake,
-          a.admission_status,
-          a.student_name
-
-        FROM admissions a
-
-        WHERE a.application_id = app.id
-
-        ORDER BY a.id DESC
-
-        LIMIT 1
-      ) admission ON TRUE
-
-      WHERE app.id = $1
-        AND app.application_number = $2
-
+        a.admission_number,
+        a.course,
+        a.intake,
+        a.admission_status,
+        a.student_name
+      FROM admissions a
+      WHERE a.application_id = app.id
+      ORDER BY a.id DESC
       LIMIT 1
+    ) admission ON TRUE
+
+    LEFT JOIN student_fee_accounts fa
+      ON fa.application_id = app.id
+
+    LEFT JOIN LATERAL (
+      SELECT cfs.*
+      FROM course_fee_structures cfs
+      CROSS JOIN LATERAL
+        unnest(cfs.course_aliases) AS aliases(alias)
+      WHERE
+        cfs.academic_year = $3
+        AND LOWER(
+          COALESCE(NULLIF(admission.course, ''), app.course, '')
+        ) LIKE '%' || LOWER(aliases.alias) || '%'
+      ORDER BY LENGTH(aliases.alias) DESC
+      LIMIT 1
+    ) fee ON TRUE
+
+    LEFT JOIN LATERAL (
+      SELECT
+        COALESCE(SUM(amount_paid) FILTER (
+          WHERE payment_component = 'TUITION'
+        ), 0) AS tuition_paid,
+
+        COALESCE(SUM(amount_paid) FILTER (
+          WHERE payment_component = 'ADMIN'
+        ), 0) AS admin_paid,
+
+        COALESCE(SUM(amount_paid) FILTER (
+          WHERE payment_component = 'PROGRAMME'
+        ), 0) AS programme_paid,
+
+        COALESCE(SUM(amount_paid), 0) AS total_paid,
+
+        COALESCE(SUM(amount_paid) FILTER (
+          WHERE payment_component = 'TUITION'
+            AND term_number IS NULL
+        ), 0) AS unallocated_tuition
+
+      FROM student_fee_payments
+      WHERE application_id = app.id
+    ) paid ON TRUE
+
+    LEFT JOIN LATERAL (
+      SELECT json_agg(
+        json_build_object(
+          'term_number', term_number,
+          'amount_paid', amount_paid
+        ) ORDER BY term_number
+      ) AS term_payments
+      FROM (
+        SELECT
+          term_number,
+          SUM(amount_paid) AS amount_paid
+        FROM student_fee_payments
+        WHERE
+          application_id = app.id
+          AND payment_component = 'TUITION'
+          AND term_number IS NOT NULL
+        GROUP BY term_number
+      ) grouped_terms
+    ) term_data ON TRUE
+
+    WHERE
+      app.id = $1
+      AND app.application_number = $2
+
+    LIMIT 1
     `,
     [
       session.applicationId,
       session.applicationNumber,
-    ]
+      '2026/2027',
+    ],
   );
 
   if (result.rows.length === 0) {
@@ -225,9 +356,7 @@ export default async function StudentPaymentPage() {
 
   const student = result.rows[0] as StudentRow;
 
-  /* =======================================================
-     STUDENT DETAILS
-  ======================================================= */
+  /* STUDENT INFORMATION */
 
   const fullName =
     student.student_name ||
@@ -235,9 +364,7 @@ export default async function StudentPaymentPage() {
       student.first_name,
       student.middle_name,
       student.surname,
-    ]
-      .filter(Boolean)
-      .join(' ') ||
+    ].filter(Boolean).join(' ') ||
     'Student';
 
   const course =
@@ -250,31 +377,19 @@ export default async function StudentPaymentPage() {
     student.application_intake ||
     '—';
 
-  /* =======================================================
-     APPLICATION FEE DETAILS
+  /* APPLICATION FEE */
 
-     This is separate from tuition/course fees.
-  ======================================================= */
-
-  const paymentStatus = String(
-    student.payment_status || 'Pending'
-  );
-
-  const paymentStatusLower =
-    paymentStatus.trim().toLowerCase();
+  const paymentStatus = String(student.payment_status || 'Pending');
+  const paymentStatusLower = paymentStatus.trim().toLowerCase();
 
   const isPaid = paymentStatusLower === 'paid';
-
-  const isRejected =
-    paymentStatusLower === 'rejected';
+  const isRejected = paymentStatusLower === 'rejected';
 
   const applicationStatus = String(
-    student.application_status || 'Pending'
+    student.application_status || 'Pending',
   );
 
-  const applicationFee = Number(
-    student.application_fee || 0
-  );
+  const applicationFee = Number(student.application_fee || 0);
 
   const paymentPhone =
     student.mpesa_phone_number ||
@@ -282,12 +397,10 @@ export default async function StudentPaymentPage() {
     '';
 
   const paymentDate = formatMpesaDate(
-    student.mpesa_transaction_date
+    student.mpesa_transaction_date,
   );
 
-  const applicationDate = formatDate(
-    student.created_at
-  );
+  const applicationDate = formatDate(student.created_at);
 
   let paymentStatusClass =
     'border-amber-200 bg-amber-50 text-amber-700';
@@ -302,66 +415,29 @@ export default async function StudentPaymentPage() {
       'border-red-200 bg-red-50 text-red-700';
   }
 
-  /* =======================================================
-     GET STUDENT FEE ACCOUNT
+  /* COURSE FEES */
 
-     student_fee_accounts:
-       application_id
-       total_fee
+  const hasFeeAccount = Boolean(student.fee_configured);
 
-     student_fee_payments:
-       application_id
-       amount_paid
-       receipt_number
-       mpesa_code
-       phone_number
-       payment_method
-       payment_date
-       recorded_at
-  ======================================================= */
+  const totalFees = Number(student.total_fee || 0);
+  const totalPaid = Number(student.total_paid || 0);
+  const balance = Number(student.balance || 0);
 
-  const feeAccountResult = await pool.query(
-    `
-      SELECT
-        fa.id,
-        fa.total_fee,
+  const tuitionFee = Number(student.tuition_fee || 0);
+  const adminCharge = Number(student.admin_charge || 0);
 
-        COALESCE(
-          (
-            SELECT SUM(fp.amount_paid)
-            FROM student_fee_payments fp
-            WHERE fp.application_id = fa.application_id
-          ),
-          0
-        ) AS total_paid
+  const tuitionPaid = Number(student.tuition_paid || 0);
+  const adminPaid = Number(student.admin_paid || 0);
+  const programmePaid = Number(student.programme_paid || 0);
 
-      FROM student_fee_accounts fa
+  const isTermBased = student.billing_type === 'PER_TERM';
+  const totalTerms = Number(student.total_terms || 0);
 
-      WHERE fa.application_id = $1
-
-      LIMIT 1
-    `,
-    [student.id]
-  );
-
-  const feeAccount =
-    (feeAccountResult.rows[0] as FeeAccount | undefined) ||
-    null;
-
-  const totalFees = Number(
-    feeAccount?.total_fee || 0
-  );
-
-  const totalPaid = Number(
-    feeAccount?.total_paid || 0
-  );
-
-  const balance = Math.max(
-    totalFees - totalPaid,
-    0
-  );
-
-  const hasFeeAccount = Boolean(feeAccount);
+  const termPayments = (
+    Array.isArray(student.term_payments)
+      ? student.term_payments
+      : []
+  ) as TermPayment[];
 
   const feesCleared =
     hasFeeAccount &&
@@ -370,97 +446,94 @@ export default async function StudentPaymentPage() {
 
   const paymentProgress =
     totalFees > 0
-      ? Math.min(
-          (totalPaid / totalFees) * 100,
-          100
-        )
+      ? Math.min((totalPaid / totalFees) * 100, 100)
       : 0;
 
-  /* =======================================================
-     GET STUDENT PAYMENT HISTORY
-  ======================================================= */
+  const tuitionTotal = isTermBased
+    ? tuitionFee * totalTerms
+    : tuitionFee;
+
+  const tuitionBalance = Math.max(
+    tuitionTotal - tuitionPaid - programmePaid,
+    0,
+  );
+
+  const adminBalance = Math.max(
+    adminCharge - adminPaid,
+    0,
+  );
+
+  const academicProgress = Math.min(
+    Math.max(Number(student.academic_progress_percent || 0), 0),
+    100,
+  );
+
+  const completedTerms = Number(
+    student.academic_completed_terms || 0,
+  );
+
+  const currentTerm = Number(
+    student.academic_current_term || 1,
+  );
+
+  /* PAYMENT HISTORY */
 
   const paymentsResult = await pool.query(
     `
-      SELECT
-        id,
-        receipt_number,
-        mpesa_code,
-        phone_number,
-        amount_paid,
-        payment_method,
-        payment_date,
-        recorded_at
+    SELECT
+      id,
+      receipt_number,
+      mpesa_code,
+      phone_number,
+      amount_paid,
+      payment_method,
+      payment_date,
+      recorded_at,
+      payment_component,
+      term_number
 
-      FROM student_fee_payments
+    FROM student_fee_payments
 
-      WHERE application_id = $1
+    WHERE application_id = $1
 
-      ORDER BY
-        COALESCE(payment_date, recorded_at) DESC,
-        id DESC
+    ORDER BY
+      COALESCE(payment_date, recorded_at) DESC,
+      id DESC
     `,
-    [student.id]
+    [student.id],
   );
 
   const paymentHistory =
     paymentsResult.rows as FeePayment[];
 
-  /* =======================================================
-     CLIENT PAYMENT DATA
-
-     Retains the existing application-fee payment workflow.
-  ======================================================= */
+  /* CLIENT PAYMENT DATA */
 
   const paymentData = {
-    applicationNumber: String(
-      student.application_number
-    ),
-
+    applicationNumber: String(student.application_number),
     applicationId: Number(student.id),
-
     fullName,
-
     course: String(course),
-
     intake: String(intake),
-
     applicationFee,
-
     paymentStatus,
-
     paymentPhone: String(paymentPhone || ''),
-
-    mpesaReceiptNumber:
-      student.mpesa_receipt_number
-        ? String(student.mpesa_receipt_number)
-        : null,
-
+    mpesaReceiptNumber: student.mpesa_receipt_number
+      ? String(student.mpesa_receipt_number)
+      : null,
     mpesaTransactionDate: paymentDate,
-
     isPaid,
   };
-
-  /* =======================================================
-     RECEIPT DOWNLOAD URL
-  ======================================================= */
 
   function getReceiptUrl(paymentId: number) {
     return `/api/student/fees/payments/${paymentId}/receipt?download=1`;
   }
 
-  /* =======================================================
-     PAGE
-  ======================================================= */
+  /* PAGE */
 
   return (
     <div className="min-h-screen bg-[#f8faf9]">
-
       <main className="px-4 py-6 sm:px-6 lg:px-8">
-
         <div className="mx-auto max-w-7xl">
-
-          {/* BACK */}
 
           <Link
             href="/student/dashboard"
@@ -473,7 +546,6 @@ export default async function StudentPaymentPage() {
           {/* PAGE INTRO */}
 
           <div className="mb-7 flex flex-col justify-between gap-4 md:flex-row md:items-end">
-
             <div>
               <p className="text-sm font-semibold text-[#0f4f3f]">
                 Student Finance
@@ -484,9 +556,8 @@ export default async function StudentPaymentPage() {
               </h2>
 
               <p className="mt-2 max-w-2xl text-sm leading-6 text-gray-500">
-                View your course fees, payments received,
-                outstanding balance and download your
-                individual payment receipts.
+                View your approved course fee structure, term payments,
+                outstanding balances, academic progress and payment receipts.
               </p>
             </div>
 
@@ -499,73 +570,77 @@ export default async function StudentPaymentPage() {
                 {student.application_number}
               </span>
             </div>
-
           </div>
 
-          {/* =================================================
-              COURSE FEES SUMMARY
-          ================================================= */}
+          {/* COURSE FEE SUMMARY */}
 
           <section className="mb-7">
-
-            <div className="mb-4 flex items-center gap-3">
-
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#0f4f3f]/10 text-[#0f4f3f]">
-                <GraduationCap size={21} />
-              </div>
-
-              <div>
-                <h3 className="font-bold text-[#0c1f1a]">
-                  Course Fees Summary
-                </h3>
-
-                <p className="text-xs text-gray-500">
-                  Your registered course fee account
-                </p>
-              </div>
-
-            </div>
+            <SectionHeading
+              icon={<GraduationCap size={21} />}
+              title="Course Fees Summary"
+              description="Your approved 2026/2027 course fee account"
+            />
 
             {!hasFeeAccount ? (
-
               <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6">
-
                 <div className="flex items-start gap-3">
-
                   <AlertCircle
                     size={22}
                     className="mt-0.5 shrink-0 text-amber-600"
                   />
 
                   <div>
-
                     <h4 className="font-bold text-amber-900">
-                      Fee account not yet available
+                      Course fee structure not available
                     </h4>
 
                     <p className="mt-1 text-sm leading-6 text-amber-800">
-                      Your course fee structure has not yet
-                      been assigned to your student account.
-                      Please contact the college accounts
-                      office for assistance.
+                      The college has not yet configured an approved fee
+                      structure for your registered course. Please contact
+                      the accounts office.
                     </p>
-
                   </div>
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* COURSE DETAILS */}
 
+                <div className="mb-4 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+                  <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">
+                        Registered Programme
+                      </p>
+
+                      <h3 className="mt-1 text-lg font-bold text-[#0c1f1a]">
+                        {student.fee_course_name || course}
+                      </h3>
+
+                      <p className="mt-1 text-sm text-gray-500">
+                        Duration: {student.course_duration || 'Not specified'}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <span className="rounded-full bg-[#0f4f3f]/10 px-3 py-1.5 text-xs font-bold text-[#0f4f3f]">
+                        {isTermBased ? 'Term-Based Programme' : 'One-Time Programme'}
+                      </span>
+
+                      <span className="rounded-full bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-600">
+                        Academic Year 2026/2027
+                      </span>
+                    </div>
+                  </div>
                 </div>
 
-              </div>
-
-            ) : (
-
-              <>
+                {/* TOTALS */}
 
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-
                   <FeeSummaryCard
                     label="Total Course Fees"
                     amount={formatKES(totalFees)}
-                    description="Total amount required for your course"
+                    description="Total approved tuition and administrative charges"
                     icon={<WalletCards size={22} />}
                     color="green"
                   />
@@ -573,7 +648,7 @@ export default async function StudentPaymentPage() {
                   <FeeSummaryCard
                     label="Total Amount Paid"
                     amount={formatKES(totalPaid)}
-                    description="All payments recorded in your account"
+                    description="All recorded course-fee payments"
                     icon={<CheckCircle2 size={22} />}
                     color="blue"
                   />
@@ -584,71 +659,189 @@ export default async function StudentPaymentPage() {
                     description={
                       feesCleared
                         ? 'Your course fees are fully paid'
-                        : 'Amount remaining to clear your fees'
+                        : 'Remaining amount to clear your fees'
                     }
                     icon={
                       feesCleared
                         ? <CheckCircle2 size={22} />
                         : <Clock3 size={22} />
                     }
-                    color={
-                      feesCleared ? 'green' : 'gold'
-                    }
+                    color={feesCleared ? 'green' : 'gold'}
                   />
-
                 </div>
 
-                {/* PAYMENT PROGRESS */}
+                {/* FEE PAYMENT PROGRESS */}
 
                 <div className="mt-5 rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
-
                   <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
-
                     <div>
                       <h4 className="font-bold text-[#0c1f1a]">
                         Fee Payment Progress
                       </h4>
 
                       <p className="mt-1 text-xs text-gray-500">
-                        Percentage of your course fees paid
+                        Percentage of total course fees paid
                       </p>
                     </div>
 
                     <p className="text-lg font-bold text-[#0f4f3f]">
                       {paymentProgress.toFixed(1)}%
                     </p>
-
                   </div>
 
                   <div className="mt-4 h-3 overflow-hidden rounded-full bg-gray-100">
-
                     <div
                       className="h-full rounded-full bg-[#0f4f3f] transition-all duration-500"
-                      style={{
-                        width: `${paymentProgress}%`,
-                      }}
+                      style={{ width: `${paymentProgress}%` }}
                     />
-
                   </div>
 
                   <div className="mt-3 flex justify-between gap-3 text-xs text-gray-500">
+                    <span>Paid: {formatKES(totalPaid)}</span>
+                    <span>Total: {formatKES(totalFees)}</span>
+                  </div>
+                </div>
 
-                    <span>
-                      Paid: {formatKES(totalPaid)}
-                    </span>
+                {/* FEE BREAKDOWN */}
 
-                    <span>
-                      Total: {formatKES(totalFees)}
-                    </span>
+                <div className="mt-5 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+                  <div className="border-b border-gray-100 p-5">
+                    <h4 className="font-bold text-[#0c1f1a]">
+                      Fee Breakdown
+                    </h4>
 
+                    <p className="mt-1 text-xs text-gray-500">
+                      Tuition and administrative charges are tracked separately.
+                    </p>
                   </div>
 
+                  <div className="divide-y divide-gray-100">
+                    {isTermBased ? (
+                      <FeeBreakdownRow
+                        title={`Tuition (${totalTerms} academic terms)`}
+                        amount={formatKES(tuitionTotal)}
+                        paid={formatKES(tuitionPaid)}
+                        balance={formatKES(tuitionBalance)}
+                      />
+                    ) : (
+                      <FeeBreakdownRow
+                        title="One-Time Programme Tuition"
+                        amount={formatKES(tuitionTotal)}
+                        paid={formatKES(programmePaid)}
+                        balance={formatKES(Math.max(tuitionTotal - programmePaid, 0))}
+                      />
+                    )}
+
+                    <FeeBreakdownRow
+                      title="Administrative Charges (once)"
+                      amount={formatKES(adminCharge)}
+                      paid={formatKES(adminPaid)}
+                      balance={formatKES(adminBalance)}
+                    />
+                  </div>
                 </div>
+
+                {/* TERM PAYMENT DETAILS */}
+
+                {isTermBased && (
+                  <div className="mt-5 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+                    <div className="border-b border-gray-100 p-5">
+                      <div className="flex items-center gap-3">
+                        <CalendarDays className="text-[#0f4f3f]" size={21} />
+
+                        <div>
+                          <h4 className="font-bold text-[#0c1f1a]">
+                            Academic Term Fee Details
+                          </h4>
+
+                          <p className="mt-1 text-xs text-gray-500">
+                            Tuition allocation and payment status for each term
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="divide-y divide-gray-100">
+                      {Array.from({ length: totalTerms }, (_, index) => {
+                        const term = index + 1;
+
+                        const paid = Number(
+                          termPayments.find(
+                            (item) => Number(item.term_number) === term,
+                          )?.amount_paid || 0,
+                        );
+
+                        const termBalance = Math.max(tuitionFee - paid, 0);
+                        const percentage = tuitionFee > 0
+                          ? Math.min((paid / tuitionFee) * 100, 100)
+                          : 0;
+
+                        const isTermPaid = termBalance <= 0 && tuitionFee > 0;
+
+                        return (
+                          <div key={term} className="p-5">
+                            <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+                              <div>
+                                <p className="font-bold text-[#0c1f1a]">
+                                  Term {term}
+                                </p>
+
+                                <p className="mt-1 text-xs text-gray-500">
+                                  {paid > 0
+                                    ? `${percentage.toFixed(1)}% of term tuition paid`
+                                    : 'No payment recorded for this term'}
+                                </p>
+                              </div>
+
+                              <div className="text-left sm:text-right">
+                                <p className="font-bold text-[#0f4f3f]">
+                                  {formatKES(paid)}
+                                </p>
+
+                                <p className="mt-1 text-xs text-gray-500">
+                                  of {formatKES(tuitionFee)}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="mt-3 h-2 overflow-hidden rounded-full bg-gray-100">
+                              <div
+                                className="h-full rounded-full bg-[#0f4f3f]"
+                                style={{ width: `${percentage}%` }}
+                              />
+                            </div>
+
+                            <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                              <p className="text-xs text-gray-500">
+                                Balance: {formatKES(termBalance)}
+                              </p>
+
+                              <span
+                                className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${
+                                  isTermPaid
+                                    ? 'bg-emerald-50 text-emerald-700'
+                                    : paid > 0
+                                      ? 'bg-blue-50 text-blue-700'
+                                      : 'bg-amber-50 text-amber-700'
+                                }`}
+                              >
+                                {isTermPaid
+                                  ? 'Fully Paid'
+                                  : paid > 0
+                                    ? 'Partially Paid'
+                                    : 'Pending'}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
                 {/* ACCOUNT STATUS */}
 
                 <div className="mt-4 flex items-center gap-3 rounded-xl border border-gray-100 bg-white p-4">
-
                   {feesCleared ? (
                     <CheckCircle2
                       size={21}
@@ -662,11 +855,8 @@ export default async function StudentPaymentPage() {
                   )}
 
                   <div>
-
                     <p className="text-sm font-bold text-[#0c1f1a]">
-                      {feesCleared
-                        ? 'Fees Fully Cleared'
-                        : 'Fees Payment Ongoing'}
+                      {feesCleared ? 'Fees Fully Cleared' : 'Fees Payment Ongoing'}
                     </p>
 
                     <p className="mt-0.5 text-xs text-gray-500">
@@ -674,27 +864,96 @@ export default async function StudentPaymentPage() {
                         ? 'Your recorded payments have cleared your course fees.'
                         : `You have ${formatKES(balance)} remaining on your fee account.`}
                     </p>
-
                   </div>
-
                 </div>
-
               </>
-
             )}
-
           </section>
 
-          {/* =================================================
-              PAYMENT HISTORY
-          ================================================= */}
+          {/* ACADEMIC PROGRESS */}
+
+          <section className="mb-7">
+            <SectionHeading
+              icon={<BookOpen size={21} />}
+              title="Academic Progress"
+              description="Your academic progress is separate from your fee payment progress"
+            />
+
+            <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+              <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">
+                    Course Completion
+                  </p>
+
+                  <p className="mt-1 text-2xl font-bold text-[#0f4f3f]">
+                    {academicProgress.toFixed(1)}%
+                  </p>
+
+                  <p className="mt-1 text-sm text-gray-500">
+                    Progress recorded by the college administration
+                  </p>
+                </div>
+
+                <span className={`w-fit rounded-full px-3 py-1.5 text-xs font-bold ${
+                  student.academic_status === 'COMPLETED'
+                    ? 'bg-emerald-50 text-emerald-700'
+                    : student.academic_status === 'SUSPENDED'
+                      ? 'bg-amber-50 text-amber-700'
+                      : student.academic_status === 'WITHDRAWN'
+                        ? 'bg-red-50 text-red-700'
+                        : 'bg-blue-50 text-blue-700'
+                }`}>
+                  {String(student.academic_status || 'IN_PROGRESS').replaceAll('_', ' ')}
+                </span>
+              </div>
+
+              <div className="mt-4 h-3 overflow-hidden rounded-full bg-gray-100">
+                <div
+                  className="h-full rounded-full bg-blue-600 transition-all"
+                  style={{ width: `${academicProgress}%` }}
+                />
+              </div>
+
+              {isTermBased && (
+                <div className="mt-6 grid gap-4 sm:grid-cols-2">
+                  <InfoItem
+                    label="Current Academic Term"
+                    value={`Term ${currentTerm} of ${totalTerms}`}
+                  />
+
+                  <InfoItem
+                    label="Completed Terms"
+                    value={`${completedTerms} of ${totalTerms}`}
+                  />
+                </div>
+              )}
+
+              <div className="mt-6 grid gap-4 border-t border-gray-100 pt-5 sm:grid-cols-2">
+                <InfoItem
+                  label="Course Start Date"
+                  value={formatDate(student.course_start_date)}
+                />
+
+                <InfoItem
+                  label="Expected Completion Date"
+                  value={formatDate(student.expected_completion_date)}
+                />
+              </div>
+
+              <p className="mt-5 rounded-xl bg-blue-50 p-4 text-xs leading-6 text-blue-800">
+                Academic progress is updated by the college. Paying your
+                course fees does not automatically mark academic terms or
+                course requirements as completed.
+              </p>
+            </div>
+          </section>
+
+          {/* PAYMENT HISTORY */}
 
           <section className="mb-7 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-
             <div className="flex flex-col justify-between gap-3 border-b border-gray-100 p-6 sm:flex-row sm:items-center">
-
               <div className="flex items-center gap-3">
-
                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#0f4f3f]/10 text-[#0f4f3f]">
                   <History size={21} />
                 </div>
@@ -705,23 +964,18 @@ export default async function StudentPaymentPage() {
                   </h3>
 
                   <p className="text-xs text-gray-500">
-                    View payments and download individual receipts
+                    Payments recorded by the college accounts office
                   </p>
                 </div>
-
               </div>
 
               <span className="w-fit rounded-full bg-[#0f4f3f]/10 px-3 py-1.5 text-xs font-bold text-[#0f4f3f]">
-                {paymentHistory.length} Payment
-                {paymentHistory.length === 1 ? '' : 's'}
+                {paymentHistory.length} Payment{paymentHistory.length === 1 ? '' : 's'}
               </span>
-
             </div>
 
             {paymentHistory.length === 0 ? (
-
               <div className="px-6 py-12 text-center">
-
                 <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-gray-100 text-gray-400">
                   <Receipt size={25} />
                 </div>
@@ -731,93 +985,63 @@ export default async function StudentPaymentPage() {
                 </h4>
 
                 <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-gray-500">
-                  Your course fee payments will appear here
-                  once they have been recorded and confirmed
+                  Your course fee payments will appear here once recorded
                   by the college accounts office.
                 </p>
-
               </div>
-
             ) : (
-
               <>
-
-                {/* DESKTOP PAYMENT TABLE */}
+                {/* DESKTOP TABLE */}
 
                 <div className="hidden overflow-x-auto md:block">
-
                   <table className="w-full text-left text-sm">
-
                     <thead className="bg-[#f8faf9] text-xs uppercase tracking-wider text-gray-500">
-
                       <tr>
-
-                        <th className="px-6 py-4 font-semibold">
-                          Date
-                        </th>
-
-                        <th className="px-6 py-4 font-semibold">
-                          Receipt Number
-                        </th>
-
-                        <th className="px-6 py-4 font-semibold">
-                          M-Pesa Code
-                        </th>
-
-                        <th className="px-6 py-4 font-semibold">
-                          Payment Method
-                        </th>
-
-                        <th className="px-6 py-4 text-right font-semibold">
-                          Amount Paid
-                        </th>
-
-                        <th className="px-6 py-4 text-center font-semibold">
-                          Receipt
-                        </th>
-
+                        <th className="px-5 py-4 font-semibold">Date Paid</th>
+                        <th className="px-5 py-4 font-semibold">Receipt</th>
+                        <th className="px-5 py-4 font-semibold">Reference Code</th>
+                        <th className="px-5 py-4 font-semibold">Category</th>
+                        <th className="px-5 py-4 font-semibold">Method</th>
+                        <th className="px-5 py-4 text-right font-semibold">Amount</th>
+                        <th className="px-5 py-4 text-center font-semibold">Receipt</th>
                       </tr>
-
                     </thead>
 
                     <tbody className="divide-y divide-gray-100">
-
                       {paymentHistory.map((payment) => (
-
-                        <tr
-                          key={payment.id}
-                          className="transition hover:bg-gray-50"
-                        >
-
-                          <td className="whitespace-nowrap px-6 py-4 text-gray-600">
-                            {formatDateTime(
-                              payment.payment_date ||
-                              payment.recorded_at
-                            )}
+                        <tr key={payment.id} className="transition hover:bg-gray-50">
+                          <td className="whitespace-nowrap px-5 py-4 text-gray-600">
+                            {formatDate(payment.payment_date || payment.recorded_at)}
                           </td>
 
-                          <td className="px-6 py-4">
+                          <td className="px-5 py-4">
                             <span className="font-mono text-xs font-bold text-[#0f4f3f]">
                               {payment.receipt_number || '—'}
                             </span>
                           </td>
 
-                          <td className="px-6 py-4">
+                          <td className="px-5 py-4">
                             <span className="font-mono text-xs font-semibold text-gray-700">
                               {payment.mpesa_code || '—'}
                             </span>
                           </td>
 
-                          <td className="px-6 py-4 text-gray-600">
-                            {payment.payment_method || 'M-Pesa'}
+                          <td className="px-5 py-4 text-gray-600">
+                            {paymentComponentLabel(
+                              payment.payment_component,
+                              payment.term_number,
+                            )}
                           </td>
 
-                          <td className="whitespace-nowrap px-6 py-4 text-right font-bold text-[#0f4f3f]">
+                          <td className="px-5 py-4 text-gray-600">
+                            {payment.payment_method || '—'}
+                          </td>
+
+                          <td className="whitespace-nowrap px-5 py-4 text-right font-bold text-[#0f4f3f]">
                             {formatKES(payment.amount_paid)}
                           </td>
 
-                          <td className="px-6 py-4 text-center">
-
+                          <td className="px-5 py-4 text-center">
                             <Link
                               href={getReceiptUrl(payment.id)}
                               target="_blank"
@@ -827,34 +1051,20 @@ export default async function StudentPaymentPage() {
                               <Download size={15} />
                               Download
                             </Link>
-
                           </td>
-
                         </tr>
-
                       ))}
-
                     </tbody>
-
                   </table>
-
                 </div>
 
                 {/* MOBILE PAYMENT CARDS */}
 
                 <div className="divide-y divide-gray-100 md:hidden">
-
                   {paymentHistory.map((payment) => (
-
-                    <div
-                      key={payment.id}
-                      className="space-y-4 p-5"
-                    >
-
+                    <div key={payment.id} className="space-y-4 p-5">
                       <div className="flex items-start justify-between gap-3">
-
                         <div className="min-w-0">
-
                           <p className="text-xs text-gray-400">
                             Receipt Number
                           </p>
@@ -862,46 +1072,44 @@ export default async function StudentPaymentPage() {
                           <p className="mt-1 break-all font-mono text-xs font-bold text-[#0f4f3f]">
                             {payment.receipt_number || '—'}
                           </p>
-
                         </div>
 
                         <p className="shrink-0 text-sm font-bold text-[#0f4f3f]">
                           {formatKES(payment.amount_paid)}
                         </p>
-
                       </div>
 
                       <div className="grid grid-cols-2 gap-4">
-
                         <InfoItem
-                          label="M-Pesa Code"
+                          label="Reference Code"
                           value={payment.mpesa_code || '—'}
                         />
 
                         <InfoItem
                           label="Payment Method"
-                          value={payment.payment_method || 'M-Pesa'}
+                          value={payment.payment_method || '—'}
+                        />
+
+                        <InfoItem
+                          label="Payment Category"
+                          value={paymentComponentLabel(
+                            payment.payment_component,
+                            payment.term_number,
+                          )}
                         />
 
                         <InfoItem
                           label="Payment Date"
-                          value={formatDateTime(
-                            payment.payment_date ||
-                            payment.recorded_at
-                          )}
+                          value={formatDate(payment.payment_date || payment.recorded_at)}
                         />
 
                         <InfoItem
                           label="Phone Number"
                           value={payment.phone_number || '—'}
                         />
-
                       </div>
 
-                      {/* DOWNLOAD RECEIPT */}
-
                       <div className="border-t border-gray-100 pt-3">
-
                         <Link
                           href={getReceiptUrl(payment.id)}
                           target="_blank"
@@ -911,19 +1119,14 @@ export default async function StudentPaymentPage() {
                           <Download size={17} />
                           Download Payment Receipt
                         </Link>
-
                       </div>
-
                     </div>
-
                   ))}
-
                 </div>
 
-                {/* PAYMENT HISTORY TOTAL */}
+                {/* HISTORY TOTAL */}
 
                 <div className="flex flex-col justify-between gap-2 border-t border-gray-100 bg-[#f8faf9] p-5 sm:flex-row sm:items-center">
-
                   <p className="text-sm font-semibold text-gray-600">
                     Total Payments Recorded
                   </p>
@@ -931,49 +1134,24 @@ export default async function StudentPaymentPage() {
                   <p className="text-lg font-bold text-[#0f4f3f]">
                     {formatKES(totalPaid)}
                   </p>
-
                 </div>
-
               </>
-
             )}
-
           </section>
 
-          {/* =================================================
-              APPLICATION FEE PAYMENT
-
-              Kept separate from course fees.
-          ================================================= */}
+          {/* APPLICATION FEE */}
 
           <section className="mb-7">
-
-            <div className="mb-4 flex items-center gap-3">
-
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#d7a93b]/15 text-[#a67d13]">
-                <CreditCard size={21} />
-              </div>
-
-              <div>
-                <h3 className="font-bold text-[#0c1f1a]">
-                  Application Fee
-                </h3>
-
-                <p className="text-xs text-gray-500">
-                  Your application processing payment
-                </p>
-              </div>
-
-            </div>
+            <SectionHeading
+              icon={<CreditCard size={21} />}
+              title="Application Fee"
+              description="Your application processing payment, separate from course tuition"
+            />
 
             <section className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
-
               <div className="grid md:grid-cols-3">
-
                 <div className="p-6 sm:p-7">
-
                   <div className="flex items-center gap-3">
-
                     <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#d7a93b]/15 text-[#a67d13]">
                       <WalletCards size={22} />
                     </div>
@@ -987,17 +1165,12 @@ export default async function StudentPaymentPage() {
                         {formatKES(applicationFee)}
                       </p>
                     </div>
-
                   </div>
-
                 </div>
 
                 <div className="border-t bg-[#fafcfb] p-6 md:border-l md:border-t-0 sm:p-7">
-
                   <div className="flex items-center gap-3">
-
                     <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#0f4f3f]/10 text-[#0f4f3f]">
-
                       {isPaid ? (
                         <CheckCircle2 size={22} />
                       ) : isRejected ? (
@@ -1005,7 +1178,6 @@ export default async function StudentPaymentPage() {
                       ) : (
                         <Clock3 size={22} />
                       )}
-
                     </div>
 
                     <div>
@@ -1013,22 +1185,16 @@ export default async function StudentPaymentPage() {
                         Payment Status
                       </p>
 
-                      <span
-                        className={`mt-1 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${paymentStatusClass}`}
-                      >
+                      <span className={`mt-1 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${paymentStatusClass}`}>
                         <span className="h-1.5 w-1.5 rounded-full bg-current" />
                         {paymentStatus}
                       </span>
                     </div>
-
                   </div>
-
                 </div>
 
                 <div className="border-t p-6 md:border-l md:border-t-0 sm:p-7">
-
                   <div className="flex items-center gap-3">
-
                     <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
                       <ShieldCheck size={22} />
                     </div>
@@ -1042,31 +1208,20 @@ export default async function StudentPaymentPage() {
                         {applicationStatus}
                       </p>
                     </div>
-
                   </div>
-
                 </div>
-
               </div>
-
             </section>
-
-            {/* EXISTING APPLICATION PAYMENT COMPONENT */}
 
             <div className="mt-5">
               <PaymentClient payment={paymentData} />
             </div>
-
           </section>
 
-          {/* =================================================
-              STUDENT INFORMATION
-          ================================================= */}
+          {/* STUDENT INFORMATION */}
 
           <section className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm sm:p-7">
-
             <div className="flex items-start gap-4">
-
               <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#0f4f3f]/10 text-[#0f4f3f]">
                 <FileText size={21} />
               </div>
@@ -1080,125 +1235,95 @@ export default async function StudentPaymentPage() {
                   Your registration and payment account details.
                 </p>
               </div>
-
             </div>
 
             <div className="mt-6 grid gap-5 border-t border-gray-100 pt-5 sm:grid-cols-2 lg:grid-cols-4">
-
-              <InfoItem
-                label="Student Name"
-                value={fullName}
-              />
-
-              <InfoItem
-                label="Application Number"
-                value={student.application_number}
-              />
-
-              <InfoItem
-                label="Admission Number"
-                value={student.admission_number || 'Not assigned'}
-              />
-
-              <InfoItem
-                label="Course"
-                value={course}
-              />
-
-              <InfoItem
-                label="Intake"
-                value={intake}
-              />
-
-              <InfoItem
-                label="Admission Status"
-                value={student.admission_status || 'Not available'}
-              />
-
-              <InfoItem
-                label="Date Submitted"
-                value={applicationDate}
-              />
-
-              <InfoItem
-                label="Registered Phone"
-                value={paymentPhone || 'Not provided'}
-              />
-
+              <InfoItem label="Student Name" value={fullName} />
+              <InfoItem label="Application Number" value={student.application_number} />
+              <InfoItem label="Admission Number" value={student.admission_number || 'Not assigned'} />
+              <InfoItem label="Course" value={course} />
+              <InfoItem label="Intake" value={intake} />
+              <InfoItem label="Admission Status" value={student.admission_status || 'Not available'} />
+              <InfoItem label="Date Submitted" value={applicationDate} />
+              <InfoItem label="Registered Phone" value={paymentPhone || 'Not provided'} />
               <InfoItem
                 label="Application M-Pesa Receipt"
-                value={
-                  student.mpesa_receipt_number ||
-                  'Not available'
-                }
+                value={student.mpesa_receipt_number || 'Not available'}
                 highlight={Boolean(student.mpesa_receipt_number)}
               />
-
-              <InfoItem
-                label="Application Payment Date"
-                value={paymentDate}
-              />
-
+              <InfoItem label="Application Payment Date" value={paymentDate} />
             </div>
-
           </section>
 
-          {/* =================================================
-              SECURITY NOTICE
-          ================================================= */}
+          {/* SECURITY NOTICE */}
 
           <div className="mt-6 rounded-2xl border border-[#d7a93b]/20 bg-[#fffdf5] p-5">
-
             <div className="flex gap-3">
-
               <AlertCircle
                 size={20}
                 className="mt-0.5 shrink-0 text-[#a67d13]"
               />
 
               <div>
-
                 <p className="text-sm font-semibold text-[#0c1f1a]">
                   Important payment information
                 </p>
 
                 <p className="mt-1 text-sm leading-6 text-gray-600">
-                  Your course fee balance is calculated from the
-                  total fees assigned to your student account
-                  less all payments recorded by the college.
-                  You can download an individual receipt for
-                  every recorded course-fee payment. Always
-                  retain your M-Pesa confirmation messages and
-                  official college receipts. Contact the
-                  accounts office if a payment is missing or
-                  your balance appears incorrect.
+                  Your course fee balance is calculated using the approved
+                  college fee structure and payments recorded by the accounts
+                  office. Administrative charges are payable once, while
+                  term-based tuition is tracked separately for each academic
+                  term. Academic progress is maintained independently of
+                  payment progress. Always retain your payment confirmation
+                  messages and official receipts. Contact the accounts office
+                  if a payment is missing or your balance appears incorrect.
                 </p>
-
               </div>
-
             </div>
-
           </div>
 
           {/* FOOTER */}
 
           <div className="py-8 text-center">
-
             <p className="text-xs text-gray-400">
-              © {new Date().getFullYear()} Shifah Medical Training
-              College. All rights reserved.
+              © {new Date().getFullYear()} Shifah Medical Training College.
+              All rights reserved.
             </p>
 
             <p className="mt-1 text-[11px] text-gray-400">
               Student Portal • Secure Student Access
             </p>
-
           </div>
-
         </div>
-
       </main>
+    </div>
+  );
+}
 
+/* =========================================================
+   SECTION HEADING
+========================================================= */
+
+function SectionHeading({
+  icon,
+  title,
+  description,
+}: {
+  icon: ReactNode;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="mb-4 flex items-center gap-3">
+      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#0f4f3f]/10 text-[#0f4f3f]">
+        {icon}
+      </div>
+
+      <div>
+        <h3 className="font-bold text-[#0c1f1a]">{title}</h3>
+        <p className="text-xs text-gray-500">{description}</p>
+      </div>
     </div>
   );
 }
@@ -1237,9 +1362,7 @@ function FeeSummaryCard({
 
   return (
     <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
-
       <div className="flex items-center justify-between gap-3">
-
         <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">
           {label}
         </p>
@@ -1247,7 +1370,6 @@ function FeeSummaryCard({
         <div className={`flex h-11 w-11 items-center justify-center rounded-xl ${colors[color].icon}`}>
           {icon}
         </div>
-
       </div>
 
       <p className={`mt-4 text-2xl font-bold ${colors[color].amount}`}>
@@ -1257,7 +1379,45 @@ function FeeSummaryCard({
       <p className="mt-2 text-xs leading-5 text-gray-500">
         {description}
       </p>
+    </div>
+  );
+}
 
+/* =========================================================
+   FEE BREAKDOWN ROW
+========================================================= */
+
+function FeeBreakdownRow({
+  title,
+  amount,
+  paid,
+  balance,
+}: {
+  title: string;
+  amount: string;
+  paid: string;
+  balance: string;
+}) {
+  return (
+    <div className="grid gap-3 p-5 sm:grid-cols-4 sm:items-center">
+      <div className="sm:col-span-1">
+        <p className="text-sm font-bold text-[#0c1f1a]">{title}</p>
+      </div>
+
+      <div>
+        <p className="text-xs text-gray-400">Required</p>
+        <p className="mt-1 text-sm font-semibold text-gray-800">{amount}</p>
+      </div>
+
+      <div>
+        <p className="text-xs text-gray-400">Paid</p>
+        <p className="mt-1 text-sm font-semibold text-emerald-700">{paid}</p>
+      </div>
+
+      <div>
+        <p className="text-xs text-gray-400">Balance</p>
+        <p className="mt-1 text-sm font-semibold text-[#a67d13]">{balance}</p>
+      </div>
     </div>
   );
 }
@@ -1277,24 +1437,15 @@ function InfoItem({
 }) {
   return (
     <div>
-
       <p className="text-xs font-medium uppercase tracking-wider text-gray-400">
         {label}
       </p>
 
-      <p
-        className={`
-          mt-1.5 break-words text-sm font-semibold
-          ${
-            highlight
-              ? 'text-[#0f4f3f]'
-              : 'text-gray-800'
-          }
-        `}
-      >
+      <p className={`mt-1.5 break-words text-sm font-semibold ${
+        highlight ? 'text-[#0f4f3f]' : 'text-gray-800'
+      }`}>
         {value || '—'}
       </p>
-
     </div>
   );
 }
