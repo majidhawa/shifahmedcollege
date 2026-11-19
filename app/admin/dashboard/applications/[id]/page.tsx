@@ -1,3 +1,4 @@
+
 'use client';
 
 import {
@@ -88,9 +89,12 @@ type Application = {
   guardian_mobile: string;
   guardian_email: string;
 
+  // Uploaded documents
   id_document: string | null;
   kcse_certificate: string | null;
   passport_photo: string | null;
+  previous_qualification_certificate: string | null;
+  academic_transcripts: string | null;
 
   declaration: boolean;
 
@@ -227,13 +231,21 @@ function DocumentCard({
   if (!path) {
     return (
       <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4">
-        <p className="text-sm font-semibold text-slate-500">
-          {title}
-        </p>
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-200/70">
+            <FileText className="h-5 w-5 text-slate-400" />
+          </div>
 
-        <p className="mt-1 text-xs text-slate-400">
-          No document uploaded
-        </p>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-slate-500">
+              {title}
+            </p>
+
+            <p className="mt-1 text-xs text-slate-400">
+              No document uploaded
+            </p>
+          </div>
+        </div>
       </div>
     );
   }
@@ -246,12 +258,12 @@ function DocumentCard({
         </div>
 
         <div className="min-w-0">
-          <p className="truncate text-sm font-bold text-brand-dark">
+          <p className="text-sm font-bold text-brand-dark">
             {title}
           </p>
 
-          <p className="mt-1 text-xs text-slate-400">
-            Uploaded document
+          <p className="mt-1 text-xs text-green-600">
+            Document uploaded
           </p>
         </div>
       </div>
@@ -440,11 +452,6 @@ export default function ApplicationDetailsPage() {
 
       setApplication(data.application);
 
-      /*
-       * Refresh the admission because changing the
-       * application status affects whether the admission
-       * letter can be downloaded.
-       */
       await loadAdmission();
 
       setSuccess(
@@ -467,11 +474,6 @@ export default function ApplicationDetailsPage() {
 
   /* =======================================================
      CREATE ADMISSION
-
-     The admission API is responsible for assigning the
-     permanent admission number.
-
-     THIS PAGE NEVER GENERATES AN ADMISSION NUMBER.
   ======================================================= */
 
   async function createAdmission() {
@@ -561,15 +563,6 @@ export default function ApplicationDetailsPage() {
 
   /* =======================================================
      DOWNLOAD ADMISSION LETTER
-
-     REQUIREMENTS:
-
-     1. Application MUST be Approved.
-     2. Admission MUST exist.
-     3. Admission MUST be Active.
-     4. API returns saved PDF if already generated.
-     5. API generates/saves it only the first time.
-     6. Admission number is NEVER generated here.
   ======================================================= */
 
   async function downloadAdmissionLetter() {
@@ -691,10 +684,6 @@ export default function ApplicationDetailsPage() {
         blobUrl
       );
 
-      /*
-       * Refresh admission so admission_letter_path is
-       * reflected immediately after first generation.
-       */
       await loadAdmission();
 
       setSuccess(
@@ -793,19 +782,6 @@ export default function ApplicationDetailsPage() {
       admission?.admission_letter_path
     );
 
-  /*
-   * MOST IMPORTANT RULE:
-   *
-   * The admission letter is available ONLY when:
-   *
-   * Application = Approved
-   * AND
-   * Admission = Active
-   *
-   * Payment is required to CREATE the admission,
-   * but the application approval is the direct
-   * requirement for the letter download button.
-   */
   const canDownloadAdmissionLetter =
     Boolean(
       applicationApproved &&
@@ -838,7 +814,7 @@ export default function ApplicationDetailsPage() {
             HEADER
         ================================================== */}
 
-        <div className="mt-6 rounded-3xl bg-brand-green p-6 text-white shadow-soft sm:p-8">
+        <div className="mt-6 rounded-3xl bg-brand-green p-6 text-white shadow-soft">
 
           <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
 
@@ -919,10 +895,6 @@ export default function ApplicationDetailsPage() {
 
               <div>
 
-                {/* =========================================
-                    ADMISSION SUMMARY
-                ========================================== */}
-
                 <div className="rounded-2xl border border-green-200 bg-green-50 p-5">
 
                   <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
@@ -966,10 +938,6 @@ export default function ApplicationDetailsPage() {
 
                 </div>
 
-                {/* =========================================
-                    ADMISSION DETAILS
-                ========================================== */}
-
                 <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
 
                   <InfoRow
@@ -1001,10 +969,6 @@ export default function ApplicationDetailsPage() {
                   />
 
                 </div>
-
-                {/* =========================================
-                    ADMISSION LETTER
-                ========================================== */}
 
                 <div className="mt-6 rounded-2xl border border-brand-green/20 bg-brand-green/5 p-5">
 
@@ -1093,10 +1057,6 @@ export default function ApplicationDetailsPage() {
 
                   </div>
 
-                  {/* =======================================
-                      LETTER AVAILABILITY MESSAGE
-                  ======================================== */}
-
                   {!applicationApproved && (
                     <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3">
 
@@ -1132,10 +1092,6 @@ export default function ApplicationDetailsPage() {
 
                 </div>
 
-                {/* =========================================
-                    APPLICATION FORM
-                ========================================== */}
-
                 <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
 
                   <a
@@ -1156,10 +1112,6 @@ export default function ApplicationDetailsPage() {
 
               <div>
 
-                {/* =========================================
-                    NO ADMISSION
-                ========================================== */}
-
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
 
                   <p className="text-sm font-semibold text-slate-700">
@@ -1173,10 +1125,6 @@ export default function ApplicationDetailsPage() {
                   </p>
 
                 </div>
-
-                {/* =========================================
-                    CREATE ADMISSION
-                ========================================== */}
 
                 <div className="mt-5">
 
@@ -1588,23 +1536,30 @@ export default function ApplicationDetailsPage() {
 
         {/* =================================================
             DOCUMENTS
+            NOW SUPPORTS ALL FIVE DOCUMENTS
         ================================================== */}
 
         <div className="mt-6">
 
           <Section title="Uploaded Documents">
 
-            <div className="grid gap-4 md:grid-cols-3">
+            <p className="mb-5 text-sm text-slate-500">
+              Review the documents submitted by the
+              applicant. Documents that were not provided
+              during application are marked accordingly.
+            </p>
+
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
 
               <DocumentCard
-                title="ID / Passport"
+                title="National ID / Passport"
                 path={
                   application.id_document
                 }
               />
 
               <DocumentCard
-                title="KCSE Certificate"
+                title="KCSE Certificate / Result Slip"
                 path={
                   application.kcse_certificate
                 }
@@ -1614,6 +1569,20 @@ export default function ApplicationDetailsPage() {
                 title="Passport Photo"
                 path={
                   application.passport_photo
+                }
+              />
+
+              <DocumentCard
+                title="Previous Qualification Certificate"
+                path={
+                  application.previous_qualification_certificate
+                }
+              />
+
+              <DocumentCard
+                title="Academic Transcripts"
+                path={
+                  application.academic_transcripts
                 }
               />
 
@@ -1739,4 +1708,3 @@ export default function ApplicationDetailsPage() {
     </div>
   );
 }
-

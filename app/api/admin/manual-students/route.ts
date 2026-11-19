@@ -16,33 +16,26 @@ export const dynamic = 'force-dynamic';
    SUPABASE SERVER CLIENT
 ========================================================= */
 
-const supabaseUrl =
-  process.env.SUPABASE_URL;
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY;
 
-const supabaseSecretKey =
-  process.env.SUPABASE_SECRET_KEY;
-
-if (
-  !supabaseUrl ||
-  !supabaseSecretKey
-) {
+if (!supabaseUrl || !supabaseSecretKey) {
   throw new Error(
     'Missing SUPABASE_URL or SUPABASE_SECRET_KEY environment variables.',
   );
 }
 
-const supabaseAdmin =
-  createClient(
-    supabaseUrl,
-    supabaseSecretKey,
-    {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-        detectSessionInUrl: false,
-      },
+const supabaseAdmin = createClient(
+  supabaseUrl,
+  supabaseSecretKey,
+  {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+      detectSessionInUrl: false,
     },
-  );
+  },
+);
 
 /* =========================================================
    TYPES
@@ -155,8 +148,7 @@ const KCSE_GRADES = [
   'E',
 ] as const;
 
-const MAX_FILE_SIZE =
-  5 * 1024 * 1024;
+const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
 const ALLOWED_DOCUMENT_TYPES = [
   'application/pdf',
@@ -164,8 +156,7 @@ const ALLOWED_DOCUMENT_TYPES = [
   'image/png',
 ] as const;
 
-const STORAGE_BUCKET =
-  'application-documents';
+const STORAGE_BUCKET = 'application-documents';
 
 /* =========================================================
    HELPERS
@@ -193,21 +184,15 @@ function isAllowedValue<
   value: string,
   allowed: T,
 ): boolean {
-  return allowed.includes(
-    value as T[number],
-  );
+  return allowed.includes(value as T[number]);
 }
 
-function isValidEmail(
-  email: string,
-): boolean {
+function isValidEmail(email: string): boolean {
   if (!email) {
     return true;
   }
 
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
-    email,
-  );
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
 function normalizeDate(
@@ -215,53 +200,32 @@ function normalizeDate(
   fieldName: string,
   required = false,
 ): string | null {
-  const raw =
-    value.trim();
+  const raw = value.trim();
 
   if (!raw) {
     if (required) {
-      throw new Error(
-        `${fieldName} is required.`,
-      );
+      throw new Error(`${fieldName} is required.`);
     }
 
     return null;
   }
 
-  if (
-    !/^\d{4}-\d{2}-\d{2}$/.test(raw)
-  ) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
     throw new Error(
       `${fieldName} must use the format YYYY-MM-DD.`,
     );
   }
 
-  const date =
-    new Date(
-      `${raw}T00:00:00.000Z`,
-    );
+  const date = new Date(`${raw}T00:00:00.000Z`);
 
-  if (
-    Number.isNaN(
-      date.getTime(),
-    )
-  ) {
-    throw new Error(
-      `Invalid ${fieldName.toLowerCase()}.`,
-    );
+  if (Number.isNaN(date.getTime())) {
+    throw new Error(`Invalid ${fieldName.toLowerCase()}.`);
   }
 
-  const normalized =
-    date
-      .toISOString()
-      .slice(0, 10);
+  const normalized = date.toISOString().slice(0, 10);
 
-  if (
-    normalized !== raw
-  ) {
-    throw new Error(
-      `Invalid ${fieldName.toLowerCase()}.`,
-    );
+  if (normalized !== raw) {
+    throw new Error(`Invalid ${fieldName.toLowerCase()}.`);
   }
 
   return raw;
@@ -272,35 +236,25 @@ function normalizeInteger(
   fieldName: string,
   required = false,
 ): number | null {
-  const raw =
-    value.trim();
+  const raw = value.trim();
 
   if (!raw) {
     if (required) {
-      throw new Error(
-        `${fieldName} is required.`,
-      );
+      throw new Error(`${fieldName} is required.`);
     }
 
     return null;
   }
 
-  if (
-    !/^\d+$/.test(raw)
-  ) {
+  if (!/^\d+$/.test(raw)) {
     throw new Error(
       `${fieldName} must be a valid whole number.`,
     );
   }
 
-  const number =
-    Number(raw);
+  const number = Number(raw);
 
-  if (
-    !Number.isSafeInteger(
-      number,
-    )
-  ) {
+  if (!Number.isSafeInteger(number)) {
     throw new Error(
       `${fieldName} is outside the supported range.`,
     );
@@ -309,14 +263,11 @@ function normalizeInteger(
   return number;
 }
 
-function parseBoolean(
-  value: string,
-): boolean {
+function parseBoolean(value: string): boolean {
   return (
     value === 'true' ||
     value === '1' ||
-    value.toLowerCase() ===
-      'yes'
+    value.toLowerCase() === 'yes'
   );
 }
 
@@ -330,45 +281,26 @@ function buildFullName(
     middleName,
     surname,
   ]
-    .filter(
-      (value) =>
-        value.trim()
-          .length > 0,
-    )
+    .filter((value) => value.trim().length > 0)
     .join(' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
-function sanitizeFileName(
-  fileName: string,
-): string {
-  const cleaned =
-    fileName
-      .trim()
-      .replace(
-        /[^a-zA-Z0-9._-]/g,
-        '-',
-      )
-      .replace(
-        /-+/g,
-        '-',
-      );
+function sanitizeFileName(fileName: string): string {
+  const cleaned = fileName
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]/g, '-')
+    .replace(/-+/g, '-');
 
-  return (
-    cleaned ||
-    'document'
-  );
+  return cleaned || 'document';
 }
 
 function getFile(
   formData: FormData,
   fieldName: string,
 ): File | null {
-  const value =
-    formData.get(
-      fieldName,
-    );
+  const value = formData.get(fieldName);
 
   if (
     !value ||
@@ -384,37 +316,25 @@ function formatDateForResponse(
   value: string | Date,
 ): string {
   if (value instanceof Date) {
-    return value
-      .toISOString()
-      .slice(0, 10);
+    return value.toISOString().slice(0, 10);
   }
 
-  const raw =
-    String(value);
+  const raw = String(value);
 
-  if (
-    /^\d{4}-\d{2}-\d{2}/.test(
-      raw,
-    )
-  ) {
-    return raw.slice(
-      0,
-      10,
-    );
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
+    return raw.slice(0, 10);
   }
 
   return raw;
 }
 
 function generateApplicationNumber(): string {
-  const year =
-    new Date().getFullYear();
+  const year = new Date().getFullYear();
 
-  const randomPart =
-    crypto
-      .randomBytes(4)
-      .toString('hex')
-      .toUpperCase();
+  const randomPart = crypto
+    .randomBytes(4)
+    .toString('hex')
+    .toUpperCase();
 
   return `SMTC/${year}/${randomPart}`;
 }
@@ -422,34 +342,21 @@ function generateApplicationNumber(): string {
 async function generateUniqueApplicationNumber(
   client: PoolClient,
 ): Promise<string> {
-  for (
-    let attempt = 0;
-    attempt < 10;
-    attempt += 1
-  ) {
-    const applicationNumber =
-      generateApplicationNumber();
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const applicationNumber = generateApplicationNumber();
 
-    const result =
-      await client.query<{
-        id: number;
-      }>(
-        `
-          SELECT id
-          FROM applications
-          WHERE UPPER(BTRIM(application_number)) =
-                UPPER(BTRIM($1))
-          LIMIT 1
-        `,
-        [
-          applicationNumber,
-        ],
-      );
+    const result = await client.query<{ id: number }>(
+      `
+        SELECT id
+        FROM applications
+        WHERE UPPER(BTRIM(application_number)) =
+              UPPER(BTRIM($1))
+        LIMIT 1
+      `,
+      [applicationNumber],
+    );
 
-    if (
-      result.rows.length ===
-      0
-    ) {
+    if (result.rows.length === 0) {
       return applicationNumber;
     }
   }
@@ -459,28 +366,23 @@ async function generateUniqueApplicationNumber(
   );
 }
 
+/* =========================================================
+   REQUIRED FILE VALIDATION
+========================================================= */
+
 function validateFile(
   file: File | null,
   fieldName: string,
 ): asserts file is File {
   if (!file) {
-    throw new Error(
-      `${fieldName} is required.`,
-    );
+    throw new Error(`${fieldName} is required.`);
   }
 
-  if (
-    file.size <= 0
-  ) {
-    throw new Error(
-      `${fieldName} cannot be empty.`,
-    );
+  if (file.size <= 0) {
+    throw new Error(`${fieldName} cannot be empty.`);
   }
 
-  if (
-    file.size >
-    MAX_FILE_SIZE
-  ) {
+  if (file.size > MAX_FILE_SIZE) {
     throw new Error(
       `${fieldName} exceeds the maximum file size of 5 MB.`,
     );
@@ -497,6 +399,45 @@ function validateFile(
   }
 }
 
+/* =========================================================
+   OPTIONAL FILE VALIDATION
+========================================================= */
+
+function validateOptionalFile(
+  file: File | null,
+  fieldName: string,
+): void {
+  // An omitted optional file is valid.
+  if (!file) {
+    return;
+  }
+
+  // A selected but empty file is not valid.
+  if (file.size <= 0) {
+    throw new Error(`${fieldName} cannot be empty.`);
+  }
+
+  if (file.size > MAX_FILE_SIZE) {
+    throw new Error(
+      `${fieldName} exceeds the maximum file size of 5 MB.`,
+    );
+  }
+
+  if (
+    !ALLOWED_DOCUMENT_TYPES.includes(
+      file.type as (typeof ALLOWED_DOCUMENT_TYPES)[number],
+    )
+  ) {
+    throw new Error(
+      `${fieldName} must be a PDF, JPG or PNG file.`,
+    );
+  }
+}
+
+/* =========================================================
+   SUPABASE DOCUMENT UPLOAD
+========================================================= */
+
 async function uploadApplicationDocument(
   file: File,
   applicationKey: string,
@@ -505,24 +446,15 @@ async function uploadApplicationDocument(
   storagePath: string;
   databasePath: string;
 }> {
-  const safeName =
-    sanitizeFileName(
-      file.name,
-    );
+  const safeName = sanitizeFileName(file.name);
 
-  const extension =
-    safeName.includes('.')
-      ? safeName.substring(
-          safeName.lastIndexOf(
-            '.',
-          ),
-        )
-      : '';
+  const extension = safeName.includes('.')
+    ? safeName.substring(safeName.lastIndexOf('.'))
+    : '';
 
-  const uniquePart =
-    crypto
-      .randomBytes(8)
-      .toString('hex');
+  const uniquePart = crypto
+    .randomBytes(8)
+    .toString('hex');
 
   const generatedName =
     `${documentType}-${uniquePart}${extension}`;
@@ -530,66 +462,43 @@ async function uploadApplicationDocument(
   const storagePath =
     `applications/${applicationKey}/${generatedName}`;
 
-  const buffer =
-    Buffer.from(
-      await file.arrayBuffer(),
-    );
+  const buffer = Buffer.from(await file.arrayBuffer());
 
-  const {
-    error,
-  } =
-    await supabaseAdmin.storage
-      .from(
-        STORAGE_BUCKET,
-      )
-      .upload(
-        storagePath,
-        buffer,
-        {
-          contentType:
-            file.type,
-          upsert: false,
-        },
-      );
+  const { error } = await supabaseAdmin.storage
+    .from(STORAGE_BUCKET)
+    .upload(storagePath, buffer, {
+      contentType: file.type,
+      upsert: false,
+    });
 
   if (error) {
     throw new Error(
-      `Unable to upload ${documentType.replace(
-        /-/g,
-        ' ',
-      )}: ${error.message}`,
+      `Unable to upload ${documentType.replace(/-/g, ' ')}: ${error.message}`,
     );
   }
 
   return {
     storagePath,
-
     databasePath:
       `/uploads/applications/${applicationKey}/${generatedName}`,
   };
 }
 
+/* =========================================================
+   REMOVE UPLOADED FILES
+========================================================= */
+
 async function removeUploadedFiles(
   storagePaths: string[],
 ): Promise<void> {
-  if (
-    storagePaths.length ===
-    0
-  ) {
+  if (storagePaths.length === 0) {
     return;
   }
 
   try {
-    const {
-      error,
-    } =
-      await supabaseAdmin.storage
-        .from(
-          STORAGE_BUCKET,
-        )
-        .remove(
-          storagePaths,
-        );
+    const { error } = await supabaseAdmin.storage
+      .from(STORAGE_BUCKET)
+      .remove(storagePaths);
 
     if (error) {
       console.error(
@@ -597,9 +506,7 @@ async function removeUploadedFiles(
         error,
       );
     }
-  } catch (
-    error: unknown
-  ) {
+  } catch (error: unknown) {
     console.error(
       'Failed to clean up uploaded manual-student documents:',
       error,
@@ -612,15 +519,10 @@ async function removeUploadedFiles(
    /api/admin/manual-students
 ========================================================= */
 
-export async function POST(
-  request: NextRequest,
-) {
-  let client:
-    | PoolClient
-    | null = null;
+export async function POST(request: NextRequest) {
+  let client: PoolClient | null = null;
 
-  const uploadedStoragePaths: string[] =
-    [];
+  const uploadedStoragePaths: string[] = [];
 
   try {
     /* =====================================================
@@ -634,16 +536,12 @@ export async function POST(
     ===================================================== */
 
     const contentType =
-      request.headers.get(
-        'content-type',
-      ) || '';
+      request.headers.get('content-type') || '';
 
     if (
       !contentType
         .toLowerCase()
-        .includes(
-          'multipart/form-data',
-        )
+        .includes('multipart/form-data')
     ) {
       return NextResponse.json(
         {
@@ -659,358 +557,157 @@ export async function POST(
        READ FORM DATA
     ===================================================== */
 
-    const formData =
-      await request.formData();
+    const formData = await request.formData();
 
     /* =====================================================
        PERSONAL INFORMATION
     ===================================================== */
 
-    const surname =
-      clean(
-        formData.get(
-          'surname',
-        ),
-      );
-
-    const middleName =
-      clean(
-        formData.get(
-          'middleName',
-        ),
-      );
-
-    const firstName =
-      clean(
-        formData.get(
-          'firstName',
-        ),
-      );
-
-    const dateOfBirth =
-      clean(
-        formData.get(
-          'dateOfBirth',
-        ),
-      );
-
-    const gender =
-      clean(
-        formData.get(
-          'gender',
-        ),
-      );
-
-    const nationality =
-      clean(
-        formData.get(
-          'nationality',
-        ),
-      );
-
-    const country =
-      clean(
-        formData.get(
-          'country',
-        ),
-      );
-
-    const idPassportNumber =
-      clean(
-        formData.get(
-          'idPassportNumber',
-        ),
-      );
-
-    const maritalStatus =
-      clean(
-        formData.get(
-          'maritalStatus',
-        ),
-      );
+    const surname = clean(formData.get('surname'));
+    const middleName = clean(formData.get('middleName'));
+    const firstName = clean(formData.get('firstName'));
+    const dateOfBirth = clean(formData.get('dateOfBirth'));
+    const gender = clean(formData.get('gender'));
+    const nationality = clean(formData.get('nationality'));
+    const country = clean(formData.get('country'));
+    const idPassportNumber = clean(
+      formData.get('idPassportNumber'),
+    );
+    const maritalStatus = clean(
+      formData.get('maritalStatus'),
+    );
 
     /* =====================================================
        CONTACT DETAILS
     ===================================================== */
 
-    const postalAddress =
-      clean(
-        formData.get(
-          'postalAddress',
-        ),
-      );
-
-    const postalCode =
-      clean(
-        formData.get(
-          'postalCode',
-        ),
-      );
-
-    const town =
-      clean(
-        formData.get(
-          'town',
-        ),
-      );
-
-    const county =
-      clean(
-        formData.get(
-          'county',
-        ),
-      );
-
-    const mobile =
-      clean(
-        formData.get(
-          'mobile',
-        ),
-      );
-
-    const email =
-      cleanLower(
-        formData.get(
-          'email',
-        ),
-      );
+    const postalAddress = clean(
+      formData.get('postalAddress'),
+    );
+    const postalCode = clean(
+      formData.get('postalCode'),
+    );
+    const town = clean(formData.get('town'));
+    const county = clean(formData.get('county'));
+    const mobile = clean(formData.get('mobile'));
+    const email = cleanLower(formData.get('email'));
 
     /* =====================================================
        ACADEMIC INFORMATION
     ===================================================== */
 
-    const kcseIndex =
-      clean(
-        formData.get(
-          'kcseIndex',
-        ),
-      );
-
-    const kcseYearRaw =
-      clean(
-        formData.get(
-          'kcseYear',
-        ),
-      );
-
-    const kcseMeanGrade =
-      clean(
-        formData.get(
-          'kcseMeanGrade',
-        ),
-      );
-
-    const englishGrade =
-      clean(
-        formData.get(
-          'englishGrade',
-        ),
-      );
-
-    const kiswahiliGrade =
-      clean(
-        formData.get(
-          'kiswahiliGrade',
-        ),
-      );
-
-    const biologyGrade =
-      clean(
-        formData.get(
-          'biologyGrade',
-        ),
-      );
-
-    const chemistryGrade =
-      clean(
-        formData.get(
-          'chemistryGrade',
-        ),
-      );
-
-    const physicsGrade =
-      clean(
-        formData.get(
-          'physicsGrade',
-        ),
-      );
-
-    const mathematicsGrade =
-      clean(
-        formData.get(
-          'mathematicsGrade',
-        ),
-      );
-
-    const previousInstitution =
-      clean(
-        formData.get(
-          'previousInstitution',
-        ),
-      );
-
-    const highestQualification =
-      clean(
-        formData.get(
-          'highestQualification',
-        ),
-      );
+    const kcseIndex = clean(formData.get('kcseIndex'));
+    const kcseYearRaw = clean(formData.get('kcseYear'));
+    const kcseMeanGrade = clean(
+      formData.get('kcseMeanGrade'),
+    );
+    const englishGrade = clean(
+      formData.get('englishGrade'),
+    );
+    const kiswahiliGrade = clean(
+      formData.get('kiswahiliGrade'),
+    );
+    const biologyGrade = clean(
+      formData.get('biologyGrade'),
+    );
+    const chemistryGrade = clean(
+      formData.get('chemistryGrade'),
+    );
+    const physicsGrade = clean(
+      formData.get('physicsGrade'),
+    );
+    const mathematicsGrade = clean(
+      formData.get('mathematicsGrade'),
+    );
+    const previousInstitution = clean(
+      formData.get('previousInstitution'),
+    );
+    const highestQualification = clean(
+      formData.get('highestQualification'),
+    );
 
     /* =====================================================
        COURSE & INTAKE
     ===================================================== */
 
-    const course =
-      clean(
-        formData.get(
-          'course',
-        ),
-      );
-
-    const intake =
-      clean(
-        formData.get(
-          'intake',
-        ),
-      );
+    const course = clean(formData.get('course'));
+    const intake = clean(formData.get('intake'));
 
     /* =====================================================
        SPONSOR
     ===================================================== */
 
-    const sponsorType =
-      clean(
-        formData.get(
-          'sponsorType',
-        ),
-      );
-
-    const sponsorName =
-      clean(
-        formData.get(
-          'sponsorName',
-        ),
-      );
-
-    const sponsorRelationship =
-      clean(
-        formData.get(
-          'sponsorRelationship',
-        ),
-      );
-
-    const sponsorMobile =
-      clean(
-        formData.get(
-          'sponsorMobile',
-        ),
-      );
-
-    const sponsorEmail =
-      cleanLower(
-        formData.get(
-          'sponsorEmail',
-        ),
-      );
+    const sponsorType = clean(
+      formData.get('sponsorType'),
+    );
+    const sponsorName = clean(
+      formData.get('sponsorName'),
+    );
+    const sponsorRelationship = clean(
+      formData.get('sponsorRelationship'),
+    );
+    const sponsorMobile = clean(
+      formData.get('sponsorMobile'),
+    );
+    const sponsorEmail = cleanLower(
+      formData.get('sponsorEmail'),
+    );
 
     /* =====================================================
        PARENT / GUARDIAN
     ===================================================== */
 
-    const guardianName =
-      clean(
-        formData.get(
-          'guardianName',
-        ),
-      );
-
-    const guardianRelationship =
-      clean(
-        formData.get(
-          'guardianRelationship',
-        ),
-      );
-
-    const guardianMobile =
-      clean(
-        formData.get(
-          'guardianMobile',
-        ),
-      );
-
-    const guardianEmail =
-      cleanLower(
-        formData.get(
-          'guardianEmail',
-        ),
-      );
+    const guardianName = clean(
+      formData.get('guardianName'),
+    );
+    const guardianRelationship = clean(
+      formData.get('guardianRelationship'),
+    );
+    const guardianMobile = clean(
+      formData.get('guardianMobile'),
+    );
+    const guardianEmail = cleanLower(
+      formData.get('guardianEmail'),
+    );
 
     /* =====================================================
        DECLARATION
     ===================================================== */
 
-    const declaration =
-      parseBoolean(
-        clean(
-          formData.get(
-            'declaration',
-          ),
-        ),
-      );
+    const declaration = parseBoolean(
+      clean(formData.get('declaration')),
+    );
 
     /* =====================================================
        ADMISSION DETAILS
     ===================================================== */
 
-    const admissionNumber =
-      clean(
-        formData.get(
-          'admissionNumber',
-        ),
-      );
-
-    const admissionDate =
-      clean(
-        formData.get(
-          'admissionDate',
-        ),
-      );
+    const admissionNumber = clean(
+      formData.get('admissionNumber'),
+    );
+    const admissionDate = clean(
+      formData.get('admissionDate'),
+    );
 
     /* =====================================================
        PAYMENT
     ===================================================== */
 
-    const paymentStatus =
-      (
-        clean(
-          formData.get(
-            'paymentStatus',
-          ),
-        ) || 'paid'
-      ).toLowerCase();
+    const paymentStatus = (
+      clean(formData.get('paymentStatus')) || 'paid'
+    ).toLowerCase();
 
-    const applicationFeeRaw =
-      clean(
-        formData.get(
-          'applicationFee',
-        ),
-      );
+    const applicationFeeRaw = clean(
+      formData.get('applicationFee'),
+    );
 
-    let applicationFee =
-      1500;
+    let applicationFee = 1500;
 
-    if (
-      applicationFeeRaw
-    ) {
-      applicationFee =
-        Number(
-          applicationFeeRaw,
-        );
+    if (applicationFeeRaw) {
+      applicationFee = Number(applicationFeeRaw);
 
       if (
-        !Number.isFinite(
-          applicationFee,
-        ) ||
+        !Number.isFinite(applicationFee) ||
         applicationFee < 0
       ) {
         return NextResponse.json(
@@ -1025,120 +722,67 @@ export async function POST(
     }
 
     /* =====================================================
-       DOCUMENTS
+       DOCUMENT EXTRACTION
     ===================================================== */
 
-    const idDocument =
-      getFile(
-        formData,
-        'idDocument',
-      );
+    // Required documents
+    const idDocument = getFile(
+      formData,
+      'idDocument',
+    );
 
-    const kcseCertificate =
-      getFile(
-        formData,
-        'kcseCertificate',
-      );
+    const kcseCertificate = getFile(
+      formData,
+      'kcseCertificate',
+    );
 
-    const passportPhoto =
-      getFile(
-        formData,
-        'passportPhoto',
-      );
+    const passportPhoto = getFile(
+      formData,
+      'passportPhoto',
+    );
+
+    // Optional documents
+    const previousQualificationCertificate = getFile(
+      formData,
+      'previousQualificationCertificate',
+    );
+
+    const academicTranscripts = getFile(
+      formData,
+      'academicTranscripts',
+    );
 
     /* =====================================================
        REQUIRED FIELD VALIDATION
     ===================================================== */
 
-    const requiredFields: Array<
-      [string, string]
-    > = [
-      [
-        'Surname',
-        surname,
-      ],
-      [
-        'First name',
-        firstName,
-      ],
-      [
-        'Date of birth',
-        dateOfBirth,
-      ],
-      [
-        'Gender',
-        gender,
-      ],
-      [
-        'ID / Passport number',
-        idPassportNumber,
-      ],
-      [
-        'County',
-        county,
-      ],
-      [
-        'Mobile number',
-        mobile,
-      ],
-      [
-        'Email address',
-        email,
-      ],
-      [
-        'KCSE index number',
-        kcseIndex,
-      ],
-      [
-        'KCSE year',
-        kcseYearRaw,
-      ],
-      [
-        'KCSE mean grade',
-        kcseMeanGrade,
-      ],
-      [
-        'Course',
-        course,
-      ],
-      [
-        'Intake',
-        intake,
-      ],
-      [
-        'Sponsor type',
-        sponsorType,
-      ],
-      [
-        'Guardian / next of kin name',
-        guardianName,
-      ],
-      [
-        'Guardian / next of kin mobile',
-        guardianMobile,
-      ],
-      [
-        'Official admission number',
-        admissionNumber,
-      ],
-      [
-        'Admission date',
-        admissionDate,
-      ],
+    const requiredFields: Array<[string, string]> = [
+      ['Surname', surname],
+      ['First name', firstName],
+      ['Date of birth', dateOfBirth],
+      ['Gender', gender],
+      ['ID / Passport number', idPassportNumber],
+      ['County', county],
+      ['Mobile number', mobile],
+      ['Email address', email],
+      ['KCSE index number', kcseIndex],
+      ['KCSE year', kcseYearRaw],
+      ['KCSE mean grade', kcseMeanGrade],
+      ['Course', course],
+      ['Intake', intake],
+      ['Sponsor type', sponsorType],
+      ['Guardian / next of kin name', guardianName],
+      ['Guardian / next of kin mobile', guardianMobile],
+      ['Official admission number', admissionNumber],
+      ['Admission date', admissionDate],
     ];
 
-    for (const [
-      fieldLabel,
-      fieldValue,
-    ] of requiredFields) {
-      if (
-        !fieldValue
-      ) {
+    for (const [fieldLabel, fieldValue] of requiredFields) {
+      if (!fieldValue) {
         return NextResponse.json(
           {
             success: false,
-            message:
-              `${fieldLabel} is required.`,
+            message: `${fieldLabel} is required.`,
           },
           { status: 400 },
         );
@@ -1160,49 +804,31 @@ export async function POST(
        ENUM VALIDATION
     ===================================================== */
 
-    if (
-      !isAllowedValue(
-        course,
-        ALLOWED_COURSES,
-      )
-    ) {
+    if (!isAllowedValue(course, ALLOWED_COURSES)) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            'The selected course is not valid.',
+          message: 'The selected course is not valid.',
         },
         { status: 400 },
       );
     }
 
-    if (
-      !isAllowedValue(
-        intake,
-        ALLOWED_INTAKES,
-      )
-    ) {
+    if (!isAllowedValue(intake, ALLOWED_INTAKES)) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            'The selected intake is not valid.',
+          message: 'The selected intake is not valid.',
         },
         { status: 400 },
       );
     }
 
-    if (
-      !isAllowedValue(
-        gender,
-        ALLOWED_GENDERS,
-      )
-    ) {
+    if (!isAllowedValue(gender, ALLOWED_GENDERS)) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            'The selected gender is not valid.',
+          message: 'The selected gender is not valid.',
         },
         { status: 400 },
       );
@@ -1234,8 +860,7 @@ export async function POST(
       return NextResponse.json(
         {
           success: false,
-          message:
-            'The selected sponsor type is not valid.',
+          message: 'The selected sponsor type is not valid.',
         },
         { status: 400 },
       );
@@ -1267,8 +892,7 @@ export async function POST(
       return NextResponse.json(
         {
           success: false,
-          message:
-            'Invalid payment status.',
+          message: 'Invalid payment status.',
         },
         { status: 400 },
       );
@@ -1279,8 +903,7 @@ export async function POST(
     ===================================================== */
 
     if (
-      sponsorType !==
-        'Self' &&
+      sponsorType !== 'Self' &&
       !sponsorName
     ) {
       return NextResponse.json(
@@ -1297,9 +920,7 @@ export async function POST(
        EMAIL VALIDATION
     ===================================================== */
 
-    if (
-      !isValidEmail(email)
-    ) {
+    if (!isValidEmail(email)) {
       return NextResponse.json(
         {
           success: false,
@@ -1312,9 +933,7 @@ export async function POST(
 
     if (
       sponsorEmail &&
-      !isValidEmail(
-        sponsorEmail,
-      )
+      !isValidEmail(sponsorEmail)
     ) {
       return NextResponse.json(
         {
@@ -1328,9 +947,7 @@ export async function POST(
 
     if (
       guardianEmail &&
-      !isValidEmail(
-        guardianEmail,
-      )
+      !isValidEmail(guardianEmail)
     ) {
       return NextResponse.json(
         {
@@ -1346,37 +963,27 @@ export async function POST(
        DATE VALIDATION
     ===================================================== */
 
-    let normalizedDateOfBirth:
-      | string
-      | null = null;
-
-    let normalizedAdmissionDate:
-      | string
-      | null = null;
+    let normalizedDateOfBirth: string | null = null;
+    let normalizedAdmissionDate: string | null = null;
 
     try {
-      normalizedDateOfBirth =
-        normalizeDate(
-          dateOfBirth,
-          'Date of Birth',
-          true,
-        );
+      normalizedDateOfBirth = normalizeDate(
+        dateOfBirth,
+        'Date of Birth',
+        true,
+      );
 
-      normalizedAdmissionDate =
-        normalizeDate(
-          admissionDate,
-          'Admission Date',
-          true,
-        );
-    } catch (
-      error: unknown
-    ) {
+      normalizedAdmissionDate = normalizeDate(
+        admissionDate,
+        'Admission Date',
+        true,
+      );
+    } catch (error: unknown) {
       return NextResponse.json(
         {
           success: false,
           message:
-            error instanceof
-            Error
+            error instanceof Error
               ? error.message
               : 'Invalid date.',
         },
@@ -1402,26 +1009,20 @@ export async function POST(
        KCSE YEAR
     ===================================================== */
 
-    let kcseYear:
-      | number
-      | null = null;
+    let kcseYear: number | null = null;
 
     try {
-      kcseYear =
-        normalizeInteger(
-          kcseYearRaw,
-          'KCSE Year',
-          true,
-        );
-    } catch (
-      error: unknown
-    ) {
+      kcseYear = normalizeInteger(
+        kcseYearRaw,
+        'KCSE Year',
+        true,
+      );
+    } catch (error: unknown) {
       return NextResponse.json(
         {
           success: false,
           message:
-            error instanceof
-            Error
+            error instanceof Error
               ? error.message
               : 'Invalid KCSE year.',
         },
@@ -1432,8 +1033,7 @@ export async function POST(
     if (
       kcseYear === null ||
       kcseYear < 1990 ||
-      kcseYear >
-        new Date().getFullYear()
+      kcseYear > new Date().getFullYear()
     ) {
       return NextResponse.json(
         {
@@ -1451,52 +1051,36 @@ export async function POST(
 
     const gradeFields = [
       {
-        label:
-          'KCSE Mean Grade',
-        value:
-          kcseMeanGrade,
+        label: 'KCSE Mean Grade',
+        value: kcseMeanGrade,
       },
       {
-        label:
-          'English Grade',
-        value:
-          englishGrade,
+        label: 'English Grade',
+        value: englishGrade,
       },
       {
-        label:
-          'Kiswahili Grade',
-        value:
-          kiswahiliGrade,
+        label: 'Kiswahili Grade',
+        value: kiswahiliGrade,
       },
       {
-        label:
-          'Biology Grade',
-        value:
-          biologyGrade,
+        label: 'Biology Grade',
+        value: biologyGrade,
       },
       {
-        label:
-          'Chemistry Grade',
-        value:
-          chemistryGrade,
+        label: 'Chemistry Grade',
+        value: chemistryGrade,
       },
       {
-        label:
-          'Physics Grade',
-        value:
-          physicsGrade,
+        label: 'Physics Grade',
+        value: physicsGrade,
       },
       {
-        label:
-          'Mathematics Grade',
-        value:
-          mathematicsGrade,
+        label: 'Mathematics Grade',
+        value: mathematicsGrade,
       },
     ];
 
-    for (
-      const gradeField of gradeFields
-    ) {
+    for (const gradeField of gradeFields) {
       if (
         gradeField.value &&
         !isAllowedValue(
@@ -1519,15 +1103,11 @@ export async function POST(
        ADMISSION NUMBER VALIDATION
     ===================================================== */
 
-    if (
-      admissionNumber.length >
-      100
-    ) {
+    if (admissionNumber.length > 100) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            'The admission number is too long.',
+          message: 'The admission number is too long.',
         },
         { status: 400 },
       );
@@ -1538,6 +1118,7 @@ export async function POST(
     ===================================================== */
 
     try {
+      // These three documents are mandatory.
       validateFile(
         idDocument,
         'National ID / Passport document',
@@ -1552,15 +1133,23 @@ export async function POST(
         passportPhoto,
         'Passport photo',
       );
-    } catch (
-      error: unknown
-    ) {
+
+      // These two documents are optional.
+      validateOptionalFile(
+        previousQualificationCertificate,
+        'Previous Qualification Certificate',
+      );
+
+      validateOptionalFile(
+        academicTranscripts,
+        'Academic Transcripts',
+      );
+    } catch (error: unknown) {
       return NextResponse.json(
         {
           success: false,
           message:
-            error instanceof
-            Error
+            error instanceof Error
               ? error.message
               : 'One or more documents are invalid.',
         },
@@ -1572,19 +1161,17 @@ export async function POST(
        STUDENT NAME
     ===================================================== */
 
-    const studentName =
-      buildFullName(
-        firstName,
-        middleName,
-        surname,
-      );
+    const studentName = buildFullName(
+      firstName,
+      middleName,
+      surname,
+    );
 
     if (!studentName) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            'A valid student name is required.',
+          message: 'A valid student name is required.',
         },
         { status: 400 },
       );
@@ -1600,73 +1187,97 @@ export async function POST(
         .toString('hex')}`;
 
     /* =====================================================
+       DOCUMENT PATHS
+    ===================================================== */
+
+    let idDocumentPath = '';
+    let kcseCertificatePath = '';
+    let passportPhotoPath = '';
+
+    let previousQualificationCertificatePath:
+      | string
+      | null = null;
+
+    let academicTranscriptsPath:
+      | string
+      | null = null;
+
+    /* =====================================================
        UPLOAD SUPPORTING DOCUMENTS
     ===================================================== */
 
-    let idDocumentPath:
-      | string = '';
-
-    let kcseCertificatePath:
-      | string = '';
-
-    let passportPhotoPath:
-      | string = '';
-
     try {
-      const idUpload =
-        await uploadApplicationDocument(
-          idDocument,
-          documentApplicationKey,
-          'id-passport',
+      // Required: National ID / Passport
+      const idUpload = await uploadApplicationDocument(
+        idDocument,
+        documentApplicationKey,
+        'id-passport',
+      );
+
+      uploadedStoragePaths.push(idUpload.storagePath);
+      idDocumentPath = idUpload.databasePath;
+
+      // Required: KCSE Certificate / Result Slip
+      const kcseUpload = await uploadApplicationDocument(
+        kcseCertificate,
+        documentApplicationKey,
+        'kcse-certificate',
+      );
+
+      uploadedStoragePaths.push(kcseUpload.storagePath);
+      kcseCertificatePath = kcseUpload.databasePath;
+
+      // Required: Passport Photo
+      const photoUpload = await uploadApplicationDocument(
+        passportPhoto,
+        documentApplicationKey,
+        'passport-photo',
+      );
+
+      uploadedStoragePaths.push(photoUpload.storagePath);
+      passportPhotoPath = photoUpload.databasePath;
+
+      // Optional: Previous Qualification Certificate
+      if (previousQualificationCertificate) {
+        const qualificationUpload =
+          await uploadApplicationDocument(
+            previousQualificationCertificate,
+            documentApplicationKey,
+            'previous-qualification-certificate',
+          );
+
+        uploadedStoragePaths.push(
+          qualificationUpload.storagePath,
         );
 
-      uploadedStoragePaths.push(
-        idUpload.storagePath,
-      );
+        previousQualificationCertificatePath =
+          qualificationUpload.databasePath;
+      }
 
-      idDocumentPath =
-        idUpload.databasePath;
+      // Optional: Academic Transcripts
+      if (academicTranscripts) {
+        const transcriptsUpload =
+          await uploadApplicationDocument(
+            academicTranscripts,
+            documentApplicationKey,
+            'academic-transcripts',
+          );
 
-      const kcseUpload =
-        await uploadApplicationDocument(
-          kcseCertificate,
-          documentApplicationKey,
-          'kcse-certificate',
+        uploadedStoragePaths.push(
+          transcriptsUpload.storagePath,
         );
 
-      uploadedStoragePaths.push(
-        kcseUpload.storagePath,
-      );
-
-      kcseCertificatePath =
-        kcseUpload.databasePath;
-
-      const photoUpload =
-        await uploadApplicationDocument(
-          passportPhoto,
-          documentApplicationKey,
-          'passport-photo',
-        );
-
-      uploadedStoragePaths.push(
-        photoUpload.storagePath,
-      );
-
-      passportPhotoPath =
-        photoUpload.databasePath;
-    } catch (
-      error: unknown
-    ) {
-      await removeUploadedFiles(
-        uploadedStoragePaths,
-      );
+        academicTranscriptsPath =
+          transcriptsUpload.databasePath;
+      }
+    } catch (error: unknown) {
+      await removeUploadedFiles(uploadedStoragePaths);
 
       return NextResponse.json(
         {
           success: false,
           message:
-            error instanceof
-            Error
+            error instanceof Error
               ? error.message
               : 'Unable to upload supporting documents.',
         },
@@ -1678,22 +1289,17 @@ export async function POST(
        DATABASE TRANSACTION
     ===================================================== */
 
-    client =
-      await pool.connect();
+    client = await pool.connect();
 
     try {
-      await client.query(
-        'BEGIN',
-      );
+      await client.query('BEGIN');
 
       /* ===================================================
          NORMALIZED ADMISSION NUMBER
       =================================================== */
 
       const normalizedAdmissionNumber =
-        admissionNumber
-          .trim()
-          .toLowerCase();
+        admissionNumber.trim().toLowerCase();
 
       /* ===================================================
          ADMISSION NUMBER LOCK
@@ -1714,45 +1320,33 @@ export async function POST(
          DUPLICATE ADMISSION CHECK
       =================================================== */
 
-      const existingAdmission =
-        await client.query<{
-          id: number;
-          application_id: number;
-          admission_number: string;
-          student_name: string;
-        }>(
-          `
-            SELECT
-              id,
-              application_id,
-              admission_number,
-              student_name
-            FROM admissions
-            WHERE admission_number IS NOT NULL
-              AND BTRIM(admission_number) <> ''
-              AND LOWER(BTRIM(admission_number)) = $1
-            LIMIT 1
-          `,
-          [
-            normalizedAdmissionNumber,
-          ],
-        );
+      const existingAdmission = await client.query<{
+        id: number;
+        application_id: number;
+        admission_number: string;
+        student_name: string;
+      }>(
+        `
+          SELECT
+            id,
+            application_id,
+            admission_number,
+            student_name
+          FROM admissions
+          WHERE admission_number IS NOT NULL
+            AND BTRIM(admission_number) <> ''
+            AND LOWER(BTRIM(admission_number)) = $1
+          LIMIT 1
+        `,
+        [normalizedAdmissionNumber],
+      );
 
-      if (
-        existingAdmission.rows.length >
-        0
-      ) {
-        await client.query(
-          'ROLLBACK',
-        );
+      if (existingAdmission.rows.length > 0) {
+        await client.query('ROLLBACK');
 
-        await removeUploadedFiles(
-          uploadedStoragePaths,
-        );
+        await removeUploadedFiles(uploadedStoragePaths);
 
-        const existing =
-          existingAdmission
-            .rows[0];
+        const existing = existingAdmission.rows[0];
 
         return NextResponse.json(
           {
@@ -1761,17 +1355,10 @@ export async function POST(
             message:
               `Admission number "${admissionNumber}" already exists in the database.`,
             existing_admission: {
-              id: Number(
-                existing.id,
-              ),
-              application_id:
-                Number(
-                  existing.application_id,
-                ),
-              admission_number:
-                existing.admission_number,
-              student_name:
-                existing.student_name,
+              id: Number(existing.id),
+              application_id: Number(existing.application_id),
+              admission_number: existing.admission_number,
+              student_name: existing.student_name,
             },
           },
           { status: 409 },
@@ -1783,9 +1370,7 @@ export async function POST(
       =================================================== */
 
       const applicationNumber =
-        await generateUniqueApplicationNumber(
-          client,
-        );
+        await generateUniqueApplicationNumber(client);
 
       /* ===================================================
          CREATE APPLICATION
@@ -1836,58 +1421,62 @@ export async function POST(
               id_document,
               kcse_certificate,
               passport_photo,
+              previous_qualification_certificate,
+              academic_transcripts,
               declaration,
               application_fee,
               payment_status,
               application_status
             )
             VALUES (
-  $1,
-  $2,
-  $3,
-  $4,
-  $5,
-  $6,
-  $7,
-  $8,
-  $9,
-  $10,
-  $11,
-  $12,
-  $13,
-  $14,
-  $15,
-  $16,
-  $17,
-  $18,
-  $19,
-  $20,
-  $21,
-  $22,
-  $23,
-  $24,
-  $25,
-  $26,
-  $27,
-  $28,
-  $29,
-  $30,
-  $31,
-  $32,
-  $33,
-  $34,
-  $35,
-  $36,
-  $37,
-  $38,
-  $39,
-  $40,
-  $41,
-  $42,
-  $43,
-  $44,
-  'Approved'
-)
+              $1,
+              $2,
+              $3,
+              $4,
+              $5,
+              $6,
+              $7,
+              $8,
+              $9,
+              $10,
+              $11,
+              $12,
+              $13,
+              $14,
+              $15,
+              $16,
+              $17,
+              $18,
+              $19,
+              $20,
+              $21,
+              $22,
+              $23,
+              $24,
+              $25,
+              $26,
+              $27,
+              $28,
+              $29,
+              $30,
+              $31,
+              $32,
+              $33,
+              $34,
+              $35,
+              $36,
+              $37,
+              $38,
+              $39,
+              $40,
+              $41,
+              $42,
+              $43,
+              $44,
+              $45,
+              $46,
+              'Approved'
+            )
             RETURNING
               id,
               application_number,
@@ -1904,78 +1493,56 @@ export async function POST(
               created_at
           `,
           [
-            applicationNumber,
-            surname || null,
-            middleName || null,
-            firstName,
-            normalizedDateOfBirth,
-            gender || null,
-            nationality || null,
-            country || null,
-            idPassportNumber ||
-              null,
-            maritalStatus ||
-              null,
-            postalAddress ||
-              null,
-            postalCode ||
-              null,
-            town || null,
-            county || null,
-            mobile,
-            email || null,
-            kcseIndex || null,
-            kcseYear,
-            kcseMeanGrade ||
-              null,
-            englishGrade ||
-              null,
-            kiswahiliGrade ||
-              null,
-            biologyGrade ||
-              null,
-            chemistryGrade ||
-              null,
-            physicsGrade ||
-              null,
-            mathematicsGrade ||
-              null,
-            previousInstitution ||
-              null,
-            highestQualification ||
-              null,
-            course,
-            intake,
-            sponsorType ||
-              null,
-            sponsorName ||
-              null,
-            sponsorRelationship ||
-              null,
-            sponsorMobile ||
-              null,
-            sponsorEmail ||
-              null,
-            guardianName ||
-              null,
-            guardianRelationship ||
-              null,
-            guardianMobile ||
-              null,
-            guardianEmail ||
-              null,
-            idDocumentPath,
-            kcseCertificatePath,
-            passportPhotoPath,
-            declaration,
-            applicationFee,
-            paymentStatus,
+            applicationNumber,                 // $1
+            surname || null,                   // $2
+            middleName || null,                // $3
+            firstName,                         // $4
+            normalizedDateOfBirth,             // $5
+            gender || null,                    // $6
+            nationality || null,               // $7
+            country || null,                   // $8
+            idPassportNumber || null,          // $9
+            maritalStatus || null,             // $10
+            postalAddress || null,             // $11
+            postalCode || null,                // $12
+            town || null,                      // $13
+            county || null,                    // $14
+            mobile,                            // $15
+            email || null,                     // $16
+            kcseIndex || null,                 // $17
+            kcseYear,                          // $18
+            kcseMeanGrade || null,             // $19
+            englishGrade || null,              // $20
+            kiswahiliGrade || null,            // $21
+            biologyGrade || null,              // $22
+            chemistryGrade || null,            // $23
+            physicsGrade || null,              // $24
+            mathematicsGrade || null,          // $25
+            previousInstitution || null,       // $26
+            highestQualification || null,      // $27
+            course,                            // $28
+            intake,                            // $29
+            sponsorType || null,               // $30
+            sponsorName || null,               // $31
+            sponsorRelationship || null,      // $32
+            sponsorMobile || null,             // $33
+            sponsorEmail || null,              // $34
+            guardianName || null,              // $35
+            guardianRelationship || null,     // $36
+            guardianMobile || null,            // $37
+            guardianEmail || null,             // $38
+            idDocumentPath,                    // $39
+            kcseCertificatePath,               // $40
+            passportPhotoPath,                 // $41
+            previousQualificationCertificatePath, // $42
+            academicTranscriptsPath,           // $43
+            declaration,                       // $44
+            applicationFee,                    // $45
+            paymentStatus,                     // $46
           ],
         );
 
-      const application =
-        applicationResult
-          .rows[0];
+      const application = applicationResult.rows[0];
 
       if (!application) {
         throw new Error(
@@ -1987,8 +1554,7 @@ export async function POST(
          CREATE ADMISSION
       =================================================== */
 
-      let admission:
-        | CreatedAdmission;
+      let admission: CreatedAdmission;
 
       try {
         const admissionResult =
@@ -2041,62 +1607,45 @@ export async function POST(
           );
 
         const createdAdmission =
-          admissionResult
-            .rows[0];
+          admissionResult.rows[0];
 
-        if (
-          !createdAdmission
-        ) {
+        if (!createdAdmission) {
           throw new Error(
             'Failed to create the admission record.',
           );
         }
 
-        admission =
-          createdAdmission;
-      } catch (
-        error: unknown
-      ) {
-        const pgError =
-          error as {
-            code?: string;
-          };
+        admission = createdAdmission;
+      } catch (error: unknown) {
+        const pgError = error as {
+          code?: string;
+        };
 
-        if (
-          pgError.code ===
-          '23505'
-        ) {
-          await client.query(
-            'ROLLBACK',
+        if (pgError.code === '23505') {
+          await client.query('ROLLBACK');
+
+          await removeUploadedFiles(uploadedStoragePaths);
+
+          const duplicate = await pool.query<{
+            id: number;
+            application_id: number;
+            admission_number: string;
+            student_name: string;
+          }>(
+            `
+              SELECT
+                id,
+                application_id,
+                admission_number,
+                student_name
+              FROM admissions
+              WHERE admission_number IS NOT NULL
+                AND BTRIM(admission_number) <> ''
+                AND LOWER(BTRIM(admission_number)) = $1
+              LIMIT 1
+            `,
+            [normalizedAdmissionNumber],
           );
-
-          await removeUploadedFiles(
-            uploadedStoragePaths,
-          );
-
-          const duplicate =
-            await pool.query<{
-              id: number;
-              application_id: number;
-              admission_number: string;
-              student_name: string;
-            }>(
-              `
-                SELECT
-                  id,
-                  application_id,
-                  admission_number,
-                  student_name
-                FROM admissions
-                WHERE admission_number IS NOT NULL
-                  AND BTRIM(admission_number) <> ''
-                  AND LOWER(BTRIM(admission_number)) = $1
-                LIMIT 1
-              `,
-              [
-                normalizedAdmissionNumber,
-              ],
-            );
 
           return NextResponse.json(
             {
@@ -2107,28 +1656,14 @@ export async function POST(
               existing_admission:
                 duplicate.rows[0]
                   ? {
-                      id: Number(
-                        duplicate
-                          .rows[0]
-                          .id,
+                      id: Number(duplicate.rows[0].id),
+                      application_id: Number(
+                        duplicate.rows[0].application_id,
                       ),
-
-                      application_id:
-                        Number(
-                          duplicate
-                            .rows[0]
-                            .application_id,
-                        ),
-
                       admission_number:
-                        duplicate
-                          .rows[0]
-                          .admission_number,
-
+                        duplicate.rows[0].admission_number,
                       student_name:
-                        duplicate
-                          .rows[0]
-                          .student_name,
+                        duplicate.rows[0].student_name,
                     }
                   : null,
             },
@@ -2155,9 +1690,7 @@ export async function POST(
             application.id,
           ],
         );
-      } catch (
-        syncError: unknown
-      ) {
+      } catch (syncError: unknown) {
         console.warn(
           'Could not synchronize applications.admission_number. admissions.admission_number remains authoritative.',
           syncError,
@@ -2168,9 +1701,7 @@ export async function POST(
          COMMIT
       =================================================== */
 
-      await client.query(
-        'COMMIT',
-      );
+      await client.query('COMMIT');
 
       /* ===================================================
          SUCCESS
@@ -2183,40 +1714,25 @@ export async function POST(
 
           student: {
             application: {
-              id: Number(
-                application.id,
-              ),
-
+              id: Number(application.id),
               application_number:
                 application.application_number,
-
-              course:
-                application.course,
-
-              intake:
-                application.intake,
-
+              course: application.course,
+              intake: application.intake,
               application_fee:
                 application.application_fee,
-
               payment_status:
                 application.payment_status,
-
               application_status:
                 application.application_status,
             },
 
             admission: {
-              id: Number(
-                admission.id,
-              ),
-
+              id: Number(admission.id),
               admission_number:
                 admission.admission_number,
-
               admission_status:
                 admission.admission_status,
-
               admission_date:
                 formatDateForResponse(
                   admission.admission_date,
@@ -2226,13 +1742,8 @@ export async function POST(
             portal: {
               application_number:
                 application.application_number,
-
-              phone:
-                application.mobile ||
-                mobile,
-
-              login_url:
-                '/student/login',
+              phone: application.mobile || mobile,
+              login_url: '/student/login',
             },
           },
 
@@ -2241,17 +1752,11 @@ export async function POST(
         },
         { status: 201 },
       );
-    } catch (
-      error: unknown
-    ) {
+    } catch (error: unknown) {
       if (client) {
         try {
-          await client.query(
-            'ROLLBACK',
-          );
-        } catch (
-          rollbackError: unknown
-        ) {
+          await client.query('ROLLBACK');
+        } catch (rollbackError: unknown) {
           console.error(
             'Manual student rollback error:',
             rollbackError,
@@ -2259,9 +1764,7 @@ export async function POST(
         }
       }
 
-      await removeUploadedFiles(
-        uploadedStoragePaths,
-      );
+      await removeUploadedFiles(uploadedStoragePaths);
 
       throw error;
     } finally {
@@ -2270,24 +1773,18 @@ export async function POST(
         client = null;
       }
     }
-  } catch (
-    error: unknown
-  ) {
+  } catch (error: unknown) {
     console.error(
       'POST /api/admin/manual-students error:',
       error,
     );
 
-    const pgError =
-      error as {
-        code?: string;
-        message?: string;
-      };
+    const pgError = error as {
+      code?: string;
+      message?: string;
+    };
 
-    if (
-      pgError.code ===
-      '23505'
-    ) {
+    if (pgError.code === '23505') {
       return NextResponse.json(
         {
           success: false,

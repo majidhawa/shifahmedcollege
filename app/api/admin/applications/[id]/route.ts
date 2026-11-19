@@ -1,6 +1,8 @@
+
 import { NextResponse } from 'next/server';
 import pool from '@/lib/db';
 import { requireAdmin } from '@/lib/admin-auth';
+
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
@@ -14,16 +16,69 @@ type RouteContext = {
   }>;
 };
 
+type ApplicationStatus =
+  | 'Pending'
+  | 'Approved'
+  | 'Rejected';
+
+type PaymentStatus =
+  | 'Pending'
+  | 'Awaiting Approval'
+  | 'Paid'
+  | 'Rejected';
+
+/* =========================================================
+   OFFICIAL SMTC PROGRAMMES
+
+   Keep these labels consistent with the application form,
+   application edit page and course management system.
+========================================================= */
+
+const COURSE_OPTIONS = [
+  'Diploma in Mortuary Science Level 6 (Technologist)',
+  'Certificate in Mortuary Science Level 5 (Technician)',
+  'Certificate in Caregiving Level 4',
+  'Certificate in Emergency Medical Technology (EMT)',
+  'Diploma in Emergency Medical Technology (EMT) Level 6',
+  'Diploma in Paramedicine Level 6',
+  'Certificate in Safe Phlebotomy',
+  'Certificate in Dialysis Technology',
+  'ACLS and BLS',
+  'Certificate in German Language A1 Proficiency',
+  'Certificate in German Language A2 Proficiency',
+  'Certificate in German Language B1 Proficiency',
+  'Certificate in German Language B2 Proficiency',
+  'Certificate in Community Health Level 5',
+  'Diploma in Community Health Level 6',
+  'Certificate in Health Service Support Level 5',
+] as const;
+
 /* =========================================================
    HELPERS
 ========================================================= */
 
-function normalizeStatus(value: unknown) {
-  if (value === undefined || value === null) {
+function normalizeStatus(
+  value: unknown,
+  allowedValues: readonly string[]
+): string | undefined | null {
+  if (value === undefined) {
     return undefined;
   }
 
-  return String(value).trim();
+  if (value === null) {
+    return null;
+  }
+
+  const normalized = String(value).trim();
+
+  if (!normalized) {
+    return null;
+  }
+
+  return allowedValues.find(
+    (item) =>
+      item.toLowerCase() === normalized.toLowerCase()
+  ) ?? null;
 }
 
 function cleanValue(value: unknown) {
@@ -44,6 +99,190 @@ function cleanValue(value: unknown) {
   return value;
 }
 
+function normalizeNullableString(value: unknown) {
+  if (
+    value === undefined ||
+    value === null
+  ) {
+    return null;
+  }
+
+  const normalized = String(value).trim();
+
+  return normalized || null;
+}
+
+function getApplicationId(idParam: string) {
+  const id = Number(idParam);
+
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    return null;
+  }
+
+  return id;
+}
+
+function getPaymentDetails(application: Record<string, any>) {
+  const paymentStatus = String(
+    application.payment_status || 'Pending'
+  ).trim();
+
+  const normalizedStatus = paymentStatus
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+
+  const manualMpesaCode = normalizeNullableString(
+    application.manual_mpesa_code
+  );
+
+  const manualMpesaPhone = normalizeNullableString(
+    application.manual_mpesa_phone
+  );
+
+  const rejectionReason = normalizeNullableString(
+    application.manual_payment_rejection_reason
+  );
+
+  const submittedAt =
+    application.manual_payment_submitted_at || null;
+
+  const verifiedAt =
+    application.manual_payment_verified_at || null;
+
+  const verifiedBy =
+    application.manual_payment_verified_by || null;
+
+  return {
+    manualMpesaCode,
+    manualMpesaPhone,
+
+    manualPaymentSubmittedAt: submittedAt,
+    manualPaymentVerifiedAt: verifiedAt,
+    manualPaymentVerifiedBy: verifiedBy,
+    manualPaymentRejectionReason: rejectionReason,
+
+    manualMpesaPayment: {
+      code: manualMpesaCode,
+      phone: manualMpesaPhone,
+
+      submittedAt,
+      verifiedAt,
+      verifiedBy,
+      rejectionReason,
+
+      status: paymentStatus,
+
+      awaitingApproval:
+        normalizedStatus === 'awaiting_approval',
+
+      approved: [
+        'paid',
+        'approved',
+        'verified',
+      ].includes(normalizedStatus),
+
+      rejected:
+        normalizedStatus === 'rejected',
+
+      submitted:
+        Boolean(manualMpesaCode),
+    },
+  };
+}
+
+function applicationResponse(
+  application: Record<string, any>
+) {
+  return {
+    ...application,
+    ...getPaymentDetails(application),
+  };
+}
+
+function isValidEmail(value: unknown) {
+  if (value === null || value === undefined || value === '') {
+    return true;
+  }
+
+  return (
+    typeof value === 'string' &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
+  );
+}
+
+/* =========================================================
+   EDITABLE APPLICATION FIELDS
+
+   Only fields listed here can be changed through PATCH.
+========================================================= */
+
+const EDITABLE_FIELDS = [
+  /* PERSONAL */
+  'surname',
+  'middle_name',
+  'first_name',
+  'date_of_birth',
+  'gender',
+  'nationality',
+  'country',
+  'id_passport_number',
+  'marital_status',
+
+  /* CONTACT */
+  'postal_address',
+  'postal_code',
+  'town',
+  'county',
+  'mobile',
+  'email',
+
+  /* ACADEMIC */
+  'kcse_index',
+  'kcse_year',
+  'kcse_mean_grade',
+  'english_grade',
+  'kiswahili_grade',
+  'biology_grade',
+  'chemistry_grade',
+  'physics_grade',
+  'mathematics_grade',
+  'previous_institution',
+  'highest_qualification',
+
+  /* COURSE */
+  'course',
+  'intake',
+
+  /* SPONSOR */
+  'sponsor_type',
+  'sponsor_name',
+  'sponsor_relationship',
+  'sponsor_mobile',
+  'sponsor_email',
+
+  /* GUARDIAN */
+  'guardian_name',
+  'guardian_relationship',
+  'guardian_mobile',
+  'guardian_email',
+
+  /* DOCUMENTS */
+  'id_document',
+  'kcse_certificate',
+  'passport_photo',
+  'previous_qualification_certificate',
+  'academic_transcripts',
+
+  /* DECLARATION */
+  'declaration',
+
+  /* APPLICATION */
+  'application_fee',
+
+  /* ADMISSION */
+  'admission_number',
+] as const;
+
 /* =========================================================
    GET SINGLE APPLICATION
 ========================================================= */
@@ -53,6 +292,8 @@ export async function GET(
   context: RouteContext
 ) {
   try {
+    /* ADMIN AUTHENTICATION */
+
     const admin = requireAdmin();
 
     if (!admin) {
@@ -65,15 +306,12 @@ export async function GET(
       );
     }
 
-    /* =====================================================
-       GET ID
-    ===================================================== */
+    /* APPLICATION ID */
 
     const { id: idParam } = await context.params;
+    const id = getApplicationId(idParam);
 
-    const id = Number(idParam);
-
-    if (!Number.isInteger(id) || id <= 0) {
+    if (!id) {
       return NextResponse.json(
         {
           success: false,
@@ -83,9 +321,7 @@ export async function GET(
       );
     }
 
-    /* =====================================================
-       GET APPLICATION
-    ===================================================== */
+    /* FETCH APPLICATION */
 
     const result = await pool.query(
       `
@@ -140,6 +376,8 @@ export async function GET(
           id_document,
           kcse_certificate,
           passport_photo,
+          previous_qualification_certificate,
+          academic_transcripts,
 
           declaration,
 
@@ -186,10 +424,6 @@ export async function GET(
       [id]
     );
 
-    /* =====================================================
-       NOT FOUND
-    ===================================================== */
-
     if (result.rows.length === 0) {
       return NextResponse.json(
         {
@@ -200,87 +434,11 @@ export async function GET(
       );
     }
 
-    const application = result.rows[0];
-
-    const paymentStatus = String(
-      application.payment_status || 'Pending'
-    ).trim();
-
-    const manualMpesaCode =
-      application.manual_mpesa_code
-        ? String(application.manual_mpesa_code).trim()
-        : null;
-
-    const manualMpesaPhone =
-      application.manual_mpesa_phone
-        ? String(application.manual_mpesa_phone).trim()
-        : null;
-
-    const rejectionReason =
-      application.manual_payment_rejection_reason
-        ? String(
-            application.manual_payment_rejection_reason
-          ).trim()
-        : null;
-
     return NextResponse.json({
       success: true,
-
-      application: {
-        ...application,
-
-        manualMpesaCode,
-
-        manualMpesaPhone,
-
-        manualPaymentSubmittedAt:
-          application.manual_payment_submitted_at || null,
-
-        manualPaymentVerifiedAt:
-          application.manual_payment_verified_at || null,
-
-        manualPaymentVerifiedBy:
-          application.manual_payment_verified_by || null,
-
-        manualPaymentRejectionReason:
-          rejectionReason,
-
-        manualMpesaPayment: {
-          code: manualMpesaCode,
-
-          phone: manualMpesaPhone,
-
-          submittedAt:
-            application.manual_payment_submitted_at || null,
-
-          verifiedAt:
-            application.manual_payment_verified_at || null,
-
-          verifiedBy:
-            application.manual_payment_verified_by || null,
-
-          rejectionReason,
-
-          status: paymentStatus,
-
-          awaitingApproval:
-            paymentStatus
-              .toLowerCase()
-              .replace(/[\s-]+/g, '_') ===
-            'awaiting_approval',
-
-          approved:
-            ['paid', 'approved', 'verified'].includes(
-              paymentStatus.toLowerCase()
-            ),
-
-          rejected:
-            paymentStatus.toLowerCase() === 'rejected',
-
-          submitted:
-            Boolean(manualMpesaCode),
-        },
-      },
+      application: applicationResponse(
+        result.rows[0]
+      ),
     });
   } catch (error) {
     console.error(
@@ -310,9 +468,7 @@ export async function PATCH(
   context: RouteContext
 ) {
   try {
-    /* =====================================================
-       ADMIN AUTHENTICATION
-    ===================================================== */
+    /* ADMIN AUTHENTICATION */
 
     const admin = requireAdmin();
 
@@ -326,15 +482,12 @@ export async function PATCH(
       );
     }
 
-    /* =====================================================
-       GET APPLICATION ID
-    ===================================================== */
+    /* APPLICATION ID */
 
     const { id: idParam } = await context.params;
+    const id = getApplicationId(idParam);
 
-    const id = Number(idParam);
-
-    if (!Number.isInteger(id) || id <= 0) {
+    if (!id) {
       return NextResponse.json(
         {
           success: false,
@@ -344,9 +497,7 @@ export async function PATCH(
       );
     }
 
-    /* =====================================================
-       READ BODY
-    ===================================================== */
+    /* READ REQUEST BODY */
 
     let body: Record<string, unknown>;
 
@@ -376,19 +527,13 @@ export async function PATCH(
       );
     }
 
-    /* =====================================================
-       GET EXISTING APPLICATION
-    ===================================================== */
+    /* FETCH EXISTING APPLICATION */
 
     const existingResult = await pool.query(
       `
-        SELECT
-          *
-
+        SELECT *
         FROM applications
-
         WHERE id = $1
-
         LIMIT 1
       `,
       [id]
@@ -408,240 +553,295 @@ export async function PATCH(
       existingResult.rows[0];
 
     /* =====================================================
-       STATUS VALUES
+       NORMALIZE STATUS VALUES
     ===================================================== */
 
-    const applicationStatus =
-      normalizeStatus(body.application_status);
-
-    const paymentStatus =
-      normalizeStatus(body.payment_status);
-
-    const paymentRejectionReason =
-      body.manual_payment_rejection_reason;
-
-    const applicationRejectionReason =
-      body.rejection_reason;
-
-    /* =====================================================
-       VALIDATE APPLICATION STATUS
-    ===================================================== */
-
-    const validApplicationStatuses = [
+    const validApplicationStatuses: ApplicationStatus[] = [
       'Pending',
       'Approved',
       'Rejected',
     ];
 
-    if (
-      applicationStatus !== undefined &&
-      !validApplicationStatuses.includes(
-        applicationStatus
-      )
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: 'Invalid application status.',
-        },
-        { status: 400 }
-      );
-    }
-
-    /* =====================================================
-       VALIDATE PAYMENT STATUS
-    ===================================================== */
-
-    const validPaymentStatuses = [
+    const validPaymentStatuses: PaymentStatus[] = [
       'Pending',
       'Awaiting Approval',
       'Paid',
       'Rejected',
     ];
 
+    const applicationStatus = normalizeStatus(
+      body.application_status,
+      validApplicationStatuses
+    );
+
+    const paymentStatus = normalizeStatus(
+      body.payment_status,
+      validPaymentStatuses
+    );
+
     if (
-      paymentStatus !== undefined &&
-      !validPaymentStatuses.includes(
-        paymentStatus
-      )
+      applicationStatus === null &&
+      body.application_status !== undefined
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: 'Invalid application status.',
+          allowedStatuses: validApplicationStatuses,
+        },
+        { status: 400 }
+      );
+    }
+
+    if (
+      paymentStatus === null &&
+      body.payment_status !== undefined
     ) {
       return NextResponse.json(
         {
           success: false,
           message: 'Invalid payment status.',
+          allowedStatuses: validPaymentStatuses,
         },
         { status: 400 }
       );
     }
 
     /* =====================================================
-       EDITABLE APPLICATION FIELDS
-
-       IMPORTANT:
-
-       These are the fields that the edit page is
-       allowed to modify.
-
-       This prevents users from injecting arbitrary
-       database column names into the SQL query.
+       VALIDATE COURSE
     ===================================================== */
 
-    const editableFields = [
-      /* PERSONAL */
-      'surname',
-      'middle_name',
-      'first_name',
-      'date_of_birth',
-      'gender',
-      'nationality',
-      'country',
-      'id_passport_number',
-      'marital_status',
+    if (
+      Object.prototype.hasOwnProperty.call(
+        body,
+        'course'
+      )
+    ) {
+      const course = normalizeNullableString(
+        body.course
+      );
 
-      /* CONTACT */
-      'postal_address',
-      'postal_code',
-      'town',
-      'county',
-      'mobile',
+      if (!course) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: 'Please select a programme.',
+          },
+          { status: 400 }
+        );
+      }
+
+      /*
+       * Allow an existing legacy course to remain unchanged.
+       * New course selections must match the official catalogue.
+       */
+
+      const existingCourse = String(
+        existingApplication.course || ''
+      ).trim();
+
+      if (
+        !COURSE_OPTIONS.includes(
+          course as (typeof COURSE_OPTIONS)[number]
+        ) &&
+        course !== existingCourse
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: 'Invalid programme selected.',
+            allowedCourses: COURSE_OPTIONS,
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    /* =====================================================
+       VALIDATE INTAKE
+    ===================================================== */
+
+    if (
+      Object.prototype.hasOwnProperty.call(
+        body,
+        'intake'
+      )
+    ) {
+      const intake = normalizeNullableString(
+        body.intake
+      );
+
+      if (!intake) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: 'Please select an intake.',
+          },
+          { status: 400 }
+        );
+      }
+
+      if (intake.length > 100) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: 'Intake value is too long.',
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    /* =====================================================
+       VALIDATE EMAIL ADDRESSES
+    ===================================================== */
+
+    const emailFields = [
       'email',
-
-      /* ACADEMIC */
-      'kcse_index',
-      'kcse_year',
-      'kcse_mean_grade',
-      'english_grade',
-      'kiswahili_grade',
-      'biology_grade',
-      'chemistry_grade',
-      'physics_grade',
-      'mathematics_grade',
-      'previous_institution',
-      'highest_qualification',
-
-      /* COURSE */
-      'course',
-      'intake',
-
-      /* SPONSOR */
-      'sponsor_type',
-      'sponsor_name',
-      'sponsor_relationship',
-      'sponsor_mobile',
       'sponsor_email',
-
-      /* GUARDIAN */
-      'guardian_name',
-      'guardian_relationship',
-      'guardian_mobile',
       'guardian_email',
-
-      /* DOCUMENTS */
-      'id_document',
-      'kcse_certificate',
-      'passport_photo',
-
-      /* DECLARATION */
-      'declaration',
-
-      /* APPLICATION */
-      'application_fee',
-
-      /* ADMISSION */
-      'admission_number',
     ] as const;
 
+    for (const field of emailFields) {
+      if (
+        Object.prototype.hasOwnProperty.call(
+          body,
+          field
+        ) &&
+        !isValidEmail(body[field])
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: `Please provide a valid ${field.replace('_', ' ')}.`,
+          },
+          { status: 400 }
+        );
+      }
+    }
+
     /* =====================================================
-       BUILD UPDATE
+       VALIDATE APPLICATION FEE
     ===================================================== */
 
-    const fields: string[] = [];
-    const values: unknown[] = [];
+    let applicationFee: number | null | undefined;
 
-    let parameterIndex = 1;
+    if (
+      Object.prototype.hasOwnProperty.call(
+        body,
+        'application_fee'
+      )
+    ) {
+      const rawFee = body.application_fee;
+
+      if (
+        rawFee === null ||
+        rawFee === ''
+      ) {
+        applicationFee = null;
+      } else {
+        applicationFee = Number(rawFee);
+
+        if (
+          !Number.isFinite(applicationFee) ||
+          applicationFee < 0
+        ) {
+          return NextResponse.json(
+            {
+              success: false,
+              message:
+                'Application fee must be a valid non-negative amount.',
+            },
+            { status: 400 }
+          );
+        }
+      }
+    }
 
     /* =====================================================
-       UPDATE NORMAL APPLICATION FIELDS
+       BUILD SAFE SQL UPDATE
+
+       A Map prevents duplicate column assignments when
+       multiple status-related updates are requested.
     ===================================================== */
 
-    for (const field of editableFields) {
+    const updates = new Map<string, unknown>();
+
+    for (const field of EDITABLE_FIELDS) {
       if (
         Object.prototype.hasOwnProperty.call(
           body,
           field
         )
       ) {
-        fields.push(
-          `${field} = $${parameterIndex}`
-        );
-
-        values.push(
-          cleanValue(body[field])
-        );
-
-        parameterIndex++;
+        if (field === 'application_fee') {
+          updates.set(
+            field,
+            applicationFee
+          );
+        } else {
+          updates.set(
+            field,
+            cleanValue(body[field])
+          );
+        }
       }
     }
 
     /* =====================================================
-       UPDATE APPLICATION STATUS
+       APPLICATION STATUS
     ===================================================== */
 
     if (applicationStatus !== undefined) {
-      fields.push(
-        `application_status = $${parameterIndex}`
+      updates.set(
+        'application_status',
+        applicationStatus
       );
 
-      values.push(applicationStatus);
-
-      parameterIndex++;
-    }
-
-    /* =====================================================
-       APPLICATION APPROVED
-    ===================================================== */
-
-    if (applicationStatus === 'Approved') {
-      fields.push(
-        `approved_at = NOW()`
-      );
-
-      fields.push(
-        `rejection_reason = NULL`
-      );
-    }
-
-    /* =====================================================
-       APPLICATION REJECTED
-    ===================================================== */
-
-    if (applicationStatus === 'Rejected') {
-      if (
-        applicationRejectionReason !== undefined
-      ) {
-        const reason =
-          cleanValue(
-            applicationRejectionReason
-          );
-
-        fields.push(
-          `rejection_reason = $${parameterIndex}`
+      if (applicationStatus === 'Approved') {
+        updates.set(
+          'approved_at',
+          new Date()
         );
 
-        values.push(reason);
-
-        parameterIndex++;
+        updates.set(
+          'rejection_reason',
+          null
+        );
       }
-    }
 
-    /* =====================================================
-       APPLICATION RETURNED TO PENDING
-    ===================================================== */
+      if (applicationStatus === 'Rejected') {
+        updates.set(
+          'approved_at',
+          null
+        );
 
-    if (applicationStatus === 'Pending') {
-      fields.push(
-        `approved_at = NULL`
-      );
+        if (
+          Object.prototype.hasOwnProperty.call(
+            body,
+            'rejection_reason'
+          )
+        ) {
+          updates.set(
+            'rejection_reason',
+            cleanValue(
+              body.rejection_reason
+            )
+          );
+        }
+      }
+
+      if (applicationStatus === 'Pending') {
+        updates.set(
+          'approved_at',
+          null
+        );
+
+        updates.set(
+          'rejection_reason',
+          null
+        );
+      }
     }
 
     /* =====================================================
@@ -649,95 +849,100 @@ export async function PATCH(
     ===================================================== */
 
     if (paymentStatus !== undefined) {
-      fields.push(
-        `payment_status = $${parameterIndex}`
+      updates.set(
+        'payment_status',
+        paymentStatus
       );
-
-      values.push(paymentStatus);
-
-      parameterIndex++;
     }
 
     /* =====================================================
        PAYMENT APPROVED
+
+       Supports both:
+       1. Manually submitted M-Pesa payments.
+       2. Daraja STK Push payments.
+
+       A valid existing M-Pesa transaction or receipt is
+       accepted even when no manual code was submitted.
     ===================================================== */
 
     if (paymentStatus === 'Paid') {
-      const transactionCode =
-        existingApplication.manual_mpesa_code;
+      const manualCode = normalizeNullableString(
+        existingApplication.manual_mpesa_code
+      );
 
-      if (
-        !transactionCode ||
-        String(transactionCode).trim() === ''
-      ) {
+      const existingTransactionCode =
+        normalizeNullableString(
+          existingApplication.mpesa_transaction_code
+        );
+
+      const existingReceiptNumber =
+        normalizeNullableString(
+          existingApplication.mpesa_receipt_number
+        );
+
+      const paymentProof =
+        manualCode ||
+        existingTransactionCode ||
+        existingReceiptNumber;
+
+      if (!paymentProof) {
         return NextResponse.json(
           {
             success: false,
             message:
-              'Cannot approve payment because the applicant has not submitted an M-Pesa transaction code.',
+              'Cannot approve payment because no M-Pesa transaction code or receipt number has been recorded.',
           },
           { status: 400 }
         );
       }
 
-      /* -----------------------------------------------
-         Verification information
-      ------------------------------------------------ */
-
-      fields.push(
-        `manual_payment_verified_at = NOW()`
+      updates.set(
+        'manual_payment_verified_at',
+        new Date()
       );
 
-      fields.push(
-        `manual_payment_verified_by = $${parameterIndex}`
+      updates.set(
+        'manual_payment_verified_by',
+        admin.email
       );
 
-      values.push(admin.email);
-
-      parameterIndex++;
-
-      fields.push(
-        `payment_verified_at = NOW()`
+      updates.set(
+        'payment_verified_at',
+        new Date()
       );
 
-      fields.push(
-        `paid_at = NOW()`
+      updates.set(
+        'paid_at',
+        new Date()
       );
 
-      fields.push(
-        `manual_payment_rejection_reason = NULL`
+      updates.set(
+        'manual_payment_rejection_reason',
+        null
       );
 
-      /* -----------------------------------------------
-         Save manual M-Pesa code as official code
-      ------------------------------------------------ */
+      /*
+       * If a manual M-Pesa code exists, save it as the
+       * official transaction code.
+       */
 
-      fields.push(
-        `mpesa_transaction_code = $${parameterIndex}`
-      );
+      if (manualCode) {
+        updates.set(
+          'mpesa_transaction_code',
+          manualCode
+        );
+      }
 
-      values.push(
-        String(transactionCode).trim()
-      );
-
-      parameterIndex++;
-
-      /* -----------------------------------------------
-         Save manual M-Pesa phone
-      ------------------------------------------------ */
-
-      if (
+      const manualPhone = normalizeNullableString(
         existingApplication.manual_mpesa_phone
-      ) {
-        fields.push(
-          `mpesa_phone_number = $${parameterIndex}`
-        );
+      );
 
-        values.push(
-          existingApplication.manual_mpesa_phone
+      if (manualPhone) {
+        updates.set(
+          'mpesa_phone_number',
+          manualPhone
         );
-
-        parameterIndex++;
       }
     }
 
@@ -746,37 +951,39 @@ export async function PATCH(
     ===================================================== */
 
     if (paymentStatus === 'Rejected') {
-      if (
-        paymentRejectionReason !== undefined
-      ) {
-        fields.push(
-          `manual_payment_rejection_reason = $${parameterIndex}`
-        );
+      updates.set(
+        'manual_payment_verified_at',
+        null
+      );
 
-        values.push(
+      updates.set(
+        'manual_payment_verified_by',
+        null
+      );
+
+      updates.set(
+        'payment_verified_at',
+        null
+      );
+
+      updates.set(
+        'paid_at',
+        null
+      );
+
+      if (
+        Object.prototype.hasOwnProperty.call(
+          body,
+          'manual_payment_rejection_reason'
+        )
+      ) {
+        updates.set(
+          'manual_payment_rejection_reason',
           cleanValue(
-            paymentRejectionReason
+            body.manual_payment_rejection_reason
           )
         );
-
-        parameterIndex++;
       }
-
-      fields.push(
-        `manual_payment_verified_at = NULL`
-      );
-
-      fields.push(
-        `manual_payment_verified_by = NULL`
-      );
-
-      fields.push(
-        `payment_verified_at = NULL`
-      );
-
-      fields.push(
-        `paid_at = NULL`
-      );
     }
 
     /* =====================================================
@@ -784,24 +991,29 @@ export async function PATCH(
     ===================================================== */
 
     if (paymentStatus === 'Pending') {
-      fields.push(
-        `manual_payment_verified_at = NULL`
+      updates.set(
+        'manual_payment_verified_at',
+        null
       );
 
-      fields.push(
-        `manual_payment_verified_by = NULL`
+      updates.set(
+        'manual_payment_verified_by',
+        null
       );
 
-      fields.push(
-        `manual_payment_rejection_reason = NULL`
+      updates.set(
+        'manual_payment_rejection_reason',
+        null
       );
 
-      fields.push(
-        `payment_verified_at = NULL`
+      updates.set(
+        'payment_verified_at',
+        null
       );
 
-      fields.push(
-        `paid_at = NULL`
+      updates.set(
+        'paid_at',
+        null
       );
     }
 
@@ -812,28 +1024,37 @@ export async function PATCH(
     if (
       paymentStatus === 'Awaiting Approval'
     ) {
-      fields.push(
-        `manual_payment_verified_at = NULL`
+      updates.set(
+        'manual_payment_verified_at',
+        null
       );
 
-      fields.push(
-        `manual_payment_verified_by = NULL`
+      updates.set(
+        'manual_payment_verified_by',
+        null
       );
 
-      fields.push(
-        `payment_verified_at = NULL`
+      updates.set(
+        'manual_payment_rejection_reason',
+        null
       );
 
-      fields.push(
-        `paid_at = NULL`
+      updates.set(
+        'payment_verified_at',
+        null
+      );
+
+      updates.set(
+        'paid_at',
+        null
       );
     }
 
     /* =====================================================
-       NOTHING TO UPDATE
+       CHECK FOR CHANGES
     ===================================================== */
 
-    if (fields.length === 0) {
+    if (updates.size === 0) {
       return NextResponse.json(
         {
           success: false,
@@ -845,20 +1066,32 @@ export async function PATCH(
     }
 
     /* =====================================================
-       UPDATED AT
-
-       This is included explicitly so every edit updates
-       the timestamp even if the database does not have a
-       trigger.
+       BUILD PARAMETERIZED SQL
     ===================================================== */
 
-    fields.push(
-      `updated_at = NOW()`
+    const values: unknown[] = [];
+    const assignments: string[] = [];
+
+    let parameterIndex = 1;
+
+    for (const [column, value] of updates.entries()) {
+      /*
+       * Column names are safe because they originate
+       * exclusively from the hard-coded allowlists and
+       * status-handling code above.
+       */
+
+      assignments.push(
+        `${column} = $${parameterIndex}`
+      );
+
+      values.push(value);
+      parameterIndex++;
+    }
+
+    assignments.push(
+      'updated_at = NOW()'
     );
-
-    /* =====================================================
-       APPLICATION ID
-    ===================================================== */
 
     values.push(id);
 
@@ -871,7 +1104,7 @@ export async function PATCH(
         UPDATE applications
 
         SET
-          ${fields.join(', ')}
+          ${assignments.join(', ')}
 
         WHERE id = $${parameterIndex}
 
@@ -879,10 +1112,6 @@ export async function PATCH(
       `,
       values
     );
-
-    /* =====================================================
-       VERIFY UPDATE
-    ===================================================== */
 
     if (result.rows.length === 0) {
       return NextResponse.json(
@@ -928,9 +1157,7 @@ export async function PATCH(
     if (paymentStatus === 'Paid') {
       message =
         'M-Pesa payment verified and approved successfully.';
-    } else if (
-      paymentStatus === 'Rejected'
-    ) {
+    } else if (paymentStatus === 'Rejected') {
       message =
         'M-Pesa payment has been rejected.';
     } else if (
@@ -938,19 +1165,13 @@ export async function PATCH(
     ) {
       message =
         'Payment marked as awaiting approval.';
-    } else if (
-      paymentStatus === 'Pending'
-    ) {
+    } else if (paymentStatus === 'Pending') {
       message =
         'Payment status reset to pending.';
-    } else if (
-      applicationStatus === 'Approved'
-    ) {
+    } else if (applicationStatus === 'Approved') {
       message =
         'Application approved successfully.';
-    } else if (
-      applicationStatus === 'Rejected'
-    ) {
+    } else if (applicationStatus === 'Rejected') {
       message =
         'Application rejected successfully.';
     }
@@ -961,104 +1182,10 @@ export async function PATCH(
 
     return NextResponse.json({
       success: true,
-
       message,
-
-      application: {
-        ...updatedApplication,
-
-        manualMpesaCode:
-          updatedApplication.manual_mpesa_code ||
-          null,
-
-        manualMpesaPhone:
-          updatedApplication.manual_mpesa_phone ||
-          null,
-
-        manualPaymentSubmittedAt:
-          updatedApplication
-            .manual_payment_submitted_at ||
-          null,
-
-        manualPaymentVerifiedAt:
-          updatedApplication
-            .manual_payment_verified_at ||
-          null,
-
-        manualPaymentVerifiedBy:
-          updatedApplication
-            .manual_payment_verified_by ||
-          null,
-
-        manualPaymentRejectionReason:
-          updatedApplication
-            .manual_payment_rejection_reason ||
-          null,
-
-        manualMpesaPayment: {
-          code:
-            updatedApplication
-              .manual_mpesa_code ||
-            null,
-
-          phone:
-            updatedApplication
-              .manual_mpesa_phone ||
-            null,
-
-          submittedAt:
-            updatedApplication
-              .manual_payment_submitted_at ||
-            null,
-
-          verifiedAt:
-            updatedApplication
-              .manual_payment_verified_at ||
-            null,
-
-          verifiedBy:
-            updatedApplication
-              .manual_payment_verified_by ||
-            null,
-
-          rejectionReason:
-            updatedApplication
-              .manual_payment_rejection_reason ||
-            null,
-
-          status:
-            updatedApplication.payment_status,
-
-          submitted:
-            Boolean(
-              updatedApplication
-                .manual_mpesa_code
-            ),
-
-          awaitingApproval:
-            String(
-              updatedApplication.payment_status ||
-                ''
-            )
-              .toLowerCase()
-              .replace(/[\s-]+/g, '_') ===
-            'awaiting_approval',
-
-          approved:
-            ['paid', 'approved', 'verified'].includes(
-              String(
-                updatedApplication.payment_status ||
-                  ''
-              ).toLowerCase()
-            ),
-
-          rejected:
-            String(
-              updatedApplication.payment_status ||
-                ''
-            ).toLowerCase() === 'rejected',
-        },
-      },
+      application: applicationResponse(
+        updatedApplication
+      ),
     });
   } catch (error) {
     console.error(
@@ -1088,11 +1215,9 @@ export async function DELETE(
   context: RouteContext
 ) {
   try {
-    const admin = requireAdmin();
+    /* ADMIN AUTHENTICATION */
 
-    /* =====================================================
-       ADMIN AUTHENTICATION
-    ===================================================== */
+    const admin = requireAdmin();
 
     if (!admin) {
       return NextResponse.json(
@@ -1104,15 +1229,12 @@ export async function DELETE(
       );
     }
 
-    /* =====================================================
-       GET ID
-    ===================================================== */
+    /* APPLICATION ID */
 
     const { id: idParam } = await context.params;
+    const id = getApplicationId(idParam);
 
-    const id = Number(idParam);
-
-    if (!Number.isInteger(id) || id <= 0) {
+    if (!id) {
       return NextResponse.json(
         {
           success: false,
@@ -1122,9 +1244,7 @@ export async function DELETE(
       );
     }
 
-    /* =====================================================
-       CHECK APPLICATION
-    ===================================================== */
+    /* CHECK APPLICATION */
 
     const existingResult = await pool.query(
       `
@@ -1159,9 +1279,7 @@ export async function DELETE(
     const application =
       existingResult.rows[0];
 
-    /* =====================================================
-       DELETE
-    ===================================================== */
+    /* DELETE APPLICATION */
 
     await pool.query(
       `
@@ -1172,17 +1290,13 @@ export async function DELETE(
       [id]
     );
 
-    /* =====================================================
-       LOG
-    ===================================================== */
+    /* ADMIN LOGGING */
 
     console.log(
       `Admin ${admin.email} deleted application #${id} (${application.application_number})`
     );
 
-    /* =====================================================
-       RESPONSE
-    ===================================================== */
+    /* RESPONSE */
 
     return NextResponse.json({
       success: true,
@@ -1211,9 +1325,7 @@ export async function DELETE(
       error
     );
 
-    /* =====================================================
-       FOREIGN KEY ERROR
-    ===================================================== */
+    /* FOREIGN KEY CONSTRAINT */
 
     if (
       error &&
@@ -1231,9 +1343,7 @@ export async function DELETE(
       );
     }
 
-    /* =====================================================
-       GENERAL ERROR
-    ===================================================== */
+    /* GENERAL ERROR */
 
     return NextResponse.json(
       {

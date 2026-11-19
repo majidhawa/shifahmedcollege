@@ -1,3 +1,4 @@
+
 'use client';
 
 import {
@@ -93,6 +94,59 @@ type Application = {
 };
 
 /* =========================================================
+   OFFICIAL SMTC COURSE CATALOGUE
+========================================================= */
+
+const COURSE_OPTIONS = [
+  'Diploma in Mortuary Science Level 6 (Technologist)',
+
+  'Certificate in Mortuary Science Level 5 (Technician)',
+
+  'Certificate in Caregiving Level 4',
+
+  'Certificate in Emergency Medical Technology (EMT)',
+
+  'Diploma in Emergency Medical Technology (EMT) Level 6',
+
+  'Diploma in Paramedicine Level 6',
+
+  'Certificate in Safe Phlebotomy',
+
+  'Certificate in Dialysis Technology',
+
+  'Certificate in ACLS and BLS',
+
+  'Certificate in German Language A1 Proficiency',
+
+  'Certificate in German Language A2 Proficiency',
+
+  'Certificate in German Language B1 Proficiency',
+
+  'Certificate in German Language B2 Proficiency',
+
+  'Certificate in Community Health Level 5',
+
+  'Diploma in Community Health Level 6',
+
+  'Certificate in Health Service Support Level 5',
+];
+
+/* =========================================================
+   INTAKE OPTIONS
+========================================================= */
+
+const INTAKE_OPTIONS = [
+  'January 2027',
+  'March 2027',
+  'May 2027',
+  'September 2027',
+  'January 2028',
+  'March 2028',
+  'May 2028',
+  'September 2028',
+];
+
+/* =========================================================
    DEFAULT APPLICATION
 ========================================================= */
 
@@ -166,7 +220,9 @@ const emptyApplication: Application = {
    HELPERS
 ========================================================= */
 
-function getDateValue(value: string | null | undefined) {
+function getDateValue(
+  value: string | null | undefined
+): string {
   if (!value) return '';
 
   return String(value).split('T')[0];
@@ -229,7 +285,7 @@ function FormInput({
 }
 
 /* =========================================================
-   SELECT
+   FORM SELECT
 ========================================================= */
 
 function FormSelect({
@@ -365,11 +421,9 @@ export default function EditApplicationPage({
         setLoading(true);
         setError('');
 
-        const resolvedParams =
-          await params;
+        const resolvedParams = await params;
 
-        const id =
-          resolvedParams.id;
+        const id = resolvedParams.id;
 
         if (!id) {
           throw new Error(
@@ -381,52 +435,50 @@ export default function EditApplicationPage({
           setApplicationId(id);
         }
 
-        const response =
-          await fetch(
-            `/api/admin/applications/${id}`,
-            {
-              method: 'GET',
-              cache: 'no-store',
-            }
-          );
+        const response = await fetch(
+          `/api/admin/applications/${id}`,
+          {
+            method: 'GET',
+            cache: 'no-store',
+          }
+        );
 
-        const data =
-          await response.json();
+        const data = await response.json();
 
         if (
           !response.ok ||
-          !data.success
+          !data.success ||
+          !data.application
         ) {
           throw new Error(
             data.message ||
-              'Unable to load application.'
+            'Unable to load application.'
           );
         }
 
         if (!cancelled) {
-          const app =
-            data.application;
+          const app = data.application;
 
           setApplication({
             ...emptyApplication,
             ...app,
 
-            date_of_birth:
-              getDateValue(
-                app.date_of_birth
-              ),
+            date_of_birth: getDateValue(
+              app.date_of_birth
+            ),
 
             manual_mpesa_code:
               app.manual_mpesa_code ||
-              app.manualMpesaPayment
-                ?.code ||
+              app.manualMpesaPayment?.code ||
               null,
 
             manual_mpesa_phone:
               app.manual_mpesa_phone ||
-              app.manualMpesaPayment
-                ?.phone ||
+              app.manualMpesaPayment?.phone ||
               null,
+
+            application_fee:
+              Number(app.application_fee ?? 1500),
           });
         }
       } catch (err) {
@@ -470,7 +522,12 @@ export default function EditApplicationPage({
 
     setApplication((current) => ({
       ...current,
-      [name]: value,
+      [name]:
+        name === 'application_fee'
+          ? value === ''
+            ? 0
+            : Number(value)
+          : value,
     }));
   }
 
@@ -493,11 +550,29 @@ export default function EditApplicationPage({
   }
 
   /* =======================================================
-     SAVE
+     HANDLE TEXTAREA
+  ======================================================= */
+
+  function handleTextareaChange(
+    event: React.ChangeEvent<HTMLTextAreaElement>
+  ) {
+    const {
+      name,
+      value,
+    } = event.target;
+
+    setApplication((current) => ({
+      ...current,
+      [name]: value,
+    }));
+  }
+
+  /* =======================================================
+     SAVE APPLICATION
   ======================================================= */
 
   async function handleSubmit(
-    event: FormEvent
+    event: FormEvent<HTMLFormElement>
   ) {
     event.preventDefault();
 
@@ -506,8 +581,27 @@ export default function EditApplicationPage({
       setError('');
       setSuccess('');
 
+      if (!applicationId) {
+        throw new Error(
+          'Invalid application ID.'
+        );
+      }
+
+      if (!application.course) {
+        throw new Error(
+          'Please select an applicant programme.'
+        );
+      }
+
+      if (!application.intake) {
+        throw new Error(
+          'Please select an admission intake.'
+        );
+      }
+
       const payload = {
-        /* PERSONAL */
+        /* PERSONAL INFORMATION */
+
         surname:
           application.surname,
 
@@ -518,7 +612,7 @@ export default function EditApplicationPage({
           application.first_name,
 
         date_of_birth:
-          application.date_of_birth,
+          application.date_of_birth || null,
 
         gender:
           application.gender,
@@ -535,7 +629,8 @@ export default function EditApplicationPage({
         marital_status:
           application.marital_status,
 
-        /* CONTACT */
+        /* CONTACT INFORMATION */
+
         postal_address:
           application.postal_address,
 
@@ -554,7 +649,8 @@ export default function EditApplicationPage({
         email:
           application.email,
 
-        /* ACADEMIC */
+        /* ACADEMIC INFORMATION */
+
         kcse_index:
           application.kcse_index,
 
@@ -588,14 +684,16 @@ export default function EditApplicationPage({
         highest_qualification:
           application.highest_qualification,
 
-        /* COURSE */
+        /* COURSE AND INTAKE */
+
         course:
           application.course,
 
         intake:
           application.intake,
 
-        /* SPONSOR */
+        /* SPONSOR INFORMATION */
+
         sponsor_type:
           application.sponsor_type,
 
@@ -611,7 +709,8 @@ export default function EditApplicationPage({
         sponsor_email:
           application.sponsor_email,
 
-        /* GUARDIAN */
+        /* GUARDIAN INFORMATION */
+
         guardian_name:
           application.guardian_name,
 
@@ -624,9 +723,10 @@ export default function EditApplicationPage({
         guardian_email:
           application.guardian_email,
 
-        /* APPLICATION */
+        /* APPLICATION ADMINISTRATION */
+
         application_fee:
-          application.application_fee,
+          Number(application.application_fee),
 
         admission_number:
           application.admission_number,
@@ -638,25 +738,20 @@ export default function EditApplicationPage({
           application.rejection_reason,
       };
 
-      const response =
-        await fetch(
-          `/api/admin/applications/${applicationId}`,
-          {
-            method: 'PATCH',
+      const response = await fetch(
+        `/api/admin/applications/${applicationId}`,
+        {
+          method: 'PATCH',
 
-            headers: {
-              'Content-Type':
-                'application/json',
-            },
+          headers: {
+            'Content-Type': 'application/json',
+          },
 
-            body: JSON.stringify(
-              payload
-            ),
-          }
-        );
+          body: JSON.stringify(payload),
+        }
+      );
 
-      const data =
-        await response.json();
+      const data = await response.json();
 
       if (
         !response.ok ||
@@ -664,14 +759,21 @@ export default function EditApplicationPage({
       ) {
         throw new Error(
           data.message ||
-            'Unable to save application.'
+          'Unable to save application.'
         );
       }
 
-      setApplication((current) => ({
-        ...current,
-        ...(data.application || {}),
-      }));
+      if (data.application) {
+        setApplication((current) => ({
+          ...current,
+          ...data.application,
+
+          date_of_birth: getDateValue(
+            data.application.date_of_birth ??
+            current.date_of_birth
+          ),
+        }));
+      }
 
       setSuccess(
         'Application updated successfully.'
@@ -703,6 +805,38 @@ export default function EditApplicationPage({
   }
 
   /* =======================================================
+     COURSE OPTIONS
+     PRESERVE LEGACY COURSES
+  ======================================================= */
+
+  const availableCourseOptions = Array.from(
+    new Set([
+      ...COURSE_OPTIONS,
+
+      ...(application.course &&
+      !COURSE_OPTIONS.includes(application.course)
+        ? [application.course]
+        : []),
+    ])
+  );
+
+  /* =======================================================
+     INTAKE OPTIONS
+     PRESERVE EXISTING INTAKES
+  ======================================================= */
+
+  const availableIntakeOptions = Array.from(
+    new Set([
+      ...INTAKE_OPTIONS,
+
+      ...(application.intake &&
+      !INTAKE_OPTIONS.includes(application.intake)
+        ? [application.intake]
+        : []),
+    ])
+  );
+
+  /* =======================================================
      LOADING
   ======================================================= */
 
@@ -721,7 +855,7 @@ export default function EditApplicationPage({
   }
 
   /* =======================================================
-     ERROR
+     LOAD ERROR
   ======================================================= */
 
   if (
@@ -731,10 +865,9 @@ export default function EditApplicationPage({
     return (
       <div className="px-4 py-8 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-4xl">
+
           <Link
-            href={
-              `/admin/dashboard/applications/${applicationId}`
-            }
+            href={`/admin/dashboard/applications/${applicationId}`}
             className="inline-flex items-center gap-2 text-sm font-semibold text-brand-green hover:text-brand-dark"
           >
             <ArrowLeft className="h-4 w-4" />
@@ -756,6 +889,7 @@ export default function EditApplicationPage({
               </div>
             </div>
           </div>
+
         </div>
       </div>
     );
@@ -769,11 +903,10 @@ export default function EditApplicationPage({
     <div className="px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-6xl">
 
-        {/* =================================================
-            TOP BAR
-        ================================================== */}
+        {/* TOP BAR */}
 
         <div className="mb-8">
+
           <Link
             href={`/admin/dashboard/applications/${applicationId}`}
             className="inline-flex items-center gap-2 text-sm font-semibold text-slate-500 transition hover:text-brand-green"
@@ -783,6 +916,7 @@ export default function EditApplicationPage({
           </Link>
 
           <div className="mt-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-brand-gold">
                 Admissions
@@ -801,47 +935,48 @@ export default function EditApplicationPage({
             </div>
 
             <div className="flex flex-wrap gap-2">
+
               <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600">
-                {application.application_status ||
-                  'Pending'}
+                {application.application_status || 'Pending'}
               </span>
 
               <span className="inline-flex items-center rounded-full bg-green-50 px-3 py-1.5 text-xs font-bold text-green-700">
-                {application.payment_status ||
-                  'Unpaid'}
+                {application.payment_status || 'Unpaid'}
               </span>
+
             </div>
+
           </div>
         </div>
 
-        {/* =================================================
-            SUCCESS
-        ================================================== */}
+        {/* SUCCESS MESSAGE */}
 
         {success && (
           <div className="mb-6 rounded-2xl border border-green-200 bg-green-50 p-4">
             <div className="flex items-center gap-3">
+
               <CheckCircle2 className="h-5 w-5 text-green-600" />
 
               <p className="text-sm font-semibold text-green-700">
                 {success}
               </p>
+
             </div>
           </div>
         )}
 
-        {/* =================================================
-            ERROR
-        ================================================== */}
+        {/* ERROR MESSAGE */}
 
         {error && (
           <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 p-4">
             <div className="flex items-center gap-3">
+
               <AlertCircle className="h-5 w-5 text-red-600" />
 
               <p className="text-sm font-semibold text-red-700">
                 {error}
               </p>
+
             </div>
           </div>
         )}
@@ -856,9 +991,7 @@ export default function EditApplicationPage({
           ================================================== */}
 
           <Section
-            icon={
-              <UserRound className="h-5 w-5" />
-            }
+            icon={<UserRound className="h-5 w-5" />}
             title="Personal Information"
             description="Edit the applicant's personal and identification details."
           >
@@ -867,106 +1000,66 @@ export default function EditApplicationPage({
               <FormInput
                 label="First Name"
                 name="first_name"
-                value={inputValue(
-                  application.first_name
-                )}
-                onChange={
-                  handleInputChange
-                }
+                value={inputValue(application.first_name)}
+                onChange={handleInputChange}
               />
 
               <FormInput
                 label="Middle Name"
                 name="middle_name"
-                value={inputValue(
-                  application.middle_name
-                )}
-                onChange={
-                  handleInputChange
-                }
+                value={inputValue(application.middle_name)}
+                onChange={handleInputChange}
               />
 
               <FormInput
                 label="Surname"
                 name="surname"
-                value={inputValue(
-                  application.surname
-                )}
-                onChange={
-                  handleInputChange
-                }
+                value={inputValue(application.surname)}
+                onChange={handleInputChange}
               />
 
               <FormInput
                 label="Date of Birth"
                 name="date_of_birth"
                 type="date"
-                value={inputValue(
-                  application.date_of_birth
-                )}
-                onChange={
-                  handleInputChange
-                }
+                value={inputValue(application.date_of_birth)}
+                onChange={handleInputChange}
               />
 
               <FormSelect
                 label="Gender"
                 name="gender"
-                value={inputValue(
-                  application.gender
-                )}
-                onChange={
-                  handleSelectChange
-                }
-                options={[
-                  'Male',
-                  'Female',
-                  'Other',
-                ]}
+                value={inputValue(application.gender)}
+                onChange={handleSelectChange}
+                options={['Male', 'Female', 'Other']}
               />
 
               <FormInput
                 label="Nationality"
                 name="nationality"
-                value={inputValue(
-                  application.nationality
-                )}
-                onChange={
-                  handleInputChange
-                }
+                value={inputValue(application.nationality)}
+                onChange={handleInputChange}
               />
 
               <FormInput
                 label="Country"
                 name="country"
-                value={inputValue(
-                  application.country
-                )}
-                onChange={
-                  handleInputChange
-                }
+                value={inputValue(application.country)}
+                onChange={handleInputChange}
               />
 
               <FormInput
                 label="ID / Passport Number"
                 name="id_passport_number"
-                value={inputValue(
-                  application.id_passport_number
-                )}
-                onChange={
-                  handleInputChange
-                }
+                value={inputValue(application.id_passport_number)}
+                onChange={handleInputChange}
               />
 
               <FormSelect
                 label="Marital Status"
                 name="marital_status"
-                value={inputValue(
-                  application.marital_status
-                )}
-                onChange={
-                  handleSelectChange
-                }
+                value={inputValue(application.marital_status)}
+                onChange={handleSelectChange}
                 options={[
                   'Single',
                   'Married',
@@ -983,9 +1076,7 @@ export default function EditApplicationPage({
           ================================================== */}
 
           <Section
-            icon={
-              <Phone className="h-5 w-5" />
-            }
+            icon={<Phone className="h-5 w-5" />}
             title="Contact Information"
             description="Update the applicant's contact and address details."
           >
@@ -994,68 +1085,44 @@ export default function EditApplicationPage({
               <FormInput
                 label="Mobile Number"
                 name="mobile"
-                value={inputValue(
-                  application.mobile
-                )}
-                onChange={
-                  handleInputChange
-                }
+                value={inputValue(application.mobile)}
+                onChange={handleInputChange}
               />
 
               <FormInput
                 label="Email Address"
                 name="email"
                 type="email"
-                value={inputValue(
-                  application.email
-                )}
-                onChange={
-                  handleInputChange
-                }
+                value={inputValue(application.email)}
+                onChange={handleInputChange}
               />
 
               <FormInput
                 label="Postal Address"
                 name="postal_address"
-                value={inputValue(
-                  application.postal_address
-                )}
-                onChange={
-                  handleInputChange
-                }
+                value={inputValue(application.postal_address)}
+                onChange={handleInputChange}
               />
 
               <FormInput
                 label="Postal Code"
                 name="postal_code"
-                value={inputValue(
-                  application.postal_code
-                )}
-                onChange={
-                  handleInputChange
-                }
+                value={inputValue(application.postal_code)}
+                onChange={handleInputChange}
               />
 
               <FormInput
                 label="Town"
                 name="town"
-                value={inputValue(
-                  application.town
-                )}
-                onChange={
-                  handleInputChange
-                }
+                value={inputValue(application.town)}
+                onChange={handleInputChange}
               />
 
               <FormInput
                 label="County"
                 name="county"
-                value={inputValue(
-                  application.county
-                )}
-                onChange={
-                  handleInputChange
-                }
+                value={inputValue(application.county)}
+                onChange={handleInputChange}
               />
 
             </div>
@@ -1066,9 +1133,7 @@ export default function EditApplicationPage({
           ================================================== */}
 
           <Section
-            icon={
-              <GraduationCap className="h-5 w-5" />
-            }
+            icon={<GraduationCap className="h-5 w-5" />}
             title="Academic Information"
             description="Update KCSE results and previous educational information."
           >
@@ -1077,122 +1142,78 @@ export default function EditApplicationPage({
               <FormInput
                 label="KCSE Index"
                 name="kcse_index"
-                value={inputValue(
-                  application.kcse_index
-                )}
-                onChange={
-                  handleInputChange
-                }
+                value={inputValue(application.kcse_index)}
+                onChange={handleInputChange}
               />
 
               <FormInput
                 label="KCSE Year"
                 name="kcse_year"
-                value={inputValue(
-                  application.kcse_year
-                )}
-                onChange={
-                  handleInputChange
-                }
+                value={inputValue(application.kcse_year)}
+                onChange={handleInputChange}
               />
 
               <FormInput
                 label="KCSE Mean Grade"
                 name="kcse_mean_grade"
-                value={inputValue(
-                  application.kcse_mean_grade
-                )}
-                onChange={
-                  handleInputChange
-                }
+                value={inputValue(application.kcse_mean_grade)}
+                onChange={handleInputChange}
               />
 
               <FormInput
                 label="English Grade"
                 name="english_grade"
-                value={inputValue(
-                  application.english_grade
-                )}
-                onChange={
-                  handleInputChange
-                }
+                value={inputValue(application.english_grade)}
+                onChange={handleInputChange}
               />
 
               <FormInput
                 label="Kiswahili Grade"
                 name="kiswahili_grade"
-                value={inputValue(
-                  application.kiswahili_grade
-                )}
-                onChange={
-                  handleInputChange
-                }
+                value={inputValue(application.kiswahili_grade)}
+                onChange={handleInputChange}
               />
 
               <FormInput
                 label="Biology Grade"
                 name="biology_grade"
-                value={inputValue(
-                  application.biology_grade
-                )}
-                onChange={
-                  handleInputChange
-                }
+                value={inputValue(application.biology_grade)}
+                onChange={handleInputChange}
               />
 
               <FormInput
                 label="Chemistry Grade"
                 name="chemistry_grade"
-                value={inputValue(
-                  application.chemistry_grade
-                )}
-                onChange={
-                  handleInputChange
-                }
+                value={inputValue(application.chemistry_grade)}
+                onChange={handleInputChange}
               />
 
               <FormInput
                 label="Physics Grade"
                 name="physics_grade"
-                value={inputValue(
-                  application.physics_grade
-                )}
-                onChange={
-                  handleInputChange
-                }
+                value={inputValue(application.physics_grade)}
+                onChange={handleInputChange}
               />
 
               <FormInput
                 label="Mathematics Grade"
                 name="mathematics_grade"
-                value={inputValue(
-                  application.mathematics_grade
-                )}
-                onChange={
-                  handleInputChange
-                }
+                value={inputValue(application.mathematics_grade)}
+                onChange={handleInputChange}
               />
 
               <FormInput
                 label="Previous Institution"
                 name="previous_institution"
-                value={inputValue(
-                  application.previous_institution
-                )}
-                onChange={
-                  handleInputChange
-                }
+                value={inputValue(application.previous_institution)}
+                onChange={handleInputChange}
               />
 
               <FormInput
                 label="Highest Qualification"
                 name="highest_qualification"
-                value={inputValue(
-                  application.highest_qualification
-                )}
-                onChange={
-                  handleInputChange
-                }
+                value={inputValue(application.highest_qualification)}
+                onChange={handleInputChange}
               />
 
             </div>
@@ -1203,61 +1224,43 @@ export default function EditApplicationPage({
           ================================================== */}
 
           <Section
-            icon={
-              <GraduationCap className="h-5 w-5" />
-            }
+            icon={<GraduationCap className="h-5 w-5" />}
             title="Course & Intake"
             description="Change the programme or intake attached to the application."
           >
             <div className="grid gap-5 md:grid-cols-2">
 
               <FormSelect
-                label="Course"
+                label="Course / Programme"
                 name="course"
-                value={inputValue(
-                  application.course
-                )}
-                onChange={
-                  handleSelectChange
-                }
-                options={[
-                  'EMT',
-                  'Diploma in Paramedicine',
-                  'Safe Phlebotomy',
-                  'German Language',
-                  'Caregiving Level 4',
-                  'Dialysis Technology',
-                ]}
+                value={inputValue(application.course)}
+                onChange={handleSelectChange}
+                options={availableCourseOptions}
               />
 
               <FormSelect
-                label="Intake"
+                label="Admission Intake"
                 name="intake"
-                value={inputValue(
-                  application.intake
-                )}
-                onChange={
-                  handleSelectChange
-                }
-                options={[
-                  'September 2026',
-                  'January 2027',
-                  'March 2027',
-                  'May 2027',
-                ]}
+                value={inputValue(application.intake)}
+                onChange={handleSelectChange}
+                options={availableIntakeOptions}
               />
 
+            </div>
+
+            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3">
+              <p className="text-xs leading-relaxed text-amber-800">
+                Ensure the selected programme matches the official SMTC course catalogue and the corresponding fee structure before saving.
+              </p>
             </div>
           </Section>
 
           {/* =================================================
-              SPONSOR
+              SPONSOR INFORMATION
           ================================================== */}
 
           <Section
-            icon={
-              <Users className="h-5 w-5" />
-            }
+            icon={<Users className="h-5 w-5" />}
             title="Sponsor Information"
             description="Update the applicant's sponsor information."
           >
@@ -1266,12 +1269,8 @@ export default function EditApplicationPage({
               <FormSelect
                 label="Sponsor Type"
                 name="sponsor_type"
-                value={inputValue(
-                  application.sponsor_type
-                )}
-                onChange={
-                  handleSelectChange
-                }
+                value={inputValue(application.sponsor_type)}
+                onChange={handleSelectChange}
                 options={[
                   'Self',
                   'Parent',
@@ -1285,59 +1284,41 @@ export default function EditApplicationPage({
               <FormInput
                 label="Sponsor Name"
                 name="sponsor_name"
-                value={inputValue(
-                  application.sponsor_name
-                )}
-                onChange={
-                  handleInputChange
-                }
+                value={inputValue(application.sponsor_name)}
+                onChange={handleInputChange}
               />
 
               <FormInput
                 label="Relationship"
                 name="sponsor_relationship"
-                value={inputValue(
-                  application.sponsor_relationship
-                )}
-                onChange={
-                  handleInputChange
-                }
+                value={inputValue(application.sponsor_relationship)}
+                onChange={handleInputChange}
               />
 
               <FormInput
                 label="Sponsor Mobile"
                 name="sponsor_mobile"
-                value={inputValue(
-                  application.sponsor_mobile
-                )}
-                onChange={
-                  handleInputChange
-                }
+                value={inputValue(application.sponsor_mobile)}
+                onChange={handleInputChange}
               />
 
               <FormInput
                 label="Sponsor Email"
                 name="sponsor_email"
                 type="email"
-                value={inputValue(
-                  application.sponsor_email
-                )}
-                onChange={
-                  handleInputChange
-                }
+                value={inputValue(application.sponsor_email)}
+                onChange={handleInputChange}
               />
 
             </div>
           </Section>
 
           {/* =================================================
-              GUARDIAN
+              GUARDIAN INFORMATION
           ================================================== */}
 
           <Section
-            icon={
-              <Users className="h-5 w-5" />
-            }
+            icon={<Users className="h-5 w-5" />}
             title="Guardian Information"
             description="Update the applicant's guardian or emergency contact."
           >
@@ -1346,46 +1327,30 @@ export default function EditApplicationPage({
               <FormInput
                 label="Guardian Name"
                 name="guardian_name"
-                value={inputValue(
-                  application.guardian_name
-                )}
-                onChange={
-                  handleInputChange
-                }
+                value={inputValue(application.guardian_name)}
+                onChange={handleInputChange}
               />
 
               <FormInput
                 label="Relationship"
                 name="guardian_relationship"
-                value={inputValue(
-                  application.guardian_relationship
-                )}
-                onChange={
-                  handleInputChange
-                }
+                value={inputValue(application.guardian_relationship)}
+                onChange={handleInputChange}
               />
 
               <FormInput
                 label="Guardian Mobile"
                 name="guardian_mobile"
-                value={inputValue(
-                  application.guardian_mobile
-                )}
-                onChange={
-                  handleInputChange
-                }
+                value={inputValue(application.guardian_mobile)}
+                onChange={handleInputChange}
               />
 
               <FormInput
                 label="Guardian Email"
                 name="guardian_email"
                 type="email"
-                value={inputValue(
-                  application.guardian_email
-                )}
-                onChange={
-                  handleInputChange
-                }
+                value={inputValue(application.guardian_email)}
+                onChange={handleInputChange}
               />
 
             </div>
@@ -1396,23 +1361,17 @@ export default function EditApplicationPage({
           ================================================== */}
 
           <Section
-            icon={
-              <ShieldCheck className="h-5 w-5" />
-            }
+            icon={<ShieldCheck className="h-5 w-5" />}
             title="Application Administration"
-            description="Update administrative information without changing the submitted documents."
+            description="Update administrative information without changing submitted documents."
           >
             <div className="grid gap-5 md:grid-cols-2">
 
               <FormSelect
                 label="Application Status"
                 name="application_status"
-                value={inputValue(
-                  application.application_status
-                )}
-                onChange={
-                  handleSelectChange
-                }
+                value={inputValue(application.application_status)}
+                onChange={handleSelectChange}
                 options={[
                   'Pending',
                   'Approved',
@@ -1423,24 +1382,16 @@ export default function EditApplicationPage({
               <FormInput
                 label="Admission Number"
                 name="admission_number"
-                value={inputValue(
-                  application.admission_number
-                )}
-                onChange={
-                  handleInputChange
-                }
+                value={inputValue(application.admission_number)}
+                onChange={handleInputChange}
               />
 
               <FormInput
-                label="Application Fee"
+                label="Application Fee (KSh)"
                 name="application_fee"
                 type="number"
-                value={inputValue(
-                  application.application_fee
-                )}
-                onChange={
-                  handleInputChange
-                }
+                value={inputValue(application.application_fee)}
+                onChange={handleInputChange}
               />
 
               <div>
@@ -1451,17 +1402,16 @@ export default function EditApplicationPage({
                 <div className="flex min-h-[42px] items-center rounded-xl border border-slate-200 bg-slate-50 px-3.5 text-sm font-semibold text-slate-700">
                   <CreditCard className="mr-2 h-4 w-4 text-brand-green" />
 
-                  {application.payment_status ||
-                    'Unpaid'}
+                  {application.payment_status || 'Unpaid'}
 
                   <span className="ml-2 text-xs font-normal text-slate-400">
-                    Managed from the application
-                    payment controls
+                    Managed from application payment controls
                   </span>
                 </div>
               </div>
 
               <div className="md:col-span-2">
+
                 <label
                   htmlFor="rejection_reason"
                   className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-500"
@@ -1472,25 +1422,13 @@ export default function EditApplicationPage({
                 <textarea
                   id="rejection_reason"
                   name="rejection_reason"
-                  value={inputValue(
-                    application.rejection_reason
-                  )}
-                  onChange={(
-                    event
-                  ) =>
-                    setApplication(
-                      (current) => ({
-                        ...current,
-                        rejection_reason:
-                          event.target
-                            .value,
-                      })
-                    )
-                  }
+                  value={inputValue(application.rejection_reason)}
+                  onChange={handleTextareaChange}
                   rows={4}
                   className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-brand-green focus:bg-white focus:ring-4 focus:ring-brand-green/10"
                   placeholder="Enter rejection reason if applicable..."
                 />
+
               </div>
 
             </div>
@@ -1501,9 +1439,7 @@ export default function EditApplicationPage({
           ================================================== */}
 
           <Section
-            icon={
-              <CreditCard className="h-5 w-5" />
-            }
+            icon={<CreditCard className="h-5 w-5" />}
             title="Payment Information"
             description="M-Pesa payment information is displayed for reference."
           >
@@ -1515,8 +1451,7 @@ export default function EditApplicationPage({
                 </label>
 
                 <div className="rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm font-bold text-slate-700">
-                  {application.manual_mpesa_code ||
-                    'Not submitted'}
+                  {application.manual_mpesa_code || 'Not submitted'}
                 </div>
               </div>
 
@@ -1526,8 +1461,7 @@ export default function EditApplicationPage({
                 </label>
 
                 <div className="rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm font-bold text-slate-700">
-                  {application.manual_mpesa_phone ||
-                    'Not submitted'}
+                  {application.manual_mpesa_phone || 'Not submitted'}
                 </div>
               </div>
 
