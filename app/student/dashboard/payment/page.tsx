@@ -84,7 +84,6 @@ type StudentRow = {
   total_terms: number | null;
   terms_per_year: number | null;
 
-  // Additional fee account items
   fee_application_fee: number | string;
   application_fee_paid: number | string;
   uniform_fee: number | string;
@@ -200,7 +199,25 @@ export default async function StudentPaymentPage() {
     redirect('/student/login');
   }
 
-  /* STUDENT DETAILS AND COURSE FEE STRUCTURE */
+  /* =========================================================
+     STUDENT DETAILS AND COURSE FEE STRUCTURE
+
+     PER_TERM:
+       Tuition x total terms + admin charge once.
+
+     ONE_TIME:
+       Tuition once + admin charge once.
+
+     Additional items:
+       Application fee + uniform + scrub.
+
+     PAYMENT RULES:
+       - Application fee is credited only when app.payment_status
+         is marked as paid.
+       - Uniform and scrub are included in total fees.
+       - Uniform and scrub are NOT automatically counted as paid.
+       - Only actual recorded course payments are counted.
+  ========================================================= */
 
   const result = await pool.query(
     `
@@ -237,28 +254,64 @@ export default async function StudentPaymentPage() {
       fee.total_terms,
       fee.terms_per_year,
 
-      /* APPLICATION FEE AND OPTIONAL ITEMS */
+      /* APPLICATION FEE */
 
-      COALESCE(fa.application_fee, 1500) AS fee_application_fee,
-      COALESCE(fa.application_fee_paid, 1500) AS application_fee_paid,
+      COALESCE(
+        NULLIF(fa.application_fee, 0),
+        NULLIF(app.application_fee, 0),
+        1500
+      ) AS fee_application_fee,
+
+      /*
+       * Only credit the application fee when the application
+       * payment status confirms that it has been paid.
+       */
+
+      CASE
+        WHEN LOWER(TRIM(COALESCE(app.payment_status, ''))) = 'paid'
+        THEN COALESCE(
+          NULLIF(fa.application_fee_paid, 0),
+          NULLIF(fa.application_fee, 0),
+          NULLIF(app.application_fee, 0),
+          1500
+        )
+        ELSE 0
+      END AS application_fee_paid,
+
+      /* OPTIONAL FEE ITEMS */
+
       COALESCE(fa.uniform_fee, 0) AS uniform_fee,
       COALESCE(fa.scrub_fee, 0) AS scrub_fee,
 
-      /* BASE COURSE FEES + ADDITIONAL FEE ITEMS */
+      /* TOTAL FEES */
 
       (
         CASE
-          WHEN fee.id IS NULL THEN COALESCE(fa.total_fee, 0)
+          WHEN fee.id IS NULL
+            THEN COALESCE(fa.total_fee, 0)
+
           WHEN fee.billing_type = 'PER_TERM'
-            THEN fee.tuition_fee * fee.total_terms + fee.admin_charge
-          ELSE fee.tuition_fee + fee.admin_charge
+            THEN (
+              COALESCE(fee.tuition_fee, 0)
+              * COALESCE(fee.total_terms, 0)
+            ) + COALESCE(fee.admin_charge, 0)
+
+          ELSE
+            COALESCE(fee.tuition_fee, 0)
+            + COALESCE(fee.admin_charge, 0)
         END
-        + COALESCE(fa.application_fee, 1500)
+
+        + COALESCE(
+            NULLIF(fa.application_fee, 0),
+            NULLIF(app.application_fee, 0),
+            1500
+          )
+
         + COALESCE(fa.uniform_fee, 0)
         + COALESCE(fa.scrub_fee, 0)
       ) AS total_fee,
 
-      /* PAYMENT COMPONENTS */
+      /* RECORDED COURSE PAYMENTS */
 
       COALESCE(paid.tuition_paid, 0) AS tuition_paid,
       COALESCE(paid.admin_paid, 0) AS admin_paid,
@@ -266,30 +319,75 @@ export default async function StudentPaymentPage() {
 
       COALESCE(paid.total_paid, 0) AS course_payments_total,
 
+      /*
+       * TOTAL PAID
+       *
+       * 1. Actual recorded course payments.
+       * 2. Verified application fee payment.
+       *
+       * Uniform and scrub are NOT automatically credited
+       * as paid. They remain part of the outstanding fees.
+       */
+
       (
         COALESCE(paid.total_paid, 0)
-        + COALESCE(fa.application_fee_paid, 1500)
+
+        + CASE
+            WHEN LOWER(TRIM(COALESCE(app.payment_status, ''))) = 'paid'
+            THEN COALESCE(
+              NULLIF(fa.application_fee_paid, 0),
+              NULLIF(fa.application_fee, 0),
+              NULLIF(app.application_fee, 0),
+              1500
+            )
+            ELSE 0
+          END
       ) AS total_paid,
 
       COALESCE(paid.unallocated_tuition, 0) AS unallocated_tuition,
 
-      /* TOTAL OUTSTANDING BALANCE */
+      /* OUTSTANDING BALANCE */
 
       GREATEST(
         (
           CASE
-            WHEN fee.id IS NULL THEN COALESCE(fa.total_fee, 0)
+            WHEN fee.id IS NULL
+              THEN COALESCE(fa.total_fee, 0)
+
             WHEN fee.billing_type = 'PER_TERM'
-              THEN fee.tuition_fee * fee.total_terms + fee.admin_charge
-            ELSE fee.tuition_fee + fee.admin_charge
+              THEN (
+                COALESCE(fee.tuition_fee, 0)
+                * COALESCE(fee.total_terms, 0)
+              ) + COALESCE(fee.admin_charge, 0)
+
+            ELSE
+              COALESCE(fee.tuition_fee, 0)
+              + COALESCE(fee.admin_charge, 0)
           END
-          + COALESCE(fa.application_fee, 1500)
+
+          + COALESCE(
+              NULLIF(fa.application_fee, 0),
+              NULLIF(app.application_fee, 0),
+              1500
+            )
+
           + COALESCE(fa.uniform_fee, 0)
           + COALESCE(fa.scrub_fee, 0)
         )
+
         - (
           COALESCE(paid.total_paid, 0)
-          + COALESCE(fa.application_fee_paid, 1500)
+
+          + CASE
+              WHEN LOWER(TRIM(COALESCE(app.payment_status, ''))) = 'paid'
+              THEN COALESCE(
+                NULLIF(fa.application_fee_paid, 0),
+                NULLIF(fa.application_fee, 0),
+                NULLIF(app.application_fee, 0),
+                1500
+              )
+              ELSE 0
+            END
         ),
         0
       ) AS balance,
@@ -442,8 +540,6 @@ export default async function StudentPaymentPage() {
     student.application_status || 'Pending',
   );
 
-  const applicationFee = Number(student.application_fee || 0);
-
   const paymentPhone =
     student.mpesa_phone_number ||
     student.mobile ||
@@ -485,30 +581,43 @@ export default async function StudentPaymentPage() {
   const adminPaid = Number(student.admin_paid || 0);
   const programmePaid = Number(student.programme_paid || 0);
 
-  // Additional fee items
+  /* APPLICATION FEE */
+
   const feeApplicationFee = Number(
     student.fee_application_fee ?? 1500,
   );
 
-  const applicationFeePaid = Number(
-    student.application_fee_paid ?? 1500,
-  );
-
-  const uniformFee = Number(student.uniform_fee || 0);
-  const scrubFee = Number(student.scrub_fee || 0);
+  const applicationFeePaid = isPaid
+    ? Number(student.application_fee_paid || 0)
+    : 0;
 
   const applicationFeeBalance = Math.max(
     feeApplicationFee - applicationFeePaid,
     0,
   );
 
-  // Current payment categories do not separately allocate
-  // payments to uniform and scrub.
+  /* =========================================================
+     UNIFORM AND SCRUB
+
+     Uniform and scrub are included in the total fees.
+
+     They are NOT automatically credited as paid.
+     They remain outstanding until the corresponding
+     payment is recorded by the accounts office.
+
+     They do not create separate payment history records
+     unless an actual payment is recorded.
+  ========================================================= */
+
+  const uniformFee = Number(student.uniform_fee || 0);
+  const scrubFee = Number(student.scrub_fee || 0);
+
   const uniformPaid = 0;
   const scrubPaid = 0;
 
-  const uniformBalance = Math.max(uniformFee - uniformPaid, 0);
-  const scrubBalance = Math.max(scrubFee - scrubPaid, 0);
+  /* =========================================================
+     BILLING TYPE
+  ========================================================= */
 
   const isTermBased = student.billing_type === 'PER_TERM';
   const totalTerms = Number(student.total_terms || 0);
@@ -534,12 +643,53 @@ export default async function StudentPaymentPage() {
     : tuitionFee;
 
   const tuitionBalance = Math.max(
-    tuitionTotal - tuitionPaid - programmePaid,
+    tuitionTotal - tuitionPaid,
     0,
   );
 
-  const adminBalance = Math.max(
-    adminCharge - adminPaid,
+  /* =========================================================
+     COMBINED FEE CALCULATIONS
+
+     ONE-TIME PROGRAMMES:
+       Tuition + selected uniform + selected scrub + admin.
+
+     TERM-BASED PROGRAMMES:
+       Tuition is displayed separately.
+       Admin + selected uniform + selected scrub are combined.
+
+     Uniform and scrub are billed but not automatically
+     credited as paid.
+  ========================================================= */
+
+  const oneTimeProgrammeTotal =
+    tuitionTotal +
+    uniformFee +
+    scrubFee +
+    adminCharge;
+
+  const oneTimeProgrammePaid =
+    programmePaid +
+    uniformPaid +
+    scrubPaid +
+    adminPaid;
+
+  const oneTimeProgrammeBalance = Math.max(
+    oneTimeProgrammeTotal - oneTimeProgrammePaid,
+    0,
+  );
+
+  const termAdditionalFeesTotal =
+    adminCharge +
+    uniformFee +
+    scrubFee;
+
+  const termAdditionalFeesPaid =
+    adminPaid +
+    uniformPaid +
+    scrubPaid;
+
+  const termAdditionalFeesBalance = Math.max(
+    termAdditionalFeesTotal - termAdditionalFeesPaid,
     0,
   );
 
@@ -558,6 +708,10 @@ export default async function StudentPaymentPage() {
 
   /* =========================================================
      PAYMENT HISTORY
+
+     Only actual records from student_fee_payments are displayed.
+     Uniform and scrub charges do not create payment history
+     entries unless an actual payment is recorded.
   ========================================================= */
 
   const paymentsResult = await pool.query(
@@ -598,7 +752,7 @@ export default async function StudentPaymentPage() {
     fullName,
     course: String(course),
     intake: String(intake),
-    applicationFee,
+    applicationFee: feeApplicationFee,
     paymentStatus,
     paymentPhone: String(paymentPhone || ''),
     mpesaReceiptNumber: student.mpesa_receipt_number
@@ -739,7 +893,7 @@ export default async function StudentPaymentPage() {
                   <FeeSummaryCard
                     label="Total Amount Paid"
                     amount={formatKES(totalPaid)}
-                    description="Recorded course payments and application fee credit"
+                    description="Actual recorded course payments and verified application fee"
                     icon={<CheckCircle2 size={22} />}
                     color="blue"
                   />
@@ -771,8 +925,8 @@ export default async function StudentPaymentPage() {
                       </h4>
 
                       <p className="mt-1 text-xs text-gray-500">
-                        Percentage of total fees covered by recorded payments
-                        and application fee credit
+                        Percentage of total fees covered by actual recorded
+                        payments and verified application fee
                       </p>
                     </div>
 
@@ -819,66 +973,62 @@ export default async function StudentPaymentPage() {
                       balance={formatKES(applicationFeeBalance)}
                     />
 
-                    {/* SCHOOL UNIFORM */}
+                    {/* ONE-TIME PROGRAMMES */}
 
-                    {uniformFee > 0 && (
+                    {!isTermBased ? (
                       <FeeBreakdownRow
-                        title="SMTC School Uniform (Female Students)"
-                        amount={formatKES(uniformFee)}
-                        paid={formatKES(uniformPaid)}
-                        balance={formatKES(uniformBalance)}
-                      />
-                    )}
-
-                    {/* PURPLE MEDICAL SCRUB */}
-
-                    {scrubFee > 0 && (
-                      <FeeBreakdownRow
-                        title="SMTC Purple Medical Scrub"
-                        amount={formatKES(scrubFee)}
-                        paid={formatKES(scrubPaid)}
-                        balance={formatKES(scrubBalance)}
-                      />
-                    )}
-
-                    {/* TUITION */}
-
-                    {isTermBased ? (
-                      <FeeBreakdownRow
-                        title={`Tuition (${totalTerms} academic terms)`}
-                        amount={formatKES(tuitionTotal)}
-                        paid={formatKES(tuitionPaid)}
-                        balance={formatKES(tuitionBalance)}
+                        title="Programme Tuition + Selected Uniform/Scrub + Administrative Charges (once)"
+                        amount={formatKES(oneTimeProgrammeTotal)}
+                        paid={formatKES(oneTimeProgrammePaid)}
+                        balance={formatKES(oneTimeProgrammeBalance)}
+                        paidNote={
+                          uniformFee > 0 || scrubFee > 0
+                            ? 'Uniform and scrub are included in the fees but are not automatically credited as paid'
+                            : undefined
+                        }
                       />
                     ) : (
-                      <FeeBreakdownRow
-                        title="One-Time Programme Tuition"
-                        amount={formatKES(tuitionTotal)}
-                        paid={formatKES(programmePaid)}
-                        balance={formatKES(
-                          Math.max(tuitionTotal - programmePaid, 0),
-                        )}
-                      />
+                      <>
+                        {/* TERM-BASED TUITION */}
+
+                        <FeeBreakdownRow
+                          title={`Programme Tuition (${totalTerms} academic terms)`}
+                          amount={formatKES(tuitionTotal)}
+                          paid={formatKES(tuitionPaid)}
+                          balance={formatKES(tuitionBalance)}
+                        />
+
+                        {/* ADMIN + SELECTED UNIFORM/SCRUB */}
+
+                        <FeeBreakdownRow
+                          title="Administrative Charges (once) + Selected Uniform/Scrub"
+                          amount={formatKES(termAdditionalFeesTotal)}
+                          paid={formatKES(termAdditionalFeesPaid)}
+                          balance={formatKES(termAdditionalFeesBalance)}
+                          paidNote={
+                            uniformFee > 0 || scrubFee > 0
+                              ? 'Uniform and scrub are included in the fees but are not automatically credited as paid'
+                              : undefined
+                          }
+                        />
+                      </>
                     )}
-
-                    {/* ADMINISTRATIVE CHARGE */}
-
-                    <FeeBreakdownRow
-                      title="Administrative Charges (once)"
-                      amount={formatKES(adminCharge)}
-                      paid={formatKES(adminPaid)}
-                      balance={formatKES(adminBalance)}
-                    />
                   </div>
 
                   {(uniformFee > 0 || scrubFee > 0) && (
                     <div className="border-t border-amber-100 bg-amber-50 p-4">
                       <p className="text-xs leading-5 text-amber-800">
-                        <strong>Additional fee items:</strong> Uniform and
-                        scrub charges are included in your total balance.
-                        Their individual payment status will be updated
-                        when the accounts office records payments under
-                        their respective categories.
+                        <strong>Selected fee items:</strong>{' '}
+                        {uniformFee > 0 && scrubFee > 0
+                          ? 'Your school uniform and purple medical scrub'
+                          : uniformFee > 0
+                            ? 'Your school uniform'
+                            : 'Your purple medical scrub'}{' '}
+                        have been included in your total fees. These charges
+                        remain outstanding until payment is recorded by the
+                        college accounts office. They are not automatically
+                        counted as paid and do not create separate M-Pesa
+                        transactions.
                       </p>
                     </div>
                   )}
@@ -1343,7 +1493,7 @@ export default async function StudentPaymentPage() {
                       </p>
 
                       <p className="mt-1 text-xl font-bold text-[#0c1f1a]">
-                        {formatKES(applicationFee)}
+                        {formatKES(feeApplicationFee)}
                       </p>
                     </div>
                   </div>
@@ -1424,30 +1574,39 @@ export default async function StudentPaymentPage() {
 
             <div className="mt-6 grid gap-5 border-t border-gray-100 pt-5 sm:grid-cols-2 lg:grid-cols-4">
               <InfoItem label="Student Name" value={fullName} />
+
               <InfoItem
                 label="Application Number"
                 value={student.application_number}
               />
+
               <InfoItem
                 label="Admission Number"
                 value={student.admission_number || 'Not assigned'}
               />
+
               <InfoItem label="Course" value={course} />
+
               <InfoItem label="Intake" value={intake} />
+
               <InfoItem
                 label="Admission Status"
                 value={student.admission_status || 'Not available'}
               />
+
               <InfoItem label="Date Submitted" value={applicationDate} />
+
               <InfoItem
                 label="Registered Phone"
                 value={paymentPhone || 'Not provided'}
               />
+
               <InfoItem
                 label="Application M-Pesa Receipt"
                 value={student.mpesa_receipt_number || 'Not available'}
                 highlight={Boolean(student.mpesa_receipt_number)}
               />
+
               <InfoItem
                 label="Application Payment Date"
                 value={paymentDate}
@@ -1476,12 +1635,21 @@ export default async function StudentPaymentPage() {
                   approved course tuition, administrative charges and any
                   additional items selected on your student fee account,
                   such as the SMTC school uniform or purple medical scrub.
-                  Administrative charges are payable once, while term-based
-                  tuition is tracked separately for each academic term.
-                  Academic progress is maintained independently of payment
-                  progress. Always retain your payment confirmation messages
-                  and official receipts. Contact the accounts office if a
-                  payment is missing or your balance appears incorrect.
+                  Uniform and scrub charges are included in your total fees
+                  but are not automatically credited as paid. They remain
+                  outstanding until the corresponding payment is recorded
+                  by the college accounts office. For one-time programmes,
+                  tuition, selected uniform/scrub and administrative
+                  charges are combined into one fee breakdown item. For
+                  term-based programmes, tuition is tracked separately
+                  for each academic term, while administrative charges
+                  and selected uniform/scrub are combined into one
+                  additional-fees item. Administrative charges are payable
+                  once. Academic progress is maintained independently of
+                  payment progress. Always retain your payment confirmation
+                  messages and official receipts. Contact the accounts
+                  office if a payment is missing or your balance appears
+                  incorrect.
                 </p>
               </div>
             </div>
@@ -1598,11 +1766,13 @@ function FeeBreakdownRow({
   amount,
   paid,
   balance,
+  paidNote,
 }: {
   title: string;
   amount: string;
   paid: string;
   balance: string;
+  paidNote?: string;
 }) {
   return (
     <div className="grid gap-3 p-5 sm:grid-cols-4 sm:items-center">
@@ -1614,6 +1784,7 @@ function FeeBreakdownRow({
 
       <div>
         <p className="text-xs text-gray-400">Required</p>
+
         <p className="mt-1 text-sm font-semibold text-gray-800">
           {amount}
         </p>
@@ -1621,13 +1792,21 @@ function FeeBreakdownRow({
 
       <div>
         <p className="text-xs text-gray-400">Paid</p>
+
         <p className="mt-1 text-sm font-semibold text-emerald-700">
           {paid}
         </p>
+
+        {paidNote && (
+          <p className="mt-1 text-[11px] text-amber-700">
+            {paidNote}
+          </p>
+        )}
       </div>
 
       <div>
         <p className="text-xs text-gray-400">Balance</p>
+
         <p className="mt-1 text-sm font-semibold text-[#a67d13]">
           {balance}
         </p>
