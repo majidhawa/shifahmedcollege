@@ -29,6 +29,9 @@ type Student = {
   total_terms: number;
   terms_per_year: number;
   total_fee: number | string;
+  application_fee: number | string;
+  uniform_fee: number | string;
+  scrub_fee: number | string;
   tuition_paid: number | string;
   admin_paid: number | string;
   programme_paid: number | string;
@@ -141,11 +144,19 @@ export default function PaymentsManager() {
   const [busyPaymentId, setBusyPaymentId] = useState<number | null>(null);
   const [paymentNotice, setPaymentNotice] = useState('');
   const [paymentError, setPaymentError] = useState('');
+  const [uniformSelected, setUniformSelected] = useState(false);
+  const [femaleConfirmed, setFemaleConfirmed] = useState(false);
+  const [scrubSelected, setScrubSelected] = useState(false);
 
   const student = students.find((item) => String(item.application_id) === selectedId);
   const tuitionFee = Number(student?.tuition_fee || 0);
   const adminFee = Number(student?.admin_charge || 0);
   const totalFee = Number(student?.total_fee || 0);
+  const applicationFee = Number(student?.application_fee ?? 1500);
+  const uniformFee = Number(student?.uniform_fee || 0);
+  const scrubFee = Number(student?.scrub_fee || 0);
+  const projectedTotalFee = Math.max(0, totalFee - uniformFee - scrubFee + (uniformSelected ? 2000 : 0) + (scrubSelected ? 3000 : 0));
+  const [savingOptions, setSavingOptions] = useState(false);
   const totalPaid = Number(student?.total_paid || 0);
   const balance = Math.max(totalFee - totalPaid, 0);
   const currentAmount = Number(amountPaid || 0);
@@ -190,11 +201,36 @@ export default function PaymentsManager() {
       setAcademicStatus(selected.academic_status || 'IN_PROGRESS');
       setCourseStartDate(selected.course_start_date?.slice(0, 10) || '');
       setExpectedCompletionDate(selected.expected_completion_date?.slice(0, 10) || '');
+      setUniformSelected(Number(selected.uniform_fee || 0) > 0);
+      setFemaleConfirmed(Number(selected.uniform_fee || 0) > 0);
+      setScrubSelected(Number(selected.scrub_fee || 0) > 0);
     }
   }
 
   function changeComponent(value: Component) {
     setComponent(value); setAmountPaid(''); setReferenceCode(''); setError('');
+  }
+
+  async function saveFeeOptions() {
+    if (!student) return;
+    setSavingOptions(true); setError(''); setSuccess('');
+    try {
+      const response = await fetch('/api/admin/fees/options', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          applicationId: student.application_id,
+          uniformSelected,
+          scrubSelected,
+          confirmFemaleUniform: femaleConfirmed,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.message || 'Unable to update additional fee items.');
+      setSuccess(data.message || 'Additional fee items saved.');
+      await loadData(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to update additional fee items.');
+    } finally { setSavingOptions(false); }
   }
 
   async function handlePayment(event: FormEvent<HTMLFormElement>) {
@@ -325,6 +361,28 @@ export default function PaymentsManager() {
         </div>
         {student && <div className="mt-5 grid gap-3 rounded-xl bg-brand-cream p-4 sm:grid-cols-2 xl:grid-cols-4">
           <InfoItem label="Admission Number" value={student.admission_number} /><InfoItem label="Student" value={student.student_name} /><InfoItem label="Registered Course" value={student.course} /><InfoItem label="Intake" value={student.intake || '—'} /><InfoItem label="Course Duration" value={student.course_duration || 'Not configured'} /><InfoItem label="Billing Structure" value={student.billing_type === 'PER_TERM' ? `${student.total_terms} terms` : 'One-time programme fee'} /><InfoItem label="Tuition Fee" value={currency(student.tuition_fee)} /><InfoItem label="Admin Charge (once)" value={currency(student.admin_charge)} />
+        </div>}
+        {student && <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div><h3 className="font-bold text-brand-dark">Additional Student Charges</h3><p className="mt-1 text-sm text-slate-500">The KSh 1,500 application fee is automatically included for every student. Select any applicable school items below.</p></div>
+            <span className="rounded-lg bg-brand-cream px-3 py-2 text-sm font-bold text-brand-green">Application fee (already paid): KSh 1,500</span>
+          </div>
+          <div className="mt-5 grid gap-3 md:grid-cols-2">
+            <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 p-4 hover:bg-slate-50">
+              <input type="checkbox" checked={uniformSelected} onChange={(e) => setUniformSelected(e.target.checked)} className="mt-1 h-4 w-4 accent-brand-green" />
+              <span><span className="block font-semibold text-brand-dark">SMTC School Uniform</span><span className="mt-1 block text-sm text-slate-500">Female students only · Available at school</span><span className="mt-2 block font-bold text-brand-green">KSh 2,000</span></span>
+            </label>
+            <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 p-4 hover:bg-slate-50">
+              <input type="checkbox" checked={scrubSelected} onChange={(e) => setScrubSelected(e.target.checked)} className="mt-1 h-4 w-4 accent-brand-green" />
+              <span><span className="block font-semibold text-brand-dark">SMTC Purple Medical Scrub</span><span className="mt-1 block text-sm text-slate-500">Available at school</span><span className="mt-2 block font-bold text-brand-green">KSh 3,000</span></span>
+            </label>
+          </div>
+          {uniformSelected && <label className="mt-3 flex items-start gap-2 text-sm text-amber-800"><input type="checkbox" checked={femaleConfirmed} onChange={(e) => setFemaleConfirmed(e.target.checked)} className="mt-1 h-4 w-4 accent-brand-green" /><span>I confirm that this student is female and is eligible for the SMTC School Uniform.</span></label>}
+          <div className="mt-5 flex flex-col gap-3 rounded-xl bg-brand-cream p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div><p className="text-xs font-semibold uppercase text-slate-500">Total additional charges</p><p className="mt-1 text-xl font-bold text-brand-dark">{currency((uniformSelected ? 2000 : 0) + (scrubSelected ? 3000 : 0))}</p></div>
+            <button type="button" onClick={saveFeeOptions} disabled={savingOptions || !student.fee_configured || (uniformSelected && !femaleConfirmed)} className="inline-flex items-center justify-center gap-2 rounded-xl bg-brand-green px-5 py-3 text-sm font-bold text-white hover:bg-brand-dark disabled:opacity-50">{savingOptions ? <><Loader2 className="h-4 w-4 animate-spin" />Saving...</> : <><CheckCircle2 className="h-4 w-4" />Save Fee Items</>}</button>
+          </div>
+          <p className="mt-3 text-xs text-slate-500">New billed total after saving: {currency(projectedTotalFee)} · Application fee paid: {currency(applicationFee)} · Uniform: {currency(uniformSelected ? 2000 : 0)} · Scrub: {currency(scrubSelected ? 3000 : 0)}</p>
         </div>}
       </div>
 

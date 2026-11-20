@@ -179,39 +179,40 @@ export async function GET() {
         fee.admin_charge,
         fee.total_terms,
         fee.terms_per_year,
+        COALESCE(fa.application_fee, 1500) AS application_fee,
+        COALESCE(fa.application_fee_paid, 1500) AS application_fee_paid,
+        COALESCE(fa.uniform_fee, 0) AS uniform_fee,
+        COALESCE(fa.scrub_fee, 0) AS scrub_fee,
 
-        CASE
-          WHEN fee.id IS NULL
-            THEN COALESCE(fa.total_fee, 0)
-
-          WHEN fee.billing_type = 'PER_TERM'
-            THEN (
-              fee.tuition_fee * fee.total_terms
-            ) + fee.admin_charge
-
-          ELSE
-            fee.tuition_fee + fee.admin_charge
-        END AS total_fee,
+        (
+          CASE
+            WHEN fee.id IS NULL THEN COALESCE(fa.total_fee, 0)
+            WHEN fee.billing_type = 'PER_TERM'
+              THEN (fee.tuition_fee * fee.total_terms) + fee.admin_charge
+            ELSE fee.tuition_fee + fee.admin_charge
+          END
+          + COALESCE(fa.application_fee, 1500)
+          + COALESCE(fa.uniform_fee, 0)
+          + COALESCE(fa.scrub_fee, 0)
+        ) AS total_fee,
 
         COALESCE(paid.tuition_paid, 0) AS tuition_paid,
         COALESCE(paid.admin_paid, 0) AS admin_paid,
         COALESCE(paid.programme_paid, 0) AS programme_paid,
-        COALESCE(paid.total_paid, 0) AS total_paid,
+        (COALESCE(paid.total_paid, 0) + COALESCE(fa.application_fee_paid, 1500)) AS total_paid,
 
         GREATEST(
           CASE
-            WHEN fee.id IS NULL
-              THEN COALESCE(fa.total_fee, 0)
-
+            WHEN fee.id IS NULL THEN COALESCE(fa.total_fee, 0)
             WHEN fee.billing_type = 'PER_TERM'
-              THEN (
-                fee.tuition_fee * fee.total_terms
-              ) + fee.admin_charge
-
-            ELSE
-              fee.tuition_fee + fee.admin_charge
-          END - COALESCE(paid.total_paid, 0),
-
+              THEN (fee.tuition_fee * fee.total_terms) + fee.admin_charge
+            ELSE fee.tuition_fee + fee.admin_charge
+          END
+          + COALESCE(fa.application_fee, 1500)
+          + COALESCE(fa.uniform_fee, 0)
+          + COALESCE(fa.scrub_fee, 0)
+          - COALESCE(paid.total_paid, 0)
+          - COALESCE(fa.application_fee_paid, 1500),
           0
         ) AS balance,
 
@@ -440,14 +441,18 @@ export async function GET() {
      */
     const totalsResult = await pool.query(`
       SELECT
-        COUNT(*)::INTEGER AS transactions,
-
-        COALESCE(
-          SUM(amount_paid),
-          0
+        (SELECT COUNT(*)::INTEGER FROM student_fee_payments) AS transactions,
+        (
+          COALESCE((SELECT SUM(amount_paid) FROM student_fee_payments), 0)
+          + COALESCE((
+            SELECT SUM(COALESCE(fa.application_fee_paid, 1500))
+            FROM admissions ad
+            INNER JOIN applications a ON a.id = ad.application_id
+            LEFT JOIN student_fee_accounts fa ON fa.application_id = a.id
+            WHERE ad.admission_number IS NOT NULL
+              AND BTRIM(ad.admission_number) <> ''
+          ), 0)
         ) AS total_collected
-
-      FROM student_fee_payments
     `);
 
     /**
@@ -458,18 +463,17 @@ export async function GET() {
       SELECT
         COALESCE(
           SUM(
-            CASE
-              WHEN fee.id IS NULL
-                THEN COALESCE(fa.total_fee, 0)
-
-              WHEN fee.billing_type = 'PER_TERM'
-                THEN (
-                  fee.tuition_fee * fee.total_terms
-                ) + fee.admin_charge
-
-              ELSE
-                fee.tuition_fee + fee.admin_charge
-            END
+            (
+              CASE
+                WHEN fee.id IS NULL THEN COALESCE(fa.total_fee, 0)
+                WHEN fee.billing_type = 'PER_TERM'
+                  THEN (fee.tuition_fee * fee.total_terms) + fee.admin_charge
+                ELSE fee.tuition_fee + fee.admin_charge
+              END
+              + COALESCE(fa.application_fee, 1500)
+              + COALESCE(fa.uniform_fee, 0)
+              + COALESCE(fa.scrub_fee, 0)
+            )
           ),
           0
         ) AS total_billed
