@@ -21,7 +21,6 @@ import {
   Download,
   BookOpen,
   CalendarDays,
-  Banknote,
 } from 'lucide-react';
 
 import PaymentClient from './PaymentClient';
@@ -68,6 +67,7 @@ type StudentRow = {
   mpesa_receipt_number: string | null;
   mpesa_transaction_date: string | null;
   created_at: string | Date | null;
+
   admission_number: string | null;
   admission_course: string | null;
   admission_intake: string | null;
@@ -83,12 +83,20 @@ type StudentRow = {
   admin_charge: number | string | null;
   total_terms: number | null;
   terms_per_year: number | null;
+
+  // Additional fee account items
+  fee_application_fee: number | string;
+  application_fee_paid: number | string;
+  uniform_fee: number | string;
+  scrub_fee: number | string;
+
   total_fee: number | string;
   fee_configured: boolean;
 
   tuition_paid: number | string;
   admin_paid: number | string;
   programme_paid: number | string;
+  course_payments_total: number | string;
   total_paid: number | string;
   balance: number | string;
   unallocated_tuition: number | string;
@@ -164,7 +172,10 @@ function formatMpesaDate(value: unknown) {
   return formatDateTime(rawDate);
 }
 
-function paymentComponentLabel(component: string | null, term: number | null) {
+function paymentComponentLabel(
+  component: string | null,
+  term: number | null,
+) {
   if (component === 'ADMIN') return 'Administrative Charge';
 
   if (component === 'PROGRAMME') return 'Programme Tuition';
@@ -226,28 +237,64 @@ export default async function StudentPaymentPage() {
       fee.total_terms,
       fee.terms_per_year,
 
-      CASE
-        WHEN fee.id IS NULL THEN COALESCE(fa.total_fee, 0)
-        WHEN fee.billing_type = 'PER_TERM'
-          THEN fee.tuition_fee * fee.total_terms + fee.admin_charge
-        ELSE fee.tuition_fee + fee.admin_charge
-      END AS total_fee,
+      /* APPLICATION FEE AND OPTIONAL ITEMS */
 
-      COALESCE(paid.tuition_paid, 0) AS tuition_paid,
-      COALESCE(paid.admin_paid, 0) AS admin_paid,
-      COALESCE(paid.programme_paid, 0) AS programme_paid,
-      COALESCE(paid.total_paid, 0) AS total_paid,
-      COALESCE(paid.unallocated_tuition, 0) AS unallocated_tuition,
+      COALESCE(fa.application_fee, 1500) AS fee_application_fee,
+      COALESCE(fa.application_fee_paid, 1500) AS application_fee_paid,
+      COALESCE(fa.uniform_fee, 0) AS uniform_fee,
+      COALESCE(fa.scrub_fee, 0) AS scrub_fee,
 
-      GREATEST(
+      /* BASE COURSE FEES + ADDITIONAL FEE ITEMS */
+
+      (
         CASE
           WHEN fee.id IS NULL THEN COALESCE(fa.total_fee, 0)
           WHEN fee.billing_type = 'PER_TERM'
             THEN fee.tuition_fee * fee.total_terms + fee.admin_charge
           ELSE fee.tuition_fee + fee.admin_charge
-        END - COALESCE(paid.total_paid, 0),
+        END
+        + COALESCE(fa.application_fee, 1500)
+        + COALESCE(fa.uniform_fee, 0)
+        + COALESCE(fa.scrub_fee, 0)
+      ) AS total_fee,
+
+      /* PAYMENT COMPONENTS */
+
+      COALESCE(paid.tuition_paid, 0) AS tuition_paid,
+      COALESCE(paid.admin_paid, 0) AS admin_paid,
+      COALESCE(paid.programme_paid, 0) AS programme_paid,
+
+      COALESCE(paid.total_paid, 0) AS course_payments_total,
+
+      (
+        COALESCE(paid.total_paid, 0)
+        + COALESCE(fa.application_fee_paid, 1500)
+      ) AS total_paid,
+
+      COALESCE(paid.unallocated_tuition, 0) AS unallocated_tuition,
+
+      /* TOTAL OUTSTANDING BALANCE */
+
+      GREATEST(
+        (
+          CASE
+            WHEN fee.id IS NULL THEN COALESCE(fa.total_fee, 0)
+            WHEN fee.billing_type = 'PER_TERM'
+              THEN fee.tuition_fee * fee.total_terms + fee.admin_charge
+            ELSE fee.tuition_fee + fee.admin_charge
+          END
+          + COALESCE(fa.application_fee, 1500)
+          + COALESCE(fa.uniform_fee, 0)
+          + COALESCE(fa.scrub_fee, 0)
+        )
+        - (
+          COALESCE(paid.total_paid, 0)
+          + COALESCE(fa.application_fee_paid, 1500)
+        ),
         0
       ) AS balance,
+
+      /* ACADEMIC PROGRESS */
 
       COALESCE(fa.academic_current_term, 1) AS academic_current_term,
       COALESCE(fa.academic_completed_terms, 0) AS academic_completed_terms,
@@ -255,6 +302,8 @@ export default async function StudentPaymentPage() {
       COALESCE(fa.academic_status, 'IN_PROGRESS') AS academic_status,
       fa.course_start_date,
       fa.expected_completion_date,
+
+      /* TERM PAYMENT DETAILS */
 
       COALESCE(term_data.term_payments, '[]'::json) AS term_payments,
 
@@ -356,7 +405,9 @@ export default async function StudentPaymentPage() {
 
   const student = result.rows[0] as StudentRow;
 
-  /* STUDENT INFORMATION */
+  /* =========================================================
+     STUDENT INFORMATION
+  ========================================================= */
 
   const fullName =
     student.student_name ||
@@ -377,7 +428,9 @@ export default async function StudentPaymentPage() {
     student.application_intake ||
     '—';
 
-  /* APPLICATION FEE */
+  /* =========================================================
+     APPLICATION PAYMENT STATUS
+  ========================================================= */
 
   const paymentStatus = String(student.payment_status || 'Pending');
   const paymentStatusLower = paymentStatus.trim().toLowerCase();
@@ -415,7 +468,9 @@ export default async function StudentPaymentPage() {
       'border-red-200 bg-red-50 text-red-700';
   }
 
-  /* COURSE FEES */
+  /* =========================================================
+     COURSE FEES
+  ========================================================= */
 
   const hasFeeAccount = Boolean(student.fee_configured);
 
@@ -429,6 +484,31 @@ export default async function StudentPaymentPage() {
   const tuitionPaid = Number(student.tuition_paid || 0);
   const adminPaid = Number(student.admin_paid || 0);
   const programmePaid = Number(student.programme_paid || 0);
+
+  // Additional fee items
+  const feeApplicationFee = Number(
+    student.fee_application_fee ?? 1500,
+  );
+
+  const applicationFeePaid = Number(
+    student.application_fee_paid ?? 1500,
+  );
+
+  const uniformFee = Number(student.uniform_fee || 0);
+  const scrubFee = Number(student.scrub_fee || 0);
+
+  const applicationFeeBalance = Math.max(
+    feeApplicationFee - applicationFeePaid,
+    0,
+  );
+
+  // Current payment categories do not separately allocate
+  // payments to uniform and scrub.
+  const uniformPaid = 0;
+  const scrubPaid = 0;
+
+  const uniformBalance = Math.max(uniformFee - uniformPaid, 0);
+  const scrubBalance = Math.max(scrubFee - scrubPaid, 0);
 
   const isTermBased = student.billing_type === 'PER_TERM';
   const totalTerms = Number(student.total_terms || 0);
@@ -476,7 +556,9 @@ export default async function StudentPaymentPage() {
     student.academic_current_term || 1,
   );
 
-  /* PAYMENT HISTORY */
+  /* =========================================================
+     PAYMENT HISTORY
+  ========================================================= */
 
   const paymentsResult = await pool.query(
     `
@@ -506,7 +588,9 @@ export default async function StudentPaymentPage() {
   const paymentHistory =
     paymentsResult.rows as FeePayment[];
 
-  /* CLIENT PAYMENT DATA */
+  /* =========================================================
+     CLIENT PAYMENT DATA
+  ========================================================= */
 
   const paymentData = {
     applicationNumber: String(student.application_number),
@@ -528,7 +612,9 @@ export default async function StudentPaymentPage() {
     return `/api/student/fees/payments/${paymentId}/receipt?download=1`;
   }
 
-  /* PAGE */
+  /* =========================================================
+     PAGE
+  ========================================================= */
 
   return (
     <div className="min-h-screen bg-[#f8faf9]">
@@ -556,8 +642,9 @@ export default async function StudentPaymentPage() {
               </h2>
 
               <p className="mt-2 max-w-2xl text-sm leading-6 text-gray-500">
-                View your approved course fee structure, term payments,
-                outstanding balances, academic progress and payment receipts.
+                View your approved fee structure, application fee,
+                selected fee items, term payments, outstanding balances,
+                academic progress and payment receipts.
               </p>
             </div>
 
@@ -572,13 +659,15 @@ export default async function StudentPaymentPage() {
             </div>
           </div>
 
-          {/* COURSE FEE SUMMARY */}
+          {/* =====================================================
+              COURSE FEE SUMMARY
+          ===================================================== */}
 
           <section className="mb-7">
             <SectionHeading
               icon={<GraduationCap size={21} />}
               title="Course Fees Summary"
-              description="Your approved 2026/2027 course fee account"
+              description="Your approved 2026/2027 fee account"
             />
 
             {!hasFeeAccount ? (
@@ -624,7 +713,9 @@ export default async function StudentPaymentPage() {
 
                     <div className="flex flex-wrap gap-2">
                       <span className="rounded-full bg-[#0f4f3f]/10 px-3 py-1.5 text-xs font-bold text-[#0f4f3f]">
-                        {isTermBased ? 'Term-Based Programme' : 'One-Time Programme'}
+                        {isTermBased
+                          ? 'Term-Based Programme'
+                          : 'One-Time Programme'}
                       </span>
 
                       <span className="rounded-full bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-600">
@@ -638,9 +729,9 @@ export default async function StudentPaymentPage() {
 
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   <FeeSummaryCard
-                    label="Total Course Fees"
+                    label="Total Fees"
                     amount={formatKES(totalFees)}
-                    description="Total approved tuition and administrative charges"
+                    description="Application fee, tuition, administration and selected fee items"
                     icon={<WalletCards size={22} />}
                     color="green"
                   />
@@ -648,7 +739,7 @@ export default async function StudentPaymentPage() {
                   <FeeSummaryCard
                     label="Total Amount Paid"
                     amount={formatKES(totalPaid)}
-                    description="All recorded course-fee payments"
+                    description="Recorded course payments and application fee credit"
                     icon={<CheckCircle2 size={22} />}
                     color="blue"
                   />
@@ -658,8 +749,8 @@ export default async function StudentPaymentPage() {
                     amount={formatKES(balance)}
                     description={
                       feesCleared
-                        ? 'Your course fees are fully paid'
-                        : 'Remaining amount to clear your fees'
+                        ? 'Your fee account is fully cleared'
+                        : 'Remaining amount to clear your fee account'
                     }
                     icon={
                       feesCleared
@@ -680,7 +771,8 @@ export default async function StudentPaymentPage() {
                       </h4>
 
                       <p className="mt-1 text-xs text-gray-500">
-                        Percentage of total course fees paid
+                        Percentage of total fees covered by recorded payments
+                        and application fee credit
                       </p>
                     </div>
 
@@ -711,11 +803,46 @@ export default async function StudentPaymentPage() {
                     </h4>
 
                     <p className="mt-1 text-xs text-gray-500">
-                      Tuition and administrative charges are tracked separately.
+                      Your application fee, tuition, administrative charges
+                      and selected additional items.
                     </p>
                   </div>
 
                   <div className="divide-y divide-gray-100">
+
+                    {/* APPLICATION FEE */}
+
+                    <FeeBreakdownRow
+                      title="Application Fee"
+                      amount={formatKES(feeApplicationFee)}
+                      paid={formatKES(applicationFeePaid)}
+                      balance={formatKES(applicationFeeBalance)}
+                    />
+
+                    {/* SCHOOL UNIFORM */}
+
+                    {uniformFee > 0 && (
+                      <FeeBreakdownRow
+                        title="SMTC School Uniform (Female Students)"
+                        amount={formatKES(uniformFee)}
+                        paid={formatKES(uniformPaid)}
+                        balance={formatKES(uniformBalance)}
+                      />
+                    )}
+
+                    {/* PURPLE MEDICAL SCRUB */}
+
+                    {scrubFee > 0 && (
+                      <FeeBreakdownRow
+                        title="SMTC Purple Medical Scrub"
+                        amount={formatKES(scrubFee)}
+                        paid={formatKES(scrubPaid)}
+                        balance={formatKES(scrubBalance)}
+                      />
+                    )}
+
+                    {/* TUITION */}
+
                     {isTermBased ? (
                       <FeeBreakdownRow
                         title={`Tuition (${totalTerms} academic terms)`}
@@ -728,9 +855,13 @@ export default async function StudentPaymentPage() {
                         title="One-Time Programme Tuition"
                         amount={formatKES(tuitionTotal)}
                         paid={formatKES(programmePaid)}
-                        balance={formatKES(Math.max(tuitionTotal - programmePaid, 0))}
+                        balance={formatKES(
+                          Math.max(tuitionTotal - programmePaid, 0),
+                        )}
                       />
                     )}
+
+                    {/* ADMINISTRATIVE CHARGE */}
 
                     <FeeBreakdownRow
                       title="Administrative Charges (once)"
@@ -739,6 +870,18 @@ export default async function StudentPaymentPage() {
                       balance={formatKES(adminBalance)}
                     />
                   </div>
+
+                  {(uniformFee > 0 || scrubFee > 0) && (
+                    <div className="border-t border-amber-100 bg-amber-50 p-4">
+                      <p className="text-xs leading-5 text-amber-800">
+                        <strong>Additional fee items:</strong> Uniform and
+                        scrub charges are included in your total balance.
+                        Their individual payment status will be updated
+                        when the accounts office records payments under
+                        their respective categories.
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 {/* TERM PAYMENT DETAILS */}
@@ -747,7 +890,10 @@ export default async function StudentPaymentPage() {
                   <div className="mt-5 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
                     <div className="border-b border-gray-100 p-5">
                       <div className="flex items-center gap-3">
-                        <CalendarDays className="text-[#0f4f3f]" size={21} />
+                        <CalendarDays
+                          className="text-[#0f4f3f]"
+                          size={21}
+                        />
 
                         <div>
                           <h4 className="font-bold text-[#0c1f1a]">
@@ -762,79 +908,91 @@ export default async function StudentPaymentPage() {
                     </div>
 
                     <div className="divide-y divide-gray-100">
-                      {Array.from({ length: totalTerms }, (_, index) => {
-                        const term = index + 1;
+                      {Array.from(
+                        { length: totalTerms },
+                        (_, index) => {
+                          const term = index + 1;
 
-                        const paid = Number(
-                          termPayments.find(
-                            (item) => Number(item.term_number) === term,
-                          )?.amount_paid || 0,
-                        );
+                          const paid = Number(
+                            termPayments.find(
+                              (item) =>
+                                Number(item.term_number) === term,
+                            )?.amount_paid || 0,
+                          );
 
-                        const termBalance = Math.max(tuitionFee - paid, 0);
-                        const percentage = tuitionFee > 0
-                          ? Math.min((paid / tuitionFee) * 100, 100)
-                          : 0;
+                          const termBalance = Math.max(
+                            tuitionFee - paid,
+                            0,
+                          );
 
-                        const isTermPaid = termBalance <= 0 && tuitionFee > 0;
+                          const percentage = tuitionFee > 0
+                            ? Math.min(
+                                (paid / tuitionFee) * 100,
+                                100,
+                              )
+                            : 0;
 
-                        return (
-                          <div key={term} className="p-5">
-                            <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-                              <div>
-                                <p className="font-bold text-[#0c1f1a]">
-                                  Term {term}
-                                </p>
+                          const isTermPaid =
+                            termBalance <= 0 && tuitionFee > 0;
 
-                                <p className="mt-1 text-xs text-gray-500">
-                                  {paid > 0
-                                    ? `${percentage.toFixed(1)}% of term tuition paid`
-                                    : 'No payment recorded for this term'}
-                                </p>
+                          return (
+                            <div key={term} className="p-5">
+                              <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+                                <div>
+                                  <p className="font-bold text-[#0c1f1a]">
+                                    Term {term}
+                                  </p>
+
+                                  <p className="mt-1 text-xs text-gray-500">
+                                    {paid > 0
+                                      ? `${percentage.toFixed(1)}% of term tuition paid`
+                                      : 'No payment recorded for this term'}
+                                  </p>
+                                </div>
+
+                                <div className="text-left sm:text-right">
+                                  <p className="font-bold text-[#0f4f3f]">
+                                    {formatKES(paid)}
+                                  </p>
+
+                                  <p className="mt-1 text-xs text-gray-500">
+                                    of {formatKES(tuitionFee)}
+                                  </p>
+                                </div>
                               </div>
 
-                              <div className="text-left sm:text-right">
-                                <p className="font-bold text-[#0f4f3f]">
-                                  {formatKES(paid)}
-                                </p>
-
-                                <p className="mt-1 text-xs text-gray-500">
-                                  of {formatKES(tuitionFee)}
-                                </p>
+                              <div className="mt-3 h-2 overflow-hidden rounded-full bg-gray-100">
+                                <div
+                                  className="h-full rounded-full bg-[#0f4f3f]"
+                                  style={{ width: `${percentage}%` }}
+                                />
                               </div>
-                            </div>
 
-                            <div className="mt-3 h-2 overflow-hidden rounded-full bg-gray-100">
-                              <div
-                                className="h-full rounded-full bg-[#0f4f3f]"
-                                style={{ width: `${percentage}%` }}
-                              />
-                            </div>
+                              <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                                <p className="text-xs text-gray-500">
+                                  Balance: {formatKES(termBalance)}
+                                </p>
 
-                            <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                              <p className="text-xs text-gray-500">
-                                Balance: {formatKES(termBalance)}
-                              </p>
-
-                              <span
-                                className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${
-                                  isTermPaid
-                                    ? 'bg-emerald-50 text-emerald-700'
+                                <span
+                                  className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${
+                                    isTermPaid
+                                      ? 'bg-emerald-50 text-emerald-700'
+                                      : paid > 0
+                                        ? 'bg-blue-50 text-blue-700'
+                                        : 'bg-amber-50 text-amber-700'
+                                  }`}
+                                >
+                                  {isTermPaid
+                                    ? 'Fully Paid'
                                     : paid > 0
-                                      ? 'bg-blue-50 text-blue-700'
-                                      : 'bg-amber-50 text-amber-700'
-                                }`}
-                              >
-                                {isTermPaid
-                                  ? 'Fully Paid'
-                                  : paid > 0
-                                    ? 'Partially Paid'
-                                    : 'Pending'}
-                              </span>
+                                      ? 'Partially Paid'
+                                      : 'Pending'}
+                                </span>
+                              </div>
                             </div>
-                          </div>
-                        );
-                      })}
+                          );
+                        },
+                      )}
                     </div>
                   </div>
                 )}
@@ -856,12 +1014,14 @@ export default async function StudentPaymentPage() {
 
                   <div>
                     <p className="text-sm font-bold text-[#0c1f1a]">
-                      {feesCleared ? 'Fees Fully Cleared' : 'Fees Payment Ongoing'}
+                      {feesCleared
+                        ? 'Fees Fully Cleared'
+                        : 'Fees Payment Ongoing'}
                     </p>
 
                     <p className="mt-0.5 text-xs text-gray-500">
                       {feesCleared
-                        ? 'Your recorded payments have cleared your course fees.'
+                        ? 'Your recorded payments have cleared your fee account.'
                         : `You have ${formatKES(balance)} remaining on your fee account.`}
                     </p>
                   </div>
@@ -870,7 +1030,9 @@ export default async function StudentPaymentPage() {
             )}
           </section>
 
-          {/* ACADEMIC PROGRESS */}
+          {/* =====================================================
+              ACADEMIC PROGRESS
+          ===================================================== */}
 
           <section className="mb-7">
             <SectionHeading
@@ -895,16 +1057,20 @@ export default async function StudentPaymentPage() {
                   </p>
                 </div>
 
-                <span className={`w-fit rounded-full px-3 py-1.5 text-xs font-bold ${
-                  student.academic_status === 'COMPLETED'
-                    ? 'bg-emerald-50 text-emerald-700'
-                    : student.academic_status === 'SUSPENDED'
-                      ? 'bg-amber-50 text-amber-700'
-                      : student.academic_status === 'WITHDRAWN'
-                        ? 'bg-red-50 text-red-700'
-                        : 'bg-blue-50 text-blue-700'
-                }`}>
-                  {String(student.academic_status || 'IN_PROGRESS').replaceAll('_', ' ')}
+                <span
+                  className={`w-fit rounded-full px-3 py-1.5 text-xs font-bold ${
+                    student.academic_status === 'COMPLETED'
+                      ? 'bg-emerald-50 text-emerald-700'
+                      : student.academic_status === 'SUSPENDED'
+                        ? 'bg-amber-50 text-amber-700'
+                        : student.academic_status === 'WITHDRAWN'
+                          ? 'bg-red-50 text-red-700'
+                          : 'bg-blue-50 text-blue-700'
+                  }`}
+                >
+                  {String(
+                    student.academic_status || 'IN_PROGRESS',
+                  ).replaceAll('_', ' ')}
                 </span>
               </div>
 
@@ -949,7 +1115,9 @@ export default async function StudentPaymentPage() {
             </div>
           </section>
 
-          {/* PAYMENT HISTORY */}
+          {/* =====================================================
+              PAYMENT HISTORY
+          ===================================================== */}
 
           <section className="mb-7 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
             <div className="flex flex-col justify-between gap-3 border-b border-gray-100 p-6 sm:flex-row sm:items-center">
@@ -970,7 +1138,8 @@ export default async function StudentPaymentPage() {
               </div>
 
               <span className="w-fit rounded-full bg-[#0f4f3f]/10 px-3 py-1.5 text-xs font-bold text-[#0f4f3f]">
-                {paymentHistory.length} Payment{paymentHistory.length === 1 ? '' : 's'}
+                {paymentHistory.length} Payment
+                {paymentHistory.length === 1 ? '' : 's'}
               </span>
             </div>
 
@@ -1009,9 +1178,14 @@ export default async function StudentPaymentPage() {
 
                     <tbody className="divide-y divide-gray-100">
                       {paymentHistory.map((payment) => (
-                        <tr key={payment.id} className="transition hover:bg-gray-50">
+                        <tr
+                          key={payment.id}
+                          className="transition hover:bg-gray-50"
+                        >
                           <td className="whitespace-nowrap px-5 py-4 text-gray-600">
-                            {formatDate(payment.payment_date || payment.recorded_at)}
+                            {formatDate(
+                              payment.payment_date || payment.recorded_at,
+                            )}
                           </td>
 
                           <td className="px-5 py-4">
@@ -1062,7 +1236,10 @@ export default async function StudentPaymentPage() {
 
                 <div className="divide-y divide-gray-100 md:hidden">
                   {paymentHistory.map((payment) => (
-                    <div key={payment.id} className="space-y-4 p-5">
+                    <div
+                      key={payment.id}
+                      className="space-y-4 p-5"
+                    >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <p className="text-xs text-gray-400">
@@ -1100,7 +1277,9 @@ export default async function StudentPaymentPage() {
 
                         <InfoItem
                           label="Payment Date"
-                          value={formatDate(payment.payment_date || payment.recorded_at)}
+                          value={formatDate(
+                            payment.payment_date || payment.recorded_at,
+                          )}
                         />
 
                         <InfoItem
@@ -1128,18 +1307,20 @@ export default async function StudentPaymentPage() {
 
                 <div className="flex flex-col justify-between gap-2 border-t border-gray-100 bg-[#f8faf9] p-5 sm:flex-row sm:items-center">
                   <p className="text-sm font-semibold text-gray-600">
-                    Total Payments Recorded
+                    Total Course Payments Recorded
                   </p>
 
                   <p className="text-lg font-bold text-[#0f4f3f]">
-                    {formatKES(totalPaid)}
+                    {formatKES(student.course_payments_total)}
                   </p>
                 </div>
               </>
             )}
           </section>
 
-          {/* APPLICATION FEE */}
+          {/* =====================================================
+              APPLICATION FEE
+          ===================================================== */}
 
           <section className="mb-7">
             <SectionHeading
@@ -1185,7 +1366,9 @@ export default async function StudentPaymentPage() {
                         Payment Status
                       </p>
 
-                      <span className={`mt-1 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${paymentStatusClass}`}>
+                      <span
+                        className={`mt-1 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${paymentStatusClass}`}
+                      >
                         <span className="h-1.5 w-1.5 rounded-full bg-current" />
                         {paymentStatus}
                       </span>
@@ -1218,7 +1401,9 @@ export default async function StudentPaymentPage() {
             </div>
           </section>
 
-          {/* STUDENT INFORMATION */}
+          {/* =====================================================
+              STUDENT INFORMATION
+          ===================================================== */}
 
           <section className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm sm:p-7">
             <div className="flex items-start gap-4">
@@ -1239,23 +1424,40 @@ export default async function StudentPaymentPage() {
 
             <div className="mt-6 grid gap-5 border-t border-gray-100 pt-5 sm:grid-cols-2 lg:grid-cols-4">
               <InfoItem label="Student Name" value={fullName} />
-              <InfoItem label="Application Number" value={student.application_number} />
-              <InfoItem label="Admission Number" value={student.admission_number || 'Not assigned'} />
+              <InfoItem
+                label="Application Number"
+                value={student.application_number}
+              />
+              <InfoItem
+                label="Admission Number"
+                value={student.admission_number || 'Not assigned'}
+              />
               <InfoItem label="Course" value={course} />
               <InfoItem label="Intake" value={intake} />
-              <InfoItem label="Admission Status" value={student.admission_status || 'Not available'} />
+              <InfoItem
+                label="Admission Status"
+                value={student.admission_status || 'Not available'}
+              />
               <InfoItem label="Date Submitted" value={applicationDate} />
-              <InfoItem label="Registered Phone" value={paymentPhone || 'Not provided'} />
+              <InfoItem
+                label="Registered Phone"
+                value={paymentPhone || 'Not provided'}
+              />
               <InfoItem
                 label="Application M-Pesa Receipt"
                 value={student.mpesa_receipt_number || 'Not available'}
                 highlight={Boolean(student.mpesa_receipt_number)}
               />
-              <InfoItem label="Application Payment Date" value={paymentDate} />
+              <InfoItem
+                label="Application Payment Date"
+                value={paymentDate}
+              />
             </div>
           </section>
 
-          {/* SECURITY NOTICE */}
+          {/* =====================================================
+              SECURITY NOTICE
+          ===================================================== */}
 
           <div className="mt-6 rounded-2xl border border-[#d7a93b]/20 bg-[#fffdf5] p-5">
             <div className="flex gap-3">
@@ -1270,14 +1472,16 @@ export default async function StudentPaymentPage() {
                 </p>
 
                 <p className="mt-1 text-sm leading-6 text-gray-600">
-                  Your course fee balance is calculated using the approved
-                  college fee structure and payments recorded by the accounts
-                  office. Administrative charges are payable once, while
-                  term-based tuition is tracked separately for each academic
-                  term. Academic progress is maintained independently of
-                  payment progress. Always retain your payment confirmation
-                  messages and official receipts. Contact the accounts office
-                  if a payment is missing or your balance appears incorrect.
+                  Your total fee balance includes the application fee,
+                  approved course tuition, administrative charges and any
+                  additional items selected on your student fee account,
+                  such as the SMTC school uniform or purple medical scrub.
+                  Administrative charges are payable once, while term-based
+                  tuition is tracked separately for each academic term.
+                  Academic progress is maintained independently of payment
+                  progress. Always retain your payment confirmation messages
+                  and official receipts. Contact the accounts office if a
+                  payment is missing or your balance appears incorrect.
                 </p>
               </div>
             </div>
@@ -1367,7 +1571,9 @@ function FeeSummaryCard({
           {label}
         </p>
 
-        <div className={`flex h-11 w-11 items-center justify-center rounded-xl ${colors[color].icon}`}>
+        <div
+          className={`flex h-11 w-11 items-center justify-center rounded-xl ${colors[color].icon}`}
+        >
           {icon}
         </div>
       </div>
@@ -1401,22 +1607,30 @@ function FeeBreakdownRow({
   return (
     <div className="grid gap-3 p-5 sm:grid-cols-4 sm:items-center">
       <div className="sm:col-span-1">
-        <p className="text-sm font-bold text-[#0c1f1a]">{title}</p>
+        <p className="text-sm font-bold text-[#0c1f1a]">
+          {title}
+        </p>
       </div>
 
       <div>
         <p className="text-xs text-gray-400">Required</p>
-        <p className="mt-1 text-sm font-semibold text-gray-800">{amount}</p>
+        <p className="mt-1 text-sm font-semibold text-gray-800">
+          {amount}
+        </p>
       </div>
 
       <div>
         <p className="text-xs text-gray-400">Paid</p>
-        <p className="mt-1 text-sm font-semibold text-emerald-700">{paid}</p>
+        <p className="mt-1 text-sm font-semibold text-emerald-700">
+          {paid}
+        </p>
       </div>
 
       <div>
         <p className="text-xs text-gray-400">Balance</p>
-        <p className="mt-1 text-sm font-semibold text-[#a67d13]">{balance}</p>
+        <p className="mt-1 text-sm font-semibold text-[#a67d13]">
+          {balance}
+        </p>
       </div>
     </div>
   );
@@ -1441,9 +1655,11 @@ function InfoItem({
         {label}
       </p>
 
-      <p className={`mt-1.5 break-words text-sm font-semibold ${
-        highlight ? 'text-[#0f4f3f]' : 'text-gray-800'
-      }`}>
+      <p
+        className={`mt-1.5 break-words text-sm font-semibold ${
+          highlight ? 'text-[#0f4f3f]' : 'text-gray-800'
+        }`}
+      >
         {value || '—'}
       </p>
     </div>
