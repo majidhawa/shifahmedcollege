@@ -131,11 +131,49 @@ export default async function ParentPaymentPage() {
 
         ad.intake,
 
-        COALESCE(fa.total_fee, 0) AS total_fee,
+        /* -------------------------------------------------------------- */
+        /* TOTAL FEES                                                     */
+        /* -------------------------------------------------------------- */
+        /*
+         * fa.total_fee represents the configured programme and
+         * administrative charges.
+         *
+         * The application fee and selected optional items are added
+         * separately so that the parent sees the same overall fee
+         * obligation as the student.
+         */
 
-        COALESCE(
-          payments.total_paid,
-          0
+        (
+          COALESCE(fa.total_fee, 0)
+
+          + COALESCE(fa.application_fee, 1500)
+
+          + COALESCE(fa.uniform_fee, 0)
+
+          + COALESCE(fa.scrub_fee, 0)
+        ) AS total_fee,
+
+        /* -------------------------------------------------------------- */
+        /* TOTAL PAID                                                     */
+        /* -------------------------------------------------------------- */
+        /*
+         * Only actual recorded course payments and a verified
+         * application fee are counted as paid.
+         *
+         * Uniform and scrub charges are NOT automatically treated
+         * as payments.
+         */
+
+        (
+          COALESCE(payments.total_paid, 0)
+
+          + CASE
+              WHEN LOWER(
+                TRIM(COALESCE(a.payment_status, ''))
+              ) = 'paid'
+              THEN COALESCE(fa.application_fee, 1500)
+              ELSE 0
+            END
         ) AS total_paid
 
       FROM parent_students ps
@@ -270,6 +308,7 @@ export default async function ParentPaymentPage() {
             <h1 className="text-2xl font-bold text-[#0c1f1a]">
               Fees & Payments
             </h1>
+
             <p className="mt-2 text-sm text-gray-600">
               View your child's fee statements and payment records.
             </p>
@@ -322,8 +361,10 @@ export default async function ParentPaymentPage() {
 
           <div className="flex items-center gap-2 rounded-xl border border-[#dce8df] bg-white px-4 py-3 text-sm text-[#0f4f3f]">
             <UserRound size={18} />
+
             <span className="font-medium">
-              {children.length} {children.length === 1 ? 'Student' : 'Students'} linked
+              {children.length}{' '}
+              {children.length === 1 ? 'Student' : 'Students'} linked
             </span>
           </div>
         </div>
@@ -342,7 +383,7 @@ export default async function ParentPaymentPage() {
           <SummaryCard
             title="Total Amount Paid"
             amount={currency(totalPaid)}
-            description="Payments recorded by the college"
+            description="Recorded payments and verified application fees"
             icon={<CheckCircle2 size={21} />}
             iconClass="bg-green-50 text-green-700"
           />
@@ -372,6 +413,7 @@ export default async function ParentPaymentPage() {
               <h2 className="font-bold text-[#0c1f1a]">
                 Overall Fee Payment Progress
               </h2>
+
               <p className="mt-1 text-xs text-gray-500">
                 Combined progress across all linked students
               </p>
@@ -401,6 +443,7 @@ export default async function ParentPaymentPage() {
             <h2 className="text-xl font-bold text-[#0c1f1a]">
               Student Fee Accounts
             </h2>
+
             <p className="mt-1 text-sm text-gray-500">
               Each student's fee statement is displayed separately.
             </p>
@@ -441,11 +484,13 @@ export default async function ParentPaymentPage() {
                         </h3>
 
                         <p className="mt-1 text-xs text-white/80">
-                          Admission No: {child.admission_number || 'Pending'}
+                          Admission No:{' '}
+                          {child.admission_number || 'Pending'}
                         </p>
 
                         <p className="mt-1 text-xs text-white/80">
-                          Application No: {child.application_number || 'N/A'}
+                          Application No:{' '}
+                          {child.application_number || 'N/A'}
                         </p>
                       </div>
                     </div>
@@ -482,15 +527,15 @@ export default async function ParentPaymentPage() {
 
                     </div>
 
+                    {/* FEE SUMMARY */}
                     <div className="mb-5 border-t border-gray-100 pt-5">
-
-                      {/* FEE SUMMARY */}
                       <div className="grid grid-cols-2 gap-4">
 
                         <div>
                           <p className="text-xs text-gray-500">
                             Total Course Fees
                           </p>
+
                           <p className="mt-1 text-lg font-bold text-gray-900">
                             {currency(child.total_fee)}
                           </p>
@@ -500,6 +545,7 @@ export default async function ParentPaymentPage() {
                           <p className="text-xs text-gray-500">
                             Amount Paid
                           </p>
+
                           <p className="mt-1 text-lg font-bold text-green-700">
                             {currency(child.total_paid)}
                           </p>
@@ -509,6 +555,7 @@ export default async function ParentPaymentPage() {
                           <p className="text-xs font-medium text-amber-800">
                             Outstanding Balance
                           </p>
+
                           <p className="mt-1 text-2xl font-bold text-amber-900">
                             {currency(balance)}
                           </p>
@@ -523,6 +570,7 @@ export default async function ParentPaymentPage() {
                         <span className="text-sm font-semibold text-gray-700">
                           Fee Payment Progress
                         </span>
+
                         <span className="text-sm font-bold text-[#0f4f3f]">
                           {progress}%
                         </span>
@@ -571,11 +619,14 @@ export default async function ParentPaymentPage() {
                       {childPayments.length === 0 ? (
                         <div className="rounded-xl bg-gray-50 px-4 py-6 text-center">
                           <Receipt className="mx-auto mb-2 h-7 w-7 text-gray-400" />
+
                           <p className="text-sm font-medium text-gray-700">
                             No payments recorded yet
                           </p>
+
                           <p className="mt-1 text-xs text-gray-500">
-                            Payment records will appear here once the college records a payment.
+                            Payment records will appear here once the
+                            college records a payment.
                           </p>
                         </div>
                       ) : (
@@ -594,13 +645,15 @@ export default async function ParentPaymentPage() {
 
                                   <p className="mt-1 text-xs text-gray-500">
                                     {formatDate(
-                                      payment.payment_date || payment.recorded_at
+                                      payment.payment_date ||
+                                      payment.recorded_at
                                     )}
                                   </p>
 
                                   <div className="mt-2 space-y-1 text-xs text-gray-600">
                                     <p>
-                                      Receipt: {payment.receipt_number || 'Not available'}
+                                      Receipt:{' '}
+                                      {payment.receipt_number || 'Not available'}
                                     </p>
 
                                     {payment.mpesa_code && (
@@ -610,7 +663,8 @@ export default async function ParentPaymentPage() {
                                     )}
 
                                     <p>
-                                      Method: {payment.payment_method || 'Not specified'}
+                                      Method:{' '}
+                                      {payment.payment_method || 'Not specified'}
                                     </p>
                                   </div>
                                 </div>
@@ -652,9 +706,13 @@ export default async function ParentPaymentPage() {
 
               <p className="mt-1 text-sm leading-6 text-gray-700">
                 This statement reflects payments recorded in the
-                Shifah Medical Training College system. If you have
-                made a payment that is not appearing here, kindly
-                contact the college accounts office with your M-Pesa
+                Shifah Medical Training College system. Verified
+                application fees are included in the amount paid.
+                Selected school uniform and purple medical scrub
+                charges are included in the total fees but are not
+                automatically treated as payments. If you have made
+                a payment that is not appearing here, kindly contact
+                the college accounts office with your M-Pesa
                 transaction code for verification.
               </p>
             </div>
