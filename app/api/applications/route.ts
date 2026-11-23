@@ -1,6 +1,8 @@
+
 import { NextResponse } from 'next/server';
 import crypto from 'crypto';
 import pool from '@/lib/db';
+import { linkParentsToApplication } from '@/lib/parent-student-linking';
 import { supabaseAdmin } from '@/lib/supabase-server';
 
 /* =========================================================
@@ -14,7 +16,6 @@ const ALLOWED_FILE_TYPES = [
 ];
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
-
 
 const ALLOWED_COURSES = [
   'Diploma in Mortuary Science Level 6 (Technologist)',
@@ -34,7 +35,6 @@ const ALLOWED_COURSES = [
   'Diploma in Community Health Level 6',
   'Certificate in Health Service Support Level 5',
 ];
-
 
 const ALLOWED_INTAKES = [
   'January 2027 Intake',
@@ -104,104 +104,57 @@ async function saveUploadedFile(
     return null;
   }
 
-  /* =======================================================
-     FILE TYPE VALIDATION
-  ======================================================= */
-
+  // Validate file type.
   if (!ALLOWED_FILE_TYPES.includes(value.type)) {
     throw new Error(
       `${documentName} must be a PDF, JPG or PNG file.`
     );
   }
 
-  /* =======================================================
-     FILE SIZE VALIDATION
-  ======================================================= */
-
+  // Validate file size.
   if (value.size > MAX_FILE_SIZE) {
     throw new Error(
       `${documentName} exceeds the maximum file size of 5 MB.`
     );
   }
 
-  /* =======================================================
-     FILE EXTENSION
-  ======================================================= */
+  // Determine file extension.
+  const extension =
+    getExtensionFromMime(value.type) ||
+    '.bin';
 
-  const originalExtension =
-  getExtensionFromMime(value.type);
-
-const extension =
-  originalExtension ||
-  `.${getSafeFileName(value.name)
-    .split('.')
-    .pop() || 'bin'}`;
-
-const normalizedExtension =
-  extension.startsWith('.')
-    ? extension
-    : `.${extension}`;
-  /* =======================================================
-     SAFE APPLICATION NUMBER
-  ======================================================= */
-
+  // Generate a safe filename.
   const safeApplicationNumber =
     getSafeFileName(applicationNumber);
 
-  /* =======================================================
-     FILE NAME
-  ======================================================= */
-
   const fileName =
-    `${safeApplicationNumber}_${documentName}_${Date.now()}${normalizedExtension}`;
+    `${safeApplicationNumber}_${documentName}_${Date.now()}${extension}`;
 
-  /* =======================================================
-     SUPABASE STORAGE PATH
-     
-     IMPORTANT:
-     
-     The actual file is stored at:
-     
-     application-documents/
-       applications/
-         filename.pdf
-  ======================================================= */
-
+  // Supabase storage path.
   const storagePath =
     `applications/${fileName}`;
 
-  /* =======================================================
-     READ FILE
-  ======================================================= */
-
+  // Read file.
   const buffer = Buffer.from(
     await value.arrayBuffer()
   );
-
-  /* =======================================================
-     UPLOAD TO SUPABASE
-  ======================================================= */
 
   console.log(
     `Uploading ${documentName} to Supabase:`,
     storagePath
   );
 
-  const { error } =
-    await supabaseAdmin.storage
-      .from('application-documents')
-      .upload(
-        storagePath,
-        buffer,
-        {
-          contentType: value.type,
-          upsert: false,
-        }
-      );
-
-  /* =======================================================
-     HANDLE SUPABASE ERROR
-  ======================================================= */
+  // Upload to Supabase.
+  const { error } = await supabaseAdmin.storage
+    .from('application-documents')
+    .upload(
+      storagePath,
+      buffer,
+      {
+        contentType: value.type,
+        upsert: false,
+      }
+    );
 
   if (error) {
     console.error(
@@ -219,19 +172,7 @@ const normalizedExtension =
     storagePath
   );
 
-  /* =======================================================
-     IMPORTANT
-     
-     We intentionally return the OLD URL structure.
-     
-     Neon will continue storing:
-     
-     /uploads/applications/filename.pdf
-     
-     The retrieval route will later map this URL
-     to the Supabase Storage file.
-  ======================================================= */
-
+  // Preserve the existing database URL structure.
   return `/uploads/applications/${fileName}`;
 }
 
@@ -248,36 +189,17 @@ export async function POST(request: Request) {
     const formData = await request.formData();
 
     /* =====================================================
-       PERSONAL
+       PERSONAL INFORMATION
     ===================================================== */
 
-    const surname = clean(
-      formData.get('surname')
-    );
+    const surname = clean(formData.get('surname'));
+    const middleName = clean(formData.get('middleName'));
+    const firstName = clean(formData.get('firstName'));
 
-    const middleName = clean(
-      formData.get('middleName')
-    );
-
-    const firstName = clean(
-      formData.get('firstName')
-    );
-
-    const dateOfBirth = clean(
-      formData.get('dateOfBirth')
-    );
-
-    const gender = clean(
-      formData.get('gender')
-    );
-
-    const nationality = clean(
-      formData.get('nationality')
-    );
-
-    const country = clean(
-      formData.get('country')
-    );
+    const dateOfBirth = clean(formData.get('dateOfBirth'));
+    const gender = clean(formData.get('gender'));
+    const nationality = clean(formData.get('nationality'));
+    const country = clean(formData.get('country'));
 
     const idPassportNumber = clean(
       formData.get('idPassportNumber')
@@ -288,7 +210,7 @@ export async function POST(request: Request) {
     );
 
     /* =====================================================
-       CONTACT
+       CONTACT INFORMATION
     ===================================================== */
 
     const postalAddress = clean(
@@ -299,33 +221,18 @@ export async function POST(request: Request) {
       formData.get('postalCode')
     );
 
-    const town = clean(
-      formData.get('town')
-    );
+    const town = clean(formData.get('town'));
+    const county = clean(formData.get('county'));
 
-    const county = clean(
-      formData.get('county')
-    );
-
-    const mobile = clean(
-      formData.get('mobile')
-    );
-
-    const email = clean(
-      formData.get('email')
-    );
+    const mobile = clean(formData.get('mobile'));
+    const email = clean(formData.get('email'));
 
     /* =====================================================
-       ACADEMIC
+       ACADEMIC INFORMATION
     ===================================================== */
 
-    const kcseIndex = clean(
-      formData.get('kcseIndex')
-    );
-
-    const kcseYear = clean(
-      formData.get('kcseYear')
-    );
+    const kcseIndex = clean(formData.get('kcseIndex'));
+    const kcseYear = clean(formData.get('kcseYear'));
 
     const kcseMeanGrade = clean(
       formData.get('kcseMeanGrade')
@@ -364,19 +271,14 @@ export async function POST(request: Request) {
     );
 
     /* =====================================================
-       COURSE
+       COURSE INFORMATION
     ===================================================== */
 
-    const course = clean(
-      formData.get('course')
-    );
-
-    const intake = clean(
-      formData.get('intake')
-    );
+    const course = clean(formData.get('course'));
+    const intake = clean(formData.get('intake'));
 
     /* =====================================================
-       SPONSOR
+       SPONSOR INFORMATION
     ===================================================== */
 
     const sponsorType = clean(
@@ -400,7 +302,7 @@ export async function POST(request: Request) {
     );
 
     /* =====================================================
-       GUARDIAN
+       GUARDIAN INFORMATION
     ===================================================== */
 
     const guardianName = clean(
@@ -427,7 +329,7 @@ export async function POST(request: Request) {
       clean(formData.get('declaration')) === 'true';
 
     /* =====================================================
-       VALIDATION
+       PERSONAL INFORMATION VALIDATION
     ===================================================== */
 
     if (
@@ -447,11 +349,11 @@ export async function POST(request: Request) {
       );
     }
 
-    if (
-      !mobile ||
-      !email ||
-      !county
-    ) {
+    /* =====================================================
+       CONTACT VALIDATION
+    ===================================================== */
+
+    if (!mobile || !email || !county) {
       return NextResponse.json(
         {
           success: false,
@@ -461,6 +363,10 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+
+    /* =====================================================
+       ACADEMIC VALIDATION
+    ===================================================== */
 
     if (
       !kcseIndex ||
@@ -540,10 +446,7 @@ export async function POST(request: Request) {
        GUARDIAN VALIDATION
     ===================================================== */
 
-    if (
-      !guardianName ||
-      !guardianMobile
-    ) {
+    if (!guardianName || !guardianMobile) {
       return NextResponse.json(
         {
           success: false,
@@ -624,33 +527,28 @@ export async function POST(request: Request) {
 
     /* =====================================================
        DOCUMENT UPLOADS
-       
-       These now go to Supabase Storage.
     ===================================================== */
 
-    const idDocument =
-      await saveUploadedFile(
-        formData.get('idDocument'),
-        applicationNumber,
-        'ID'
-      );
+    const idDocument = await saveUploadedFile(
+      formData.get('idDocument'),
+      applicationNumber,
+      'ID'
+    );
 
-    const kcseCertificate =
-      await saveUploadedFile(
-        formData.get('kcseCertificate'),
-        applicationNumber,
-        'KCSE'
-      );
+    const kcseCertificate = await saveUploadedFile(
+      formData.get('kcseCertificate'),
+      applicationNumber,
+      'KCSE'
+    );
 
-    const passportPhoto =
-      await saveUploadedFile(
-        formData.get('passportPhoto'),
-        applicationNumber,
-        'PHOTO'
-      );
+    const passportPhoto = await saveUploadedFile(
+      formData.get('passportPhoto'),
+      applicationNumber,
+      'PHOTO'
+    );
 
     /* =====================================================
-       DATABASE INSERT
+       APPLICATION INSERT QUERY
     ===================================================== */
 
     const query = `
@@ -741,9 +639,12 @@ export async function POST(request: Request) {
         created_at
     `;
 
-    const values = [
-      /* PERSONAL */
+    /* =====================================================
+       QUERY VALUES
+    ===================================================== */
 
+    const values = [
+      // PERSONAL
       applicationNumber,
       surname,
       middleName,
@@ -755,8 +656,7 @@ export async function POST(request: Request) {
       idPassportNumber,
       maritalStatus,
 
-      /* CONTACT */
-
+      // CONTACT
       postalAddress,
       postalCode,
       town,
@@ -764,8 +664,7 @@ export async function POST(request: Request) {
       mobile,
       email,
 
-      /* ACADEMIC */
-
+      // ACADEMIC
       kcseIndex,
       kcseYear,
       kcseMeanGrade,
@@ -778,62 +677,148 @@ export async function POST(request: Request) {
       previousInstitution,
       highestQualification,
 
-      /* COURSE */
-
+      // COURSE
       course,
       intake,
 
-      /* SPONSOR */
-
+      // SPONSOR
       sponsorType,
       sponsorName,
       sponsorRelationship,
       sponsorMobile,
       sponsorEmail,
 
-      /* GUARDIAN */
-
+      // GUARDIAN
       guardianName,
       guardianRelationship,
       guardianMobile,
       guardianEmail,
 
-      /* DOCUMENTS */
-
+      // DOCUMENTS
       idDocument,
       kcseCertificate,
       passportPhoto,
 
-
-
-      /* APPLICATION STATUS */
-
-declaration,
-1500,
-'Pending',
-'Pending',
+      // APPLICATION STATUS
+      declaration,
+      1500,
+      'Pending',
+      'Pending',
     ];
 
-    console.log(
-      'Inserting application into PostgreSQL:',
-      applicationNumber
-    );
+    /* =====================================================
+       DATABASE TRANSACTION
+       
+       IMPORTANT:
+       The application and parent-student relationships
+       are saved in the same transaction.
+    ===================================================== */
 
-    const result = await pool.query(
-      query,
-      values
-    );
+    const client = await pool.connect();
 
-    const savedApplication =
-      result.rows[0];
+    let savedApplication: Record<string, any>;
+    let linkedParentIds: number[] = [];
 
-    console.log(
-      'Application successfully saved:',
-      savedApplication
-    );
+    try {
+      await client.query('BEGIN');
+
+      console.log(
+        'Inserting application into PostgreSQL:',
+        applicationNumber
+      );
+
+      /* ================================================
+         INSERT APPLICATION
+      ================================================ */
+
+      const result = await client.query(
+        query,
+        values
+      );
+
+      savedApplication = result.rows[0];
+
+      if (!savedApplication?.id) {
+        throw new Error(
+          'The application could not be saved.'
+        );
+      }
+
+      console.log(
+        'Application successfully inserted:',
+        savedApplication.application_number
+      );
+
+      /* ================================================
+         AUTOMATIC PARENT-STUDENT LINKING
+         
+         Match existing active parent accounts using
+         guardian/sponsor contact information.
+
+         Ambiguous matches are skipped by the helper.
+      ================================================ */
+
+      linkedParentIds = await linkParentsToApplication(
+        client,
+        {
+          applicationId: Number(savedApplication.id),
+
+          guardian: {
+            name: guardianName,
+            phone: guardianMobile,
+            email: guardianEmail,
+            relationship: guardianRelationship,
+          },
+
+          sponsor:
+            sponsorType !== 'Self'
+              ? {
+                  name: sponsorName,
+                  phone: sponsorMobile,
+                  email: sponsorEmail,
+                  relationship: sponsorRelationship,
+                }
+              : null,
+        }
+      );
+
+      console.log(
+        'Parent accounts linked to application:',
+        linkedParentIds
+      );
+
+      /* ================================================
+         COMMIT TRANSACTION
+      ================================================ */
+
+      await client.query('COMMIT');
+
+      console.log(
+        'Application transaction committed successfully.'
+      );
+
+    } catch (transactionError) {
+      /* ================================================
+         ROLLBACK
+      ================================================ */
+
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackError) {
+        console.error(
+          'APPLICATION TRANSACTION ROLLBACK ERROR:',
+          rollbackError
+        );
+      }
+
+      throw transactionError;
+
+    } finally {
+      client.release();
+    }
 
     /* =====================================================
-       SUCCESS
+       SUCCESS RESPONSE
     ===================================================== */
 
     return NextResponse.json(
@@ -844,8 +829,7 @@ declaration,
           'Application submitted successfully.',
 
         application: {
-          id:
-            savedApplication.id,
+          id: savedApplication.id,
 
           application_number:
             savedApplication.application_number,
@@ -864,6 +848,18 @@ declaration,
 
           application_status:
             savedApplication.application_status,
+        },
+
+        parent_linking: {
+          linked: linkedParentIds.length > 0,
+
+          linked_parents:
+            linkedParentIds.length,
+
+          message:
+            linkedParentIds.length > 0
+              ? 'Matching parent account(s) linked successfully.'
+              : 'No existing parent account was matched automatically.',
         },
       },
       { status: 201 }

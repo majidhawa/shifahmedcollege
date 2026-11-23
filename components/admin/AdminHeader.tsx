@@ -1,20 +1,33 @@
+
 'use client';
 
 import { Search } from 'lucide-react';
 import AdminNotifications from '@/components/admin/AdminNotifications';
 
 type AdminHeaderProps = {
-  adminName: string;
-  adminEmail: string;
+  adminName?: string | null;
+  adminEmail?: string | null;
 };
 
 export default function AdminHeader({
   adminName,
   adminEmail,
 }: AdminHeaderProps) {
-  const initials = adminName
-    .trim()
+  // Safely handle missing administrator details.
+  const displayName =
+    typeof adminName === 'string' && adminName.trim().length > 0
+      ? adminName.trim()
+      : 'Administrator';
+
+  const displayEmail =
+    typeof adminEmail === 'string' && adminEmail.trim().length > 0
+      ? adminEmail.trim()
+      : '';
+
+  // Generate administrator initials.
+  const initials = displayName
     .split(/\s+/)
+    .filter(Boolean)
     .map((part) => part.charAt(0))
     .join('')
     .slice(0, 2)
@@ -24,9 +37,7 @@ export default function AdminHeader({
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
       <div className="flex h-20 items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
 
-        {/* =====================================================
-            SEARCH
-        ====================================================== */}
+        {/* SEARCH */}
         <div className="hidden w-full max-w-md md:block">
           <div className="relative">
             <Search
@@ -43,50 +54,44 @@ export default function AdminHeader({
           </div>
         </div>
 
-        {/* =====================================================
-            RIGHT SIDE
-        ====================================================== */}
+        {/* RIGHT SIDE */}
         <div className="ml-auto flex items-center gap-3">
 
-          {/* ===================================================
-              NOTIFICATIONS
-          ==================================================== */}
+          {/* NOTIFICATIONS */}
           <AdminNotifications />
 
-          {/* ===================================================
-              DIVIDER
-          ==================================================== */}
+          {/* DIVIDER */}
           <div
             className="hidden h-9 w-px bg-slate-200 sm:block"
             aria-hidden="true"
           />
 
-          {/* ===================================================
-              ADMINISTRATOR
-          ==================================================== */}
+          {/* ADMINISTRATOR */}
           <div className="flex items-center gap-3">
 
-            {/* Admin name and email */}
+            {/* ADMIN NAME AND EMAIL */}
             <div className="hidden text-right sm:block">
               <p className="text-sm font-semibold text-brand-dark">
-                {adminName}
+                {displayName}
               </p>
 
-              <p className="text-xs text-slate-500">
-                {adminEmail}
-              </p>
+              {displayEmail && (
+                <p className="text-xs text-slate-500">
+                  {displayEmail}
+                </p>
+              )}
             </div>
 
-            {/* Avatar */}
+            {/* AVATAR */}
             <div
               className="flex h-10 w-10 items-center justify-center rounded-full bg-brand-green text-sm font-bold text-white ring-4 ring-brand-green/10"
-              aria-label={`Administrator ${adminName}`}
+              aria-label={`Administrator ${displayName}`}
+              title={displayName}
             >
               {initials || 'A'}
             </div>
 
           </div>
-
         </div>
       </div>
     </header>

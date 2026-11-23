@@ -35,10 +35,12 @@ export type AdminSession = {
 ========================================================= */
 
 function createSignature(payload: string): string {
-  const secret = SESSION_SECRET || 'development-only-secret';
+  if (!SESSION_SECRET) {
+    throw new Error('Administrator session secret is not configured.');
+  }
 
   return crypto
-    .createHmac('sha256', secret)
+    .createHmac('sha256', SESSION_SECRET)
     .update(payload)
     .digest('hex');
 }
@@ -47,13 +49,17 @@ function createSignature(payload: string): string {
    CREATE SESSION COOKIE
 ========================================================= */
 
-export function createAdminSession(session: {
+export async function createAdminSession(session: {
   id: number;
   name: string;
   email: string;
   role: string;
   rememberMe?: boolean;
 }) {
+  if (session.role !== 'admin') {
+    throw new Error('Only administrator accounts can create admin sessions.');
+  }
+
   const rememberMe = session.rememberMe === true;
 
   const expiresAt =
@@ -66,7 +72,7 @@ export function createAdminSession(session: {
     id: session.id,
     name: session.name,
     email: session.email,
-    role: session.role,
+    role: 'admin',
     expiresAt,
   };
 
@@ -78,7 +84,9 @@ export function createAdminSession(session: {
 
   const token = `${payload}.${signature}`;
 
-  cookies().set({
+  const cookieStore = await cookies();
+
+  cookieStore.set({
     name: SESSION_COOKIE_NAME,
     value: token,
     httpOnly: true,
@@ -95,8 +103,12 @@ export function createAdminSession(session: {
    VERIFY SESSION
 ========================================================= */
 
-export function getAdminSession(): AdminSession | null {
-  const cookieStore = cookies();
+export async function getAdminSession(): Promise<AdminSession | null> {
+  if (!SESSION_SECRET) {
+    return null;
+  }
+
+  const cookieStore = await cookies();
 
   const sessionCookie = cookieStore.get(
     SESSION_COOKIE_NAME
@@ -123,10 +135,7 @@ export function getAdminSession(): AdminSession | null {
       'utf8'
     );
 
-    if (
-      signatureBuffer.length !==
-      expectedBuffer.length
-    ) {
+    if (signatureBuffer.length !== expectedBuffer.length) {
       return null;
     }
 
@@ -144,14 +153,13 @@ export function getAdminSession(): AdminSession | null {
     ) as AdminSession;
 
     if (
-      !sessionData.id ||
+      !Number.isInteger(sessionData.id) ||
+      sessionData.id <= 0 ||
       !sessionData.email ||
-      !sessionData.expiresAt
+      sessionData.role !== 'admin' ||
+      !sessionData.expiresAt ||
+      Date.now() > sessionData.expiresAt
     ) {
-      return null;
-    }
-
-    if (Date.now() > sessionData.expiresAt) {
       return null;
     }
 
@@ -165,8 +173,10 @@ export function getAdminSession(): AdminSession | null {
    CLEAR SESSION
 ========================================================= */
 
-export function clearAdminSession() {
-  cookies().set({
+export async function clearAdminSession() {
+  const cookieStore = await cookies();
+
+  cookieStore.set({
     name: SESSION_COOKIE_NAME,
     value: '',
     httpOnly: true,
@@ -181,14 +191,12 @@ export function clearAdminSession() {
    REQUIRE ADMIN AUTHENTICATION
 ========================================================= */
 
-export function requireAdmin() {
-  const session = getAdminSession();
+export async function requireAdmin(): Promise<AdminSession | null> {
+  const session = await getAdminSession();
 
-  if (!session) {
+  if (!session || session.role !== 'admin') {
     return null;
   }
 
   return session;
 }
-
-

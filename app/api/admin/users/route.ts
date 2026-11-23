@@ -1,35 +1,22 @@
+
 import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
+import type { PoolClient } from 'pg';
 
 import pool from '@/lib/db';
 import { requireAdmin } from '@/lib/admin-auth';
+import { linkApplicationsToParent } from '@/lib/parent-student-linking';
 
 export const runtime = 'nodejs';
 
-/* =========================================================
-   TYPES
-========================================================= */
+type UserRole = 'admin' | 'lecturer' | 'parent';
+type UserStatus = 'active' | 'inactive';
 
-type UserRole =
-  | 'lecturer'
-  | 'parent';
-
-type UserStatus =
-  | 'active'
-  | 'inactive';
-
-/* =========================================================
-   HELPERS
-========================================================= */
-
-function normalizeRole(
-  role: unknown
-): UserRole | null {
-  const value = String(role || '')
-    .trim()
-    .toLowerCase();
+function normalizeRole(role: unknown): UserRole | null {
+  const value = String(role || '').trim().toLowerCase();
 
   if (
+    value === 'admin' ||
     value === 'lecturer' ||
     value === 'parent'
   ) {
@@ -39,47 +26,28 @@ function normalizeRole(
   return null;
 }
 
-function normalizeStatus(
-  status: unknown
-): UserStatus | null {
-  const value = String(status || '')
-    .trim()
-    .toLowerCase();
+function normalizeStatus(status: unknown): UserStatus | null {
+  const value = String(status || '').trim().toLowerCase();
 
-  if (
-    value === 'active' ||
-    value === 'inactive'
-  ) {
+  if (value === 'active' || value === 'inactive') {
     return value;
   }
 
   return null;
 }
 
-function cleanString(
-  value: unknown
-): string {
-  return String(value || '').trim();
+function cleanString(value: unknown): string {
+  return String(value ?? '').trim();
 }
 
-/* =========================================================
-   NORMALIZE PROGRAM IDS
-========================================================= */
-
-function normalizeProgramIds(
-  value: unknown
-): number[] {
+function normalizeProgramIds(value: unknown): number[] {
   if (!Array.isArray(value)) {
     return [];
   }
 
   const ids = value
-    .map((item) => Number(item))
-    .filter(
-      (id) =>
-        Number.isInteger(id) &&
-        id > 0
-    );
+    .map(Number)
+    .filter((id) => Number.isInteger(id) && id > 0);
 
   return [...new Set(ids)];
 }
@@ -87,17 +55,19 @@ function normalizeProgramIds(
 /* =========================================================
    GET USERS
    GET /api/admin/users
+
+   Supports:
+   - Administrators
+   - Lecturers
+   - Parents
+   - Lecturer course assignments
+   - Parent linked students
+   - User statistics
 ========================================================= */
 
-export async function GET(
-  request: Request
-) {
+export async function GET(request: Request) {
   try {
-    /* =====================================================
-       ADMIN AUTHENTICATION
-    ===================================================== */
-
-    const admin = requireAdmin();
+    const admin = await requireAdmin();
 
     if (!admin) {
       return NextResponse.json(
@@ -109,66 +79,38 @@ export async function GET(
       );
     }
 
+    const { searchParams } = new URL(request.url);
+
+    const search = cleanString(searchParams.get('search'));
+    const role = searchParams.get('role');
+    const status = searchParams.get('status');
+
     /* =====================================================
-       QUERY PARAMETERS
+       VALIDATE FILTERS
     ===================================================== */
 
-    const { searchParams } =
-      new URL(request.url);
-
-    const search =
-      cleanString(
-        searchParams.get('search')
+    if (role && !normalizeRole(role)) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: 'Invalid role. Use admin, lecturer or parent.',
+        },
+        { status: 400 }
       );
+    }
 
-    const role =
-      searchParams.get('role');
-
-    const status =
-      searchParams.get('status');
-
-    /* =====================================================
-       VALIDATE ROLE
-    ===================================================== */
-
-    if (role) {
-      const normalizedRole =
-        normalizeRole(role);
-
-      if (!normalizedRole) {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              'Invalid role. Use lecturer or parent.',
-          },
-          { status: 400 }
-        );
-      }
+    if (status && !normalizeStatus(status)) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: 'Invalid user status.',
+        },
+        { status: 400 }
+      );
     }
 
     /* =====================================================
-       VALIDATE STATUS
-    ===================================================== */
-
-    if (status) {
-      const normalizedStatus =
-        normalizeStatus(status);
-
-      if (!normalizedStatus) {
-        return NextResponse.json(
-          {
-            success: false,
-            message:
-              'Invalid user status.',
-          },
-          { status: 400 }
-        );
-      }
-    }
-
-    /* =====================================================
-       BUILD QUERY
+       BUILD DYNAMIC FILTERS
     ===================================================== */
 
     const conditions: string[] = [];
@@ -180,8 +122,8 @@ export async function GET(
       conditions.push(`
         (
           u.name ILIKE $${parameterIndex}
-          OR u.email ILIKE $${parameterIndex}
-          OR u.phone ILIKE $${parameterIndex}
+          OR COALESCE(u.email, '') ILIKE $${parameterIndex}
+          OR COALESCE(u.phone, '') ILIKE $${parameterIndex}
         )
       `);
 
@@ -190,27 +132,16 @@ export async function GET(
     }
 
     if (role) {
-      conditions.push(
-        `u.role = $${parameterIndex}`
-      );
+      conditions.push(`u.role = $${parameterIndex}`);
 
-      values.push(
-        normalizeRole(role)
-      );
-
+      values.push(normalizeRole(role));
       parameterIndex++;
     }
 
     if (status) {
-      conditions.push(
-        `u.active = $${parameterIndex}`
-      );
+      conditions.push(`u.active = $${parameterIndex}`);
 
-      values.push(
-        normalizeStatus(status) ===
-          'active'
-      );
-
+      values.push(normalizeStatus(status) === 'active');
       parameterIndex++;
     }
 
@@ -220,12 +151,11 @@ export async function GET(
         : '';
 
     /* =====================================================
-       GET USERS + ASSIGNED PROGRAMS
+       FETCH USERS
     ===================================================== */
 
-    const result =
-      await pool.query(
-        `
+    const result = await pool.query(
+      `
         SELECT
           u.id,
           u.name,
@@ -237,11 +167,8 @@ export async function GET(
           u.updated_at,
 
           COALESCE(
-            ARRAY_AGG(
-              DISTINCT lp.program_id
-            ) FILTER (
-              WHERE lp.program_id IS NOT NULL
-            ),
+            ARRAY_AGG(DISTINCT lp.program_id)
+              FILTER (WHERE lp.program_id IS NOT NULL),
             '{}'
           ) AS program_ids,
 
@@ -252,94 +179,139 @@ export async function GET(
                 'name', p.name,
                 'code', p.code
               )
-            ) FILTER (
-              WHERE p.id IS NOT NULL
-            ),
+            ) FILTER (WHERE p.id IS NOT NULL),
             '[]'
-          ) AS programs
+          ) AS programs,
 
-        FROM users u
+          CASE
+            WHEN u.role = 'parent' THEN (
+              SELECT COALESCE(
+                JSON_AGG(
+                  JSON_BUILD_OBJECT(
+                    'application_id', linked.application_id,
+                    'student_name', linked.student_name,
+                    'admission_number', linked.admission_number,
+                    'application_number', linked.application_number,
+                    'relationship', linked.relationship
+                  )
+                  ORDER BY linked.student_name
+                ),
+                '[]'::json
+              )
+              FROM (
+                SELECT DISTINCT
+                  a.id AS application_id,
 
-        LEFT JOIN lms_lecturer_programs lp
+                  COALESCE(
+                    NULLIF(
+                      TRIM(
+                        CONCAT_WS(
+                          ' ',
+                          a.first_name,
+                          a.surname
+                        )
+                      ),
+                      ''
+                    ),
+                    'Unnamed student'
+                  ) AS student_name,
+
+                  a.admission_number,
+                  a.application_number,
+                  ps.relationship
+
+                FROM public.parent_students ps
+
+                INNER JOIN public.applications a
+                  ON a.id = ps.application_id
+
+                WHERE ps.parent_id = u.id
+              ) linked
+            )
+            ELSE '[]'::json
+          END AS linked_students,
+
+          CASE
+            WHEN u.role = 'parent' THEN (
+              SELECT COUNT(DISTINCT ps.application_id)::int
+              FROM public.parent_students ps
+              WHERE ps.parent_id = u.id
+            )
+            ELSE 0
+          END AS linked_students_count
+
+        FROM public.users u
+
+        LEFT JOIN public.lms_lecturer_programs lp
           ON lp.lecturer_id = u.id
 
-        LEFT JOIN lms_programs p
+        LEFT JOIN public.lms_programs p
           ON p.id = lp.program_id
 
         ${whereClause}
 
-        GROUP BY
-          u.id,
-          u.name,
-          u.email,
-          u.phone,
-          u.role,
-          u.active,
-          u.created_at,
-          u.updated_at
+        GROUP BY u.id
 
-        ORDER BY
-          u.created_at DESC
-        `,
-        values
-      );
+        ORDER BY u.created_at DESC
+      `,
+      values
+    );
 
     /* =====================================================
-       STATISTICS
+       FETCH USER STATISTICS
     ===================================================== */
 
-    const statisticsResult =
-      await pool.query(`
-        SELECT
-          COUNT(*)::int AS total,
+    const statisticsResult = await pool.query(`
+      SELECT
+        COUNT(*)::int AS total,
 
-          COUNT(*) FILTER (
-            WHERE role = 'lecturer'
-          )::int AS lecturers,
+        COUNT(*) FILTER (
+          WHERE role = 'admin'
+        )::int AS admins,
 
-          COUNT(*) FILTER (
-            WHERE role = 'parent'
-          )::int AS parents,
+        COUNT(*) FILTER (
+          WHERE role = 'lecturer'
+        )::int AS lecturers,
 
-          COUNT(*) FILTER (
-            WHERE active = true
-          )::int AS active,
+        COUNT(*) FILTER (
+          WHERE role = 'parent'
+        )::int AS parents,
 
-          COUNT(*) FILTER (
-            WHERE active = false
-          )::int AS inactive
+        COUNT(*) FILTER (
+          WHERE active = true
+        )::int AS active,
 
-        FROM users
+        COUNT(*) FILTER (
+          WHERE active = false
+        )::int AS inactive
 
-        WHERE role IN (
-          'lecturer',
-          'parent'
-        )
-      `);
+      FROM public.users
 
-    /* =====================================================
-       RESPONSE
-    ===================================================== */
+      WHERE role IN ('admin', 'lecturer', 'parent')
+    `);
 
-    return NextResponse.json({
-      success: true,
-
-      users: result.rows,
-
-      statistics:
-        statisticsResult.rows[0] || {
+    return NextResponse.json(
+      {
+        success: true,
+        users: result.rows,
+        statistics: statisticsResult.rows[0] || {
           total: 0,
+          admins: 0,
           lecturers: 0,
           parents: 0,
           active: 0,
           inactive: 0,
         },
-    });
-  } catch (error) {
-    console.error(
-      'GET ADMIN USERS ERROR:',
-      error
+      },
+      {
+        status: 200,
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate',
+        },
+      }
     );
+  } catch (error) {
+    console.error('GET ADMIN USERS ERROR:', error);
 
     return NextResponse.json(
       {
@@ -357,20 +329,32 @@ export async function GET(
 /* =========================================================
    CREATE USER
    POST /api/admin/users
+
+   ADMIN:
+   - Insert into public.admin_users
+   - Insert into public.users
+   - Use the same password hash in both tables
+   - Both inserts happen in one transaction
+
+   LECTURER:
+   - Insert into public.users
+   - Assign selected programmes
+
+   PARENT:
+   - Insert into public.users
+   - Automatically link matching applications
 ========================================================= */
 
-export async function POST(
-  request: Request
-) {
-  const client =
-    await pool.connect();
+export async function POST(request: Request) {
+  let client: PoolClient | null = null;
+  let transactionStarted = false;
 
   try {
     /* =====================================================
-       ADMIN AUTHENTICATION
+       AUTHENTICATION
     ===================================================== */
 
-    const admin = requireAdmin();
+    const admin = await requireAdmin();
 
     if (!admin) {
       return NextResponse.json(
@@ -383,10 +367,10 @@ export async function POST(
     }
 
     /* =====================================================
-       READ BODY
+       PARSE REQUEST BODY
     ===================================================== */
 
-    let body: any;
+    let body: Record<string, unknown>;
 
     try {
       body = await request.json();
@@ -394,86 +378,43 @@ export async function POST(
       return NextResponse.json(
         {
           success: false,
-          message:
-            'Invalid request body.',
+          message: 'Invalid request body.',
         },
         { status: 400 }
       );
     }
 
     /* =====================================================
-       VALUES
+       NORMALIZE INPUT
     ===================================================== */
 
-    const name =
-      cleanString(body?.name);
+    const name = cleanString(body.name);
 
-    const email =
-      cleanString(body?.email)
-        .toLowerCase();
+    const email = cleanString(body.email).toLowerCase() || null;
 
-    const phone =
-      cleanString(body?.phone);
+    const phone = cleanString(body.phone);
 
+    // Do not trim passwords. Spaces may be intentional.
     const password =
-      cleanString(body?.password);
+      typeof body.password === 'string'
+        ? body.password
+        : '';
 
-    const role =
-      normalizeRole(body?.role);
+    const role = normalizeRole(body.role);
 
-    const status =
-      normalizeStatus(
-        body?.status || 'active'
-      );
+    const status = normalizeStatus(body.status || 'active');
 
-    const programIds =
-      normalizeProgramIds(
-        body?.programIds
-      );
+    const programIds = normalizeProgramIds(body.programIds);
 
     /* =====================================================
-       VALIDATION
+       VALIDATE REQUIRED FIELDS
     ===================================================== */
 
     if (!name) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            'Name is required.',
-        },
-        { status: 400 }
-      );
-    }
-
-    if (!email) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            'Email address is required.',
-        },
-        { status: 400 }
-      );
-    }
-
-    if (!password) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            'Password is required.',
-        },
-        { status: 400 }
-      );
-    }
-
-    if (password.length < 8) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            'Password must be at least 8 characters.',
+          message: 'Name is required.',
         },
         { status: 400 }
       );
@@ -483,8 +424,7 @@ export async function POST(
       return NextResponse.json(
         {
           success: false,
-          message:
-            'Role must be lecturer or parent.',
+          message: 'Role must be admin, lecturer or parent.',
         },
         { status: 400 }
       );
@@ -494,114 +434,158 @@ export async function POST(
       return NextResponse.json(
         {
           success: false,
+          message: 'Status must be active or inactive.',
+        },
+        { status: 400 }
+      );
+    }
+
+    if ((role === 'admin' || role === 'lecturer') && !email) {
+      return NextResponse.json(
+        {
+          success: false,
           message:
-            'Status must be active or inactive.',
+            'Email address is required for administrators and lecturers.',
+        },
+        { status: 400 }
+      );
+    }
+
+    if (!password) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: 'Password is required.',
+        },
+        { status: 400 }
+      );
+    }
+
+    if (password.length < 8) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: 'Password must be at least 8 characters.',
         },
         { status: 400 }
       );
     }
 
     /* =====================================================
-       COURSE ASSIGNMENT VALIDATION
+       VALIDATE COURSE ASSIGNMENTS
     ===================================================== */
 
-    if (
-      role === 'parent' &&
-      programIds.length > 0
-    ) {
+    if (role !== 'lecturer' && programIds.length > 0) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            'Courses can only be assigned to lecturers.',
+          message: 'Courses can only be assigned to lecturers.',
         },
         { status: 400 }
       );
     }
 
     /* =====================================================
-       CHECK EMAIL IN USERS
+       CONNECT TO DATABASE
     ===================================================== */
 
-    const existingUser =
-      await client.query(
-        `
-        SELECT id
-        FROM users
-        WHERE LOWER(email) = LOWER($1)
-        LIMIT 1
-        `,
-        [email]
-      );
+    client = await pool.connect();
 
-    if (
-      existingUser.rows.length > 0
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            'A user with this email address already exists.',
-        },
-        { status: 409 }
-      );
-    }
+    const active = status === 'active';
 
     /* =====================================================
-       CHECK ADMIN USERS
+       HASH PASSWORD
     ===================================================== */
 
-    const existingAdmin =
-      await client.query(
-        `
-        SELECT id
-        FROM admin_users
-        WHERE LOWER(email) = LOWER($1)
-        LIMIT 1
-        `,
-        [email]
-      );
-
-    if (
-      existingAdmin.rows.length > 0
-    ) {
-      return NextResponse.json(
-        {
-          success: false,
-          message:
-            'This email address is already registered as an administrator.',
-        },
-        { status: 409 }
-      );
-    }
+    const passwordHash = await bcrypt.hash(password, 12);
 
     /* =====================================================
-       VALIDATE PROGRAMS EXIST
+       BEGIN TRANSACTION
     ===================================================== */
 
-    if (
-      role === 'lecturer' &&
-      programIds.length > 0
-    ) {
-      const programsResult =
-        await client.query(
-          `
+    await client.query('BEGIN');
+    transactionStarted = true;
+
+    /* =====================================================
+       CHECK DUPLICATE EMAIL
+
+       Check both account tables.
+
+       This is important because administrator login uses
+       public.admin_users, while Manage Users uses public.users.
+    ===================================================== */
+
+    if (email) {
+      const existingUser = await client.query(
+        `
           SELECT id
-          FROM lms_programs
-          WHERE id = ANY($1::integer[])
-          `,
-          [programIds]
-        );
+          FROM public.users
+          WHERE LOWER(email) = LOWER($1)
+          LIMIT 1
+        `,
+        [email]
+      );
 
-      if (
-        programsResult.rows.length !==
-        programIds.length
-      ) {
+      if (existingUser.rows.length > 0) {
+        await client.query('ROLLBACK');
+        transactionStarted = false;
+
+        return NextResponse.json(
+          {
+            success: false,
+            message: 'A user with this email address already exists.',
+          },
+          { status: 409 }
+        );
+      }
+
+      const existingAdmin = await client.query(
+        `
+          SELECT id
+          FROM public.admin_users
+          WHERE LOWER(email) = LOWER($1)
+          LIMIT 1
+        `,
+        [email]
+      );
+
+      if (existingAdmin.rows.length > 0) {
+        await client.query('ROLLBACK');
+        transactionStarted = false;
+
         return NextResponse.json(
           {
             success: false,
             message:
-              'One or more selected courses do not exist.',
+              'This email address is already registered as an administrator.',
+          },
+          { status: 409 }
+        );
+      }
+    }
+
+    /* =====================================================
+       VALIDATE LECTURER PROGRAMMES
+    ===================================================== */
+
+    if (role === 'lecturer' && programIds.length > 0) {
+      const programsResult = await client.query(
+        `
+          SELECT id
+          FROM public.lms_programs
+          WHERE id = ANY($1::integer[])
+        `,
+        [programIds]
+      );
+
+      if (programsResult.rows.length !== programIds.length) {
+        await client.query('ROLLBACK');
+        transactionStarted = false;
+
+        return NextResponse.json(
+          {
+            success: false,
+            message: 'One or more selected courses do not exist.',
           },
           { status: 400 }
         );
@@ -609,32 +593,62 @@ export async function POST(
     }
 
     /* =====================================================
-       HASH PASSWORD
+       CREATE ADMIN AUTHENTICATION RECORD
+
+       IMPORTANT:
+       Admin login authenticates against public.admin_users.
+
+       Therefore, every newly created administrator must
+       also have an authentication record in that table.
+
+       The password hash is identical to the one stored
+       in public.users.
+
+       Expected admin_users columns:
+       id, name, email, password_hash, role, is_active,
+       last_login.
     ===================================================== */
 
-    const passwordHash =
-      await bcrypt.hash(
-        password,
-        12
+    let administratorAuthId: number | null = null;
+
+    if (role === 'admin') {
+      const adminAuthResult = await client.query(
+        `
+          INSERT INTO public.admin_users (
+            name,
+            email,
+            password_hash,
+            role,
+            is_active
+          )
+          VALUES ($1, $2, $3, 'admin', $4)
+
+          RETURNING id
+        `,
+        [
+          name,
+          email,
+          passwordHash,
+          active,
+        ]
       );
 
-    const active =
-      status === 'active';
+      administratorAuthId = Number(
+        adminAuthResult.rows[0].id
+      );
+    }
 
     /* =====================================================
-       TRANSACTION
+       CREATE MAIN USER RECORD
+
+       All roles are stored in public.users.
+
+       This keeps Manage Users and user statistics working.
     ===================================================== */
 
-    await client.query('BEGIN');
-
-    /* =====================================================
-       CREATE USER
-    ===================================================== */
-
-    const userResult =
-      await client.query(
-        `
-        INSERT INTO users (
+    const userResult = await client.query(
+      `
+        INSERT INTO public.users (
           name,
           email,
           phone,
@@ -642,15 +656,7 @@ export async function POST(
           role,
           active
         )
-
-        VALUES (
-          $1,
-          $2,
-          $3,
-          $4,
-          $5,
-          $6
-        )
+        VALUES ($1, $2, $3, $4, $5, $6)
 
         RETURNING
           id,
@@ -661,102 +667,132 @@ export async function POST(
           active,
           created_at,
           updated_at
-        `,
-        [
-          name,
-          email,
-          phone || null,
-          passwordHash,
-          role,
-          active,
-        ]
-      );
+      `,
+      [
+        name,
+        email,
+        phone || null,
+        passwordHash,
+        role,
+        active,
+      ]
+    );
 
-    const user =
-      userResult.rows[0];
+    const user = userResult.rows[0];
+
+    if (!user) {
+      throw new Error('The user account could not be created.');
+    }
 
     /* =====================================================
-       ASSIGN COURSES
+       ASSIGN PROGRAMMES TO LECTURERS
     ===================================================== */
 
-    if (
-      role === 'lecturer' &&
-      programIds.length > 0
-    ) {
+    if (role === 'lecturer' && programIds.length > 0) {
       for (const programId of programIds) {
         await client.query(
           `
-          INSERT INTO lms_lecturer_programs (
-            lecturer_id,
-            program_id
-          )
+            INSERT INTO public.lms_lecturer_programs (
+              lecturer_id,
+              program_id
+            )
+            VALUES ($1, $2)
 
-          VALUES (
-            $1,
-            $2
-          )
-
-          ON CONFLICT (
-            lecturer_id,
-            program_id
-          )
-          DO NOTHING
+            ON CONFLICT (lecturer_id, program_id)
+            DO NOTHING
           `,
-          [
-            user.id,
-            programId,
-          ]
+          [user.id, programId]
         );
       }
     }
 
-    await client.query('COMMIT');
-
     /* =====================================================
-       LOG
+       AUTOMATIC PARENT-STUDENT LINKING
     ===================================================== */
 
+    let linkedApplicationIds: number[] = [];
+
+    if (role === 'parent') {
+      linkedApplicationIds = await linkApplicationsToParent(
+        client,
+        {
+          parentId: Number(user.id),
+        }
+      );
+    }
+
+    /* =====================================================
+       COMMIT TRANSACTION
+    ===================================================== */
+
+    await client.query('COMMIT');
+    transactionStarted = false;
+
     console.log(
-      `Admin ${admin.email} created LMS user #${user.id} (${user.email}) with role ${user.role} and ${programIds.length} course assignment(s).`
+      `Admin ${admin.email} created user #${user.id} (${user.email || 'No email'}) with role ${user.role}.`
     );
 
     /* =====================================================
-       RESPONSE
+       RETURN CREATED USER
     ===================================================== */
 
     return NextResponse.json(
       {
         success: true,
-        message:
-          'User created successfully.',
+        message: 'User created successfully.',
+
         user: {
           ...user,
-          program_ids:
-            programIds,
+          program_ids: role === 'lecturer' ? programIds : [],
+          linked_applications_count: linkedApplicationIds.length,
+          linked_application_ids: linkedApplicationIds,
+        },
+
+        administrator_auth:
+          role === 'admin'
+            ? {
+                created: true,
+                id: administratorAuthId,
+              }
+            : null,
+
+        parent_linking: {
+          attempted: role === 'parent',
+          linked_count: linkedApplicationIds.length,
+          application_ids: linkedApplicationIds,
         },
       },
       { status: 201 }
     );
-  } catch (error: any) {
-    try {
-      await client.query('ROLLBACK');
-    } catch {
-      // Ignore rollback errors.
+  } catch (error: unknown) {
+    /* =====================================================
+       ROLLBACK FAILED TRANSACTION
+    ===================================================== */
+
+    if (client && transactionStarted) {
+      try {
+        await client.query('ROLLBACK');
+        transactionStarted = false;
+      } catch (rollbackError) {
+        console.error(
+          'USER CREATION ROLLBACK ERROR:',
+          rollbackError
+        );
+      }
     }
 
-    console.error(
-      'CREATE LMS USER ERROR:',
-      error
-    );
+    const dbError = error as {
+      code?: string;
+      constraint?: string;
+    };
 
-    if (
-      error?.code === '23505'
-    ) {
+    console.error('CREATE LMS USER ERROR:', error);
+
+    if (dbError?.code === '23505') {
       return NextResponse.json(
         {
           success: false,
-          message:
-            'A user with this email already exists.',
+          message: 'A user with this email already exists.',
         },
         { status: 409 }
       );
@@ -773,6 +809,8 @@ export async function POST(
       { status: 500 }
     );
   } finally {
-    client.release();
+    if (client) {
+      client.release();
+    }
   }
 }
