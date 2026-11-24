@@ -1,8 +1,11 @@
+
 'use client';
 
 import React, {
   ChangeEvent,
   FormEvent,
+  ReactNode,
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -72,7 +75,11 @@ type ApplicationData = {
   idDocument: File | null;
   kcseCertificate: File | null;
   passportPhoto: File | null;
-
+  birthCertificate: File | null;
+  leavingCertificate: File | null;
+  schoolTestimonials: File | null;
+  additionalAcademicCertificates: File[];
+  otherSupportingDocuments: File[];
   declaration: boolean;
 };
 
@@ -120,17 +127,12 @@ type PaymentData = {
 type PaymentStatusResponse = {
   success?: boolean;
   message?: string;
-
   payment?: PaymentData;
-
   paymentStatus?: string;
-
   rejectionReason?: string;
   rejection_reason?: string;
-
   manualMpesaCode?: string;
   manual_mpesa_code?: string;
-
   manualMpesaPhone?: string;
   manual_mpesa_phone?: string;
 };
@@ -186,6 +188,11 @@ const initialData: ApplicationData = {
   idDocument: null,
   kcseCertificate: null,
   passportPhoto: null,
+  birthCertificate: null,
+  leavingCertificate: null,
+  schoolTestimonials: null,
+  additionalAcademicCertificates: [],
+  otherSupportingDocuments: [],
 
   declaration: false,
 };
@@ -205,22 +212,22 @@ const steps = [
 ];
 
 const courses = [
-  'Diploma in Mortuary Science Level 6 (Technologist) ',
-  'Certificate in Mortuary Science Level 5 (Technician) ',
-  'Certificate in Caregiving Level 4 ',
-  'Phlebotomy ',
-  'Certificate in EMT ',
-  'Diploma in EMT ',
-  'Paramedicine Level 6 ',
-  'Dialysis Technology ',
-  'ACLS and BLS ',
+  'Diploma in Mortuary Science Level 6 (Technologist)',
+  'Certificate in Mortuary Science Level 5 (Technician)',
+  'Certificate in Caregiving Level 4',
+  'Phlebotomy',
+  'Certificate in EMT',
+  'Diploma in EMT',
+  'Paramedicine Level 6',
+  'Dialysis Technology',
+  'ACLS and BLS',
   'German Language (A1) Proficiency',
   'German Language (A2) Proficiency',
   'German Language (B1) Proficiency',
   'German Language (B2) Proficiency',
-  'Certificate in Community Health Level 5 ',
-  'Diploma in Community Health Level 6 ',
-  'Certificate in Health Service Support Level 5 ',
+  'Certificate in Community Health Level 5',
+  'Diploma in Community Health Level 6',
+  'Certificate in Health Service Support Level 5',
 ];
 
 const intakes = [
@@ -245,9 +252,10 @@ const kcseGrades = [
 ];
 
 /* =========================================================
-   M-PESA
+   M-PESA DETAILS
 ========================================================= */
 
+const APPLICATION_FEE = 1500;
 const MPESA_PAYBILL = '247247';
 const MPESA_ACCOUNT = '0330287421280';
 
@@ -256,10 +264,82 @@ const MPESA_ACCOUNT = '0330287421280';
 ========================================================= */
 
 const inputClass =
-  'mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-green-600 focus:ring-2 focus:ring-green-600/10';
+  'mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-green-600 focus:ring-2 focus:ring-green-600/10 disabled:cursor-not-allowed disabled:bg-slate-100';
 
 const buttonBase =
   'inline-flex items-center justify-center rounded-full px-7 py-3 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-50';
+
+/* =========================================================
+   HELPERS
+========================================================= */
+
+function isValidEmail(email: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
+    email.trim()
+  );
+}
+
+function normalizeMpesaPhone(phone: string) {
+  return phone.trim().replace(/\s+/g, '');
+}
+
+function isValidMpesaPhone(phone: string) {
+  return /^(?:07\d{8}|01\d{8}|2547\d{8}|2541\d{8}|\+2547\d{8}|\+2541\d{8})$/.test(
+    normalizeMpesaPhone(phone)
+  );
+}
+
+function isValidMpesaCode(code: string) {
+  return /^[A-Z0-9]{8,15}$/i.test(code.trim());
+}
+
+function normalizePaymentStatus(
+  status: string
+): PaymentStatus | '' {
+  const normalized = status
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+
+  if (
+    [
+      'payment_pending',
+      'pending_payment',
+      'unpaid',
+      'pending',
+    ].includes(normalized)
+  ) {
+    return 'payment_pending';
+  }
+
+  if (
+    [
+      'awaiting_approval',
+      'awaiting_verification',
+      'verification_pending',
+      'submitted',
+      'pending_verification',
+    ].includes(normalized)
+  ) {
+    return 'awaiting_approval';
+  }
+
+  if (
+    ['approved', 'paid', 'verified'].includes(
+      normalized
+    )
+  ) {
+    return 'approved';
+  }
+
+  if (
+    ['rejected', 'declined'].includes(normalized)
+  ) {
+    return 'rejected';
+  }
+
+  return '';
+}
 
 /* =========================================================
    MAIN COMPONENT
@@ -283,7 +363,14 @@ export function ApplyForm() {
   const [submitError, setSubmitError] =
     useState('');
 
-  const [submitted, setSubmitted] =
+  /*
+   * applicationSaved means the application record
+   * has been created and an application number exists.
+   *
+   * It does NOT mean the application has been
+   * formally submitted for admission consideration.
+   */
+  const [applicationSaved, setApplicationSaved] =
     useState(false);
 
   const [submittedApplication, setSubmittedApplication] =
@@ -291,40 +378,13 @@ export function ApplyForm() {
 
   /* =======================================================
      MANUAL PAYMENT STATE
-
-     FLOW:
-
-     payment_pending
-     ↓
-     applicant pays
-     ↓
-     applicant enters phone + code
-     ↓
-     API saves:
-       manual_mpesa_code
-       manual_mpesa_phone
-       manual_payment_submitted_at
-       payment_status
-     ↓
-     awaiting_approval
-     ↓
-     fields locked
-     ↓
-     admin approves/rejects
-     ↓
-     rejected → fields unlocked
-     approved → receipt available
   ======================================================= */
 
-  const [mpesaCode, setMpesaCode] =
-    useState('');
-
+  const [mpesaCode, setMpesaCode] = useState('');
   const [submittedMpesaCode, setSubmittedMpesaCode] =
     useState('');
 
-  const [mpesaPhone, setMpesaPhone] =
-    useState('');
-
+  const [mpesaPhone, setMpesaPhone] = useState('');
   const [submittedMpesaPhone, setSubmittedMpesaPhone] =
     useState('');
 
@@ -364,445 +424,24 @@ export function ApplyForm() {
   const [paymentAmount, setPaymentAmount] =
     useState<number | null>(null);
 
-  /* =========================================================
-     HELPERS
-  ========================================================= */
-
-  const isValidEmail = (email: string) => {
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
-      email.trim()
-    );
-  };
-
-  const isValidMpesaCode = (code: string) => {
-    return /^[A-Z0-9]{8,15}$/i.test(
-      code.trim()
-    );
-  };
-
-  const normalizeMpesaPhone = (phone: string) => {
-    return phone
-      .trim()
-      .replace(/\s+/g, '');
-  };
-
-  const isValidMpesaPhone = (phone: string) => {
-    const normalized =
-      normalizeMpesaPhone(phone);
-
-    return /^(?:07\d{8}|01\d{8}|2547\d{8}|2541\d{8}|\+2547\d{8}|\+2541\d{8})$/.test(
-      normalized
-    );
-  };
-
-  /* =========================================================
-     NORMALIZE PAYMENT STATUS
-  ========================================================= */
-
-  const normalizePaymentStatus = (
-    status: string
-  ): PaymentStatus | '' => {
-    const normalized = status
-      .trim()
-      .toLowerCase()
-      .replace(/[\s-]+/g, '_');
-
-    if (
-      normalized === 'payment_pending' ||
-      normalized === 'pending_payment' ||
-      normalized === 'unpaid' ||
-      normalized === 'pending'
-    ) {
-      return 'payment_pending';
-    }
-
-    if (
-      normalized === 'awaiting_approval' ||
-      normalized === 'awaiting_verification' ||
-      normalized === 'verification_pending' ||
-      normalized === 'submitted'
-    ) {
-      return 'awaiting_approval';
-    }
-
-    if (
-      normalized === 'approved' ||
-      normalized === 'paid' ||
-      normalized === 'verified'
-    ) {
-      return 'approved';
-    }
-
-    if (
-      normalized === 'rejected' ||
-      normalized === 'declined'
-    ) {
-      return 'rejected';
-    }
-
-    return '';
-  };
-
-  /* =========================================================
-     APPLY PAYMENT STATE
-  ========================================================= */
-
-  const applyPaymentState = (
-    status: PaymentStatus,
-    rejectionReason = ''
-  ) => {
-    setPaymentStatus(status);
-
-    if (status === 'payment_pending') {
-      setPaymentApproved(false);
-      setPaymentRejected(false);
-      setPaymentRejectionReason('');
-
-      setPaymentMessage(
-        'Please complete your M-Pesa payment and enter the transaction code and phone number below.'
-      );
-
-      return;
-    }
-
-    if (status === 'awaiting_approval') {
-      setPaymentApproved(false);
-      setPaymentRejected(false);
-      setPaymentRejectionReason('');
-
-      setPaymentMessage(
-        'Your M-Pesa transaction details have been submitted successfully and are awaiting administrator approval.'
-      );
-
-      return;
-    }
-
-    if (status === 'rejected') {
-      setPaymentApproved(false);
-      setPaymentRejected(true);
-
-      setPaymentRejectionReason(
-        rejectionReason
-      );
-
-      setPaymentMessage(
-        'Your payment verification was rejected. Please enter the correct M-Pesa transaction details and submit them again.'
-      );
-
-      return;
-    }
-
-    if (status === 'approved') {
-      setPaymentApproved(true);
-      setPaymentRejected(false);
-      setPaymentRejectionReason('');
-
-      setPaymentMessage(
-        'Your M-Pesa payment has been approved successfully. Your official receipt is now available.'
-      );
-
-      return;
-    }
-  };
-
-  /* =========================================================
-     WHETHER MANUAL PAYMENT FIELDS ARE LOCKED
-  ========================================================= */
-
-  const paymentFieldsLocked =
-    paymentSubmitting ||
-    paymentStatus === 'awaiting_approval' ||
-    paymentStatus === 'approved';
-
-  /* =========================================================
-     PAYMENT STATUS POLLING
-
-     BACKEND IS SOURCE OF TRUTH
-  ========================================================= */
-
-  useEffect(() => {
-    const applicationNumber =
-      submittedApplication?.application_number;
-
-    if (
-      !submitted ||
-      !applicationNumber
-    ) {
-      return;
-    }
-
-    let cancelled = false;
-
-    let intervalId:
-      | number
-      | undefined;
-
-    const checkPaymentStatus =
-      async () => {
-        if (cancelled) {
-          return;
-        }
-
-        try {
-          setPaymentChecking(true);
-
-          const response =
-            await fetch(
-              `/api/applications/${encodeURIComponent(
-                applicationNumber
-              )}/payment-status`,
-              {
-                method: 'GET',
-                cache: 'no-store',
-              }
-            );
-
-          const result: PaymentStatusResponse =
-            await response.json();
-
-          if (
-            !response.ok ||
-            !result?.success
-          ) {
-            return;
-          }
-
-          const payment =
-            result.payment || {};
-
-          /* -----------------------------------------------
-             STATUS
-          ----------------------------------------------- */
-
-          const rawStatus =
-            payment.status ||
-            payment.paymentStatus ||
-            result.paymentStatus ||
-            '';
-
-          const normalizedStatus =
-            normalizePaymentStatus(
-              rawStatus
-            );
-
-          /* -----------------------------------------------
-             MANUAL M-PESA CODE
-
-             Support both camelCase and database
-             snake_case response names.
-          ----------------------------------------------- */
-
-          const returnedMpesaCode =
-            payment.manualMpesaCode ||
-            payment.manual_mpesa_code ||
-            payment.mpesaCode ||
-            payment.transactionCode ||
-            result.manualMpesaCode ||
-            result.manual_mpesa_code ||
-            '';
-
-          if (returnedMpesaCode) {
-            setSubmittedMpesaCode(
-              returnedMpesaCode
-            );
-
-            setMpesaCode(
-              returnedMpesaCode
-            );
-          }
-
-          /* -----------------------------------------------
-             MANUAL M-PESA PHONE
-          ----------------------------------------------- */
-
-          const returnedMpesaPhone =
-            payment.manualMpesaPhone ||
-            payment.manual_mpesa_phone ||
-            payment.phoneNumber ||
-            payment.phone ||
-            result.manualMpesaPhone ||
-            result.manual_mpesa_phone ||
-            '';
-
-          if (returnedMpesaPhone) {
-            setSubmittedMpesaPhone(
-              returnedMpesaPhone
-            );
-
-            setMpesaPhone(
-              returnedMpesaPhone
-            );
-
-            setPaymentPhoneNumber(
-              returnedMpesaPhone
-            );
-          }
-
-          /* -----------------------------------------------
-             AMOUNT
-          ----------------------------------------------- */
-
-          if (
-            payment.amount !== undefined &&
-            payment.amount !== null
-          ) {
-            setPaymentAmount(
-              Number(payment.amount)
-            );
-          }
-
-          /* -----------------------------------------------
-             RECEIPT
-          ----------------------------------------------- */
-
-          setMpesaReceipt(
-            payment.mpesaReceipt ||
-              payment.receipt ||
-              ''
-          );
-
-          /* -----------------------------------------------
-             TRANSACTION DATE
-          ----------------------------------------------- */
-
-          setPaymentTransactionDate(
-            payment.transactionDate ||
-              payment.transaction_date ||
-              ''
-          );
-
-          /* -----------------------------------------------
-             REJECTION REASON
-          ----------------------------------------------- */
-
-          const rejectionReason =
-            payment.rejectionReason ||
-            payment.rejection_reason ||
-            result.rejectionReason ||
-            result.rejection_reason ||
-            '';
-
-          if (!normalizedStatus) {
-            return;
-          }
-
-          if (cancelled) {
-            return;
-          }
-
-          /* -----------------------------------------------
-             PAYMENT PENDING
-          ----------------------------------------------- */
-
-          if (
-            normalizedStatus ===
-            'payment_pending'
-          ) {
-            applyPaymentState(
-              'payment_pending'
-            );
-
-            return;
-          }
-
-          /* -----------------------------------------------
-             AWAITING APPROVAL
-          ----------------------------------------------- */
-
-          if (
-            normalizedStatus ===
-            'awaiting_approval'
-          ) {
-            applyPaymentState(
-              'awaiting_approval'
-            );
-
-            return;
-          }
-
-          /* -----------------------------------------------
-             REJECTED
-          ----------------------------------------------- */
-
-          if (
-            normalizedStatus ===
-            'rejected'
-          ) {
-            applyPaymentState(
-              'rejected',
-              rejectionReason
-            );
-
-            if (intervalId) {
-              window.clearInterval(
-                intervalId
-              );
-            }
-
-            return;
-          }
-
-          /* -----------------------------------------------
-             APPROVED
-          ----------------------------------------------- */
-
-          if (
-            normalizedStatus ===
-            'approved'
-          ) {
-            applyPaymentState(
-              'approved'
-            );
-
-            if (intervalId) {
-              window.clearInterval(
-                intervalId
-              );
-            }
-
-            return;
-          }
-        } catch (error) {
-          console.error(
-            'Payment verification status error:',
-            error
-          );
-        } finally {
-          if (!cancelled) {
-            setPaymentChecking(false);
-          }
-        }
-      };
-
-    void checkPaymentStatus();
-
-    intervalId =
-      window.setInterval(
-        checkPaymentStatus,
-        5000
-      );
-
-    return () => {
-      cancelled = true;
-
-      if (intervalId) {
-        window.clearInterval(
-          intervalId
-        );
-      }
-    };
-  }, [
-    submitted,
-    submittedApplication?.application_number,
-  ]);
-
-  /* =========================================================
+  /* =======================================================
+     SCROLL
+  ======================================================= */
+
+  const scrollToForm = useCallback(() => {
+    window.setTimeout(() => {
+      formContainerRef.current?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    }, 50);
+  }, []);
+
+  /* =======================================================
      UPDATE FIELD
-  ========================================================= */
+  ======================================================= */
 
-  const updateField = <
-    K extends keyof ApplicationData
-  >(
+  const updateField = <K extends keyof ApplicationData>(
     field: K,
     value: ApplicationData[K]
   ) => {
@@ -812,14 +451,9 @@ export function ApplyForm() {
     }));
 
     setErrors((current) => {
-      if (!current[field]) {
-        return current;
-      }
+      if (!current[field]) return current;
 
-      const updated = {
-        ...current,
-      };
-
+      const updated = { ...current };
       delete updated[field];
 
       return updated;
@@ -828,40 +462,242 @@ export function ApplyForm() {
     setSubmitError('');
   };
 
-  /* =========================================================
-     SCROLL
-  ========================================================= */
+  /* =======================================================
+     PAYMENT STATE
+  ======================================================= */
 
-  const scrollToForm = () => {
-    window.setTimeout(() => {
-      formContainerRef.current?.scrollIntoView({
-        behavior: 'smooth',
-        block: 'start',
-      });
-    }, 50);
-  };
+  const applyPaymentState = useCallback(
+    (
+      status: PaymentStatus,
+      rejectionReason = ''
+    ) => {
+      setPaymentStatus(status);
 
-  /* =========================================================
+      if (status === 'payment_pending') {
+        setPaymentApproved(false);
+        setPaymentRejected(false);
+        setPaymentRejectionReason('');
+
+        setPaymentMessage(
+          'Complete your M-Pesa payment and enter the transaction details below.'
+        );
+
+        return;
+      }
+
+      if (status === 'awaiting_approval') {
+        setPaymentApproved(false);
+        setPaymentRejected(false);
+        setPaymentRejectionReason('');
+
+        setPaymentMessage(
+          'Your M-Pesa transaction details have been received and are awaiting administrator verification.'
+        );
+
+        return;
+      }
+
+      if (status === 'rejected') {
+        setPaymentApproved(false);
+        setPaymentRejected(true);
+        setPaymentRejectionReason(rejectionReason);
+
+        setPaymentMessage(
+          'Your payment verification was rejected. Review the reason and submit the correct transaction details.'
+        );
+
+        return;
+      }
+
+      if (status === 'approved') {
+        setPaymentApproved(true);
+        setPaymentRejected(false);
+        setPaymentRejectionReason('');
+
+        setPaymentMessage(
+          'Your application fee has been approved by SMTC administration.'
+        );
+      }
+    },
+    []
+  );
+
+  const paymentFieldsLocked =
+    paymentSubmitting ||
+    paymentStatus === 'awaiting_approval' ||
+    paymentStatus === 'approved';
+
+  /* =======================================================
+     PAYMENT STATUS POLLING
+
+     Backend remains the source of truth.
+  ======================================================= */
+
+  useEffect(() => {
+    const applicationNumber =
+      submittedApplication?.application_number;
+
+    if (!applicationSaved || !applicationNumber) {
+      return;
+    }
+
+    let cancelled = false;
+    let intervalId: number | undefined;
+
+    const checkPaymentStatus = async () => {
+      if (cancelled) return;
+
+      try {
+        setPaymentChecking(true);
+
+        const response = await fetch(
+          `/api/applications/${encodeURIComponent(
+            applicationNumber
+          )}/payment-status`,
+          {
+            method: 'GET',
+            cache: 'no-store',
+          }
+        );
+
+        const result: PaymentStatusResponse =
+          await response.json();
+
+        if (
+          !response.ok ||
+          !result?.success ||
+          cancelled
+        ) {
+          return;
+        }
+
+        const payment = result.payment || {};
+
+        const rawStatus =
+          payment.status ||
+          payment.paymentStatus ||
+          result.paymentStatus ||
+          '';
+
+        const normalizedStatus =
+          normalizePaymentStatus(rawStatus);
+
+        const returnedCode =
+          payment.manualMpesaCode ||
+          payment.manual_mpesa_code ||
+          payment.mpesaCode ||
+          payment.transactionCode ||
+          result.manualMpesaCode ||
+          result.manual_mpesa_code ||
+          '';
+
+        if (returnedCode) {
+          setSubmittedMpesaCode(returnedCode);
+          setMpesaCode(returnedCode);
+        }
+
+        const returnedPhone =
+          payment.manualMpesaPhone ||
+          payment.manual_mpesa_phone ||
+          payment.phoneNumber ||
+          payment.phone ||
+          result.manualMpesaPhone ||
+          result.manual_mpesa_phone ||
+          '';
+
+        if (returnedPhone) {
+          setSubmittedMpesaPhone(returnedPhone);
+          setMpesaPhone(returnedPhone);
+          setPaymentPhoneNumber(returnedPhone);
+        }
+
+        if (
+          payment.amount !== undefined &&
+          payment.amount !== null
+        ) {
+          setPaymentAmount(Number(payment.amount));
+        }
+
+        setMpesaReceipt(
+          payment.mpesaReceipt ||
+            payment.receipt ||
+            ''
+        );
+
+        setPaymentTransactionDate(
+          payment.transactionDate ||
+            payment.transaction_date ||
+            ''
+        );
+
+        const rejectionReason =
+          payment.rejectionReason ||
+          payment.rejection_reason ||
+          result.rejectionReason ||
+          result.rejection_reason ||
+          '';
+
+        if (!normalizedStatus || cancelled) return;
+
+        applyPaymentState(
+          normalizedStatus,
+          rejectionReason
+        );
+
+        if (
+          normalizedStatus === 'approved' ||
+          normalizedStatus === 'rejected'
+        ) {
+          if (intervalId) {
+            window.clearInterval(intervalId);
+          }
+        }
+      } catch (error) {
+        console.error(
+          'Payment status checking error:',
+          error
+        );
+      } finally {
+        if (!cancelled) {
+          setPaymentChecking(false);
+        }
+      }
+    };
+
+    void checkPaymentStatus();
+
+    intervalId = window.setInterval(
+      checkPaymentStatus,
+      5000
+    );
+
+    return () => {
+      cancelled = true;
+
+      if (intervalId) {
+        window.clearInterval(intervalId);
+      }
+    };
+  }, [
+    applicationSaved,
+    submittedApplication?.application_number,
+    applyPaymentState,
+  ]);
+
+  /* =======================================================
      VALIDATE STEP
-  ========================================================= */
+  ======================================================= */
 
   const validateStep = () => {
-    const newErrors: Record<
-      string,
-      string
-    > = {};
-
-    /* STEP 1 */
+    const newErrors: Record<string, string> = {};
 
     if (step === 1) {
       if (!data.surname.trim()) {
-        newErrors.surname =
-          'Surname is required.';
+        newErrors.surname = 'Surname is required.';
       }
 
       if (!data.firstName.trim()) {
-        newErrors.firstName =
-          'First name is required.';
+        newErrors.firstName = 'First name is required.';
       }
 
       if (!data.dateOfBirth) {
@@ -870,43 +706,31 @@ export function ApplyForm() {
       }
 
       if (!data.gender) {
-        newErrors.gender =
-          'Please select your gender.';
+        newErrors.gender = 'Please select your gender.';
       }
 
-      if (
-        !data.idPassportNumber.trim()
-      ) {
+      if (!data.idPassportNumber.trim()) {
         newErrors.idPassportNumber =
           'ID or Passport number is required.';
       }
     }
 
-    /* STEP 2 */
-
     if (step === 2) {
       if (!data.mobile.trim()) {
-        newErrors.mobile =
-          'Mobile number is required.';
+        newErrors.mobile = 'Mobile number is required.';
       }
 
       if (!data.email.trim()) {
-        newErrors.email =
-          'Email address is required.';
-      } else if (
-        !isValidEmail(data.email)
-      ) {
+        newErrors.email = 'Email address is required.';
+      } else if (!isValidEmail(data.email)) {
         newErrors.email =
           'Please enter a valid email address.';
       }
 
       if (!data.county.trim()) {
-        newErrors.county =
-          'County is required.';
+        newErrors.county = 'County is required.';
       }
     }
-
-    /* STEP 3 */
 
     if (step === 3) {
       if (!data.kcseIndex.trim()) {
@@ -915,17 +739,14 @@ export function ApplyForm() {
       }
 
       if (!data.kcseYear.trim()) {
-        newErrors.kcseYear =
-          'KCSE year is required.';
+        newErrors.kcseYear = 'KCSE year is required.';
       } else {
-        const year =
-          Number(data.kcseYear);
+        const year = Number(data.kcseYear);
 
         if (
           !Number.isInteger(year) ||
           year < 1990 ||
-          year >
-            new Date().getFullYear()
+          year > new Date().getFullYear()
         ) {
           newErrors.kcseYear =
             'Please enter a valid KCSE year.';
@@ -938,17 +759,13 @@ export function ApplyForm() {
       }
     }
 
-    /* STEP 4 */
-
     if (step === 4) {
       if (!data.course) {
-        newErrors.course =
-          'Please select a course.';
+        newErrors.course = 'Please select a course.';
       }
 
       if (!data.intake) {
-        newErrors.intake =
-          'Please select an intake.';
+        newErrors.intake = 'Please select an intake.';
       }
 
       if (!data.sponsorType) {
@@ -967,16 +784,12 @@ export function ApplyForm() {
 
       if (
         data.sponsorEmail.trim() &&
-        !isValidEmail(
-          data.sponsorEmail
-        )
+        !isValidEmail(data.sponsorEmail)
       ) {
         newErrors.sponsorEmail =
           'Please enter a valid sponsor email.';
       }
     }
-
-    /* STEP 5 */
 
     if (step === 5) {
       if (!data.guardianName.trim()) {
@@ -991,21 +804,17 @@ export function ApplyForm() {
 
       if (
         data.guardianEmail.trim() &&
-        !isValidEmail(
-          data.guardianEmail
-        )
+        !isValidEmail(data.guardianEmail)
       ) {
         newErrors.guardianEmail =
-          'Please enter a valid email address.';
+          'Please enter a valid guardian email.';
       }
     }
-
-    /* STEP 6 */
 
     if (step === 6) {
       if (!data.idDocument) {
         newErrors.idDocument =
-          'National ID or Passport is required for those who don\'t have Their National ID use Parent\'s ID.';
+          'National ID or Passport is required. Applicants without an ID may use a parent’s ID.';
       }
 
       if (!data.kcseCertificate) {
@@ -1019,44 +828,29 @@ export function ApplyForm() {
       }
     }
 
-    /* STEP 7 */
-
-    if (step === 7) {
-      if (!data.declaration) {
-        newErrors.declaration =
-          'You must accept the declaration before submitting.';
-      }
+    if (step === 7 && !data.declaration) {
+      newErrors.declaration =
+        'You must accept the declaration before submitting.';
     }
 
     setErrors(newErrors);
 
-    return (
-      Object.keys(newErrors).length === 0
-    );
+    return Object.keys(newErrors).length === 0;
   };
 
-  /* =========================================================
-     NEXT
-  ========================================================= */
+  /* =======================================================
+     NAVIGATION
+  ======================================================= */
 
   const nextStep = () => {
-    if (!validateStep()) {
-      return;
-    }
+    if (!validateStep()) return;
 
     setStep((current) =>
-      Math.min(
-        current + 1,
-        steps.length
-      )
+      Math.min(current + 1, steps.length)
     );
 
     scrollToForm();
   };
-
-  /* =========================================================
-     PREVIOUS
-  ========================================================= */
 
   const previousStep = () => {
     setErrors({});
@@ -1069,235 +863,84 @@ export function ApplyForm() {
     scrollToForm();
   };
 
-  /* =========================================================
-     FINAL APPLICATION SUBMISSION
-  ========================================================= */
+  /* =======================================================
+     APPLICATION SUBMISSION
+
+     This creates/saves the application record.
+
+     The frontend deliberately does not call this
+     "formally submitted" until the payment process
+     has been approved and the backend has applied
+     the appropriate application-status transition.
+  ======================================================= */
 
   const handleFinalSubmit = async (
-    event: FormEvent
+    event: FormEvent<HTMLFormElement>
   ) => {
     event.preventDefault();
 
-    if (submitting) {
-      return;
-    }
+    if (submitting || applicationSaved) return;
 
-    if (!validateStep()) {
-      return;
-    }
+    if (!validateStep()) return;
 
     setSubmitting(true);
     setSubmitError('');
 
     try {
-      const formData =
-        new FormData();
+      const formData = new FormData();
 
-      /* PERSONAL */
+      const textFields: Array<
+        [keyof ApplicationData, string]
+      > = [
+        ['surname', data.surname.trim()],
+        ['middleName', data.middleName.trim()],
+        ['firstName', data.firstName.trim()],
+        ['dateOfBirth', data.dateOfBirth],
+        ['gender', data.gender],
+        ['nationality', data.nationality.trim()],
+        ['country', data.country.trim()],
+        ['idPassportNumber', data.idPassportNumber.trim()],
+        ['maritalStatus', data.maritalStatus],
 
-      formData.append(
-        'surname',
-        data.surname.trim()
-      );
+        ['postalAddress', data.postalAddress.trim()],
+        ['postalCode', data.postalCode.trim()],
+        ['town', data.town.trim()],
+        ['county', data.county.trim()],
+        ['mobile', data.mobile.trim()],
+        ['email', data.email.trim()],
 
-      formData.append(
-        'middleName',
-        data.middleName.trim()
-      );
+        ['kcseIndex', data.kcseIndex.trim()],
+        ['kcseYear', data.kcseYear.trim()],
+        ['kcseMeanGrade', data.kcseMeanGrade],
+        ['englishGrade', data.englishGrade],
+        ['kiswahiliGrade', data.kiswahiliGrade],
+        ['biologyGrade', data.biologyGrade],
+        ['chemistryGrade', data.chemistryGrade],
+        ['physicsGrade', data.physicsGrade],
+        ['mathematicsGrade', data.mathematicsGrade],
+        ['previousInstitution', data.previousInstitution.trim()],
+        ['highestQualification', data.highestQualification.trim()],
 
-      formData.append(
-        'firstName',
-        data.firstName.trim()
-      );
+        ['course', data.course],
+        ['intake', data.intake],
 
-      formData.append(
-        'dateOfBirth',
-        data.dateOfBirth
-      );
+        ['sponsorType', data.sponsorType],
+        ['sponsorName', data.sponsorName.trim()],
+        ['sponsorRelationship', data.sponsorRelationship.trim()],
+        ['sponsorMobile', data.sponsorMobile.trim()],
+        ['sponsorEmail', data.sponsorEmail.trim()],
 
-      formData.append(
-        'gender',
-        data.gender
-      );
+        ['guardianName', data.guardianName.trim()],
+        ['guardianRelationship', data.guardianRelationship],
+        ['guardianMobile', data.guardianMobile.trim()],
+        ['guardianEmail', data.guardianEmail.trim()],
 
-      formData.append(
-        'nationality',
-        data.nationality.trim()
-      );
+        ['declaration', String(data.declaration)],
+      ];
 
-      formData.append(
-        'country',
-        data.country.trim()
-      );
-
-      formData.append(
-        'idPassportNumber',
-        data.idPassportNumber.trim()
-      );
-
-      formData.append(
-        'maritalStatus',
-        data.maritalStatus
-      );
-
-      /* CONTACT */
-
-      formData.append(
-        'postalAddress',
-        data.postalAddress.trim()
-      );
-
-      formData.append(
-        'postalCode',
-        data.postalCode.trim()
-      );
-
-      formData.append(
-        'town',
-        data.town.trim()
-      );
-
-      formData.append(
-        'county',
-        data.county.trim()
-      );
-
-      formData.append(
-        'mobile',
-        data.mobile.trim()
-      );
-
-      formData.append(
-        'email',
-        data.email.trim()
-      );
-
-      /* ACADEMIC */
-
-      formData.append(
-        'kcseIndex',
-        data.kcseIndex.trim()
-      );
-
-      formData.append(
-        'kcseYear',
-        data.kcseYear.trim()
-      );
-
-      formData.append(
-        'kcseMeanGrade',
-        data.kcseMeanGrade
-      );
-
-      formData.append(
-        'englishGrade',
-        data.englishGrade
-      );
-
-      formData.append(
-        'kiswahiliGrade',
-        data.kiswahiliGrade
-      );
-
-      formData.append(
-        'biologyGrade',
-        data.biologyGrade
-      );
-
-      formData.append(
-        'chemistryGrade',
-        data.chemistryGrade
-      );
-
-      formData.append(
-        'physicsGrade',
-        data.physicsGrade
-      );
-
-      formData.append(
-        'mathematicsGrade',
-        data.mathematicsGrade
-      );
-
-      formData.append(
-        'previousInstitution',
-        data.previousInstitution.trim()
-      );
-
-      formData.append(
-        'highestQualification',
-        data.highestQualification.trim()
-      );
-
-      /* COURSE */
-
-      formData.append(
-        'course',
-        data.course
-      );
-
-      formData.append(
-        'intake',
-        data.intake
-      );
-
-      /* SPONSOR */
-
-      formData.append(
-        'sponsorType',
-        data.sponsorType
-      );
-
-      formData.append(
-        'sponsorName',
-        data.sponsorName.trim()
-      );
-
-      formData.append(
-        'sponsorRelationship',
-        data.sponsorRelationship.trim()
-      );
-
-      formData.append(
-        'sponsorMobile',
-        data.sponsorMobile.trim()
-      );
-
-      formData.append(
-        'sponsorEmail',
-        data.sponsorEmail.trim()
-      );
-
-      /* GUARDIAN */
-
-      formData.append(
-        'guardianName',
-        data.guardianName.trim()
-      );
-
-      formData.append(
-        'guardianRelationship',
-        data.guardianRelationship
-      );
-
-      formData.append(
-        'guardianMobile',
-        data.guardianMobile.trim()
-      );
-
-      formData.append(
-        'guardianEmail',
-        data.guardianEmail.trim()
-      );
-
-      /* DECLARATION */
-
-      formData.append(
-        'declaration',
-        String(data.declaration)
-      );
-
-      /* DOCUMENTS */
+      for (const [key, value] of textFields) {
+        formData.append(key, value);
+      }
 
       if (data.idDocument) {
         formData.append(
@@ -1323,19 +966,56 @@ export function ApplyForm() {
         );
       }
 
-      /* SEND APPLICATION */
+      // OPTIONAL SINGLE DOCUMENTS
 
-      const response =
-        await fetch(
-          '/api/applications',
-          {
-            method: 'POST',
-            body: formData,
-          }
+      if (data.birthCertificate) {
+        formData.append(
+          'birthCertificate',
+          data.birthCertificate,
+          data.birthCertificate.name
         );
+      }
 
-      const responseText =
-        await response.text();
+      if (data.leavingCertificate) {
+        formData.append(
+          'leavingCertificate',
+          data.leavingCertificate,
+          data.leavingCertificate.name
+        );
+      }
+
+      if (data.schoolTestimonials) {
+        formData.append(
+          'schoolTestimonials',
+          data.schoolTestimonials,
+          data.schoolTestimonials.name
+        );
+      }
+
+      // MULTIPLE ADDITIONAL ACADEMIC CERTIFICATES
+
+      data.additionalAcademicCertificates.forEach((file) => {
+        formData.append(
+          'additionalAcademicCertificates',
+          file,
+          file.name
+        );
+      });
+
+      // MULTIPLE OTHER SUPPORTING DOCUMENTS
+
+      data.otherSupportingDocuments.forEach((file) => {
+        formData.append(
+          'otherSupportingDocuments',
+          file,
+          file.name
+        );
+      });      const response = await fetch('/api/applications', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const responseText = await response.text();
 
       let result:
         | {
@@ -1347,9 +1027,7 @@ export function ApplyForm() {
 
       try {
         result = responseText
-          ? JSON.parse(
-              responseText
-            )
+          ? JSON.parse(responseText)
           : null;
       } catch {
         throw new Error(
@@ -1357,68 +1035,45 @@ export function ApplyForm() {
         );
       }
 
-      if (
-        !response.ok ||
-        !result?.success
-      ) {
+      if (!response.ok || !result?.success) {
         throw new Error(
           result?.message ||
-            'Failed to submit your application.'
+            'Unable to save your application.'
         );
       }
 
-      const application =
-        result.application;
+      const application = result.application;
 
       if (
         !application ||
         !application.application_number
       ) {
         throw new Error(
-          'Application was saved, but no application number was returned by the server.'
+          'The application was saved, but the server did not return an application number. Please contact SMTC before submitting another application.'
         );
       }
 
-      setSubmittedApplication(
-        application
-      );
-
-      /* =====================================================
-         INITIAL PAYMENT STATE
-
-         The applicant now needs to:
-
-         1. Pay KSh 1,500
-         2. Enter M-Pesa phone
-         3. Enter M-Pesa transaction code
-         4. Submit for approval
-      ===================================================== */
+      setSubmittedApplication(application);
 
       setMpesaCode('');
       setSubmittedMpesaCode('');
 
-      setMpesaPhone(
-        data.mobile || ''
-      );
-
+      setMpesaPhone(data.mobile || '');
       setSubmittedMpesaPhone('');
 
-      setPaymentStatus(
-        'payment_pending'
-      );
+      setPaymentStatus('payment_pending');
 
       setPaymentSubmitting(false);
       setPaymentChecking(false);
 
       setPaymentApproved(false);
       setPaymentRejected(false);
-
       setPaymentRejectionReason('');
 
       setPaymentError('');
 
       setPaymentMessage(
-        'Please complete your M-Pesa payment and enter the transaction code and phone number below.'
+        'Your application details have been saved. Please pay the application fee and submit your M-Pesa transaction details for verification.'
       );
 
       setMpesaReceipt('');
@@ -1426,478 +1081,268 @@ export function ApplyForm() {
       setPaymentPhoneNumber('');
       setPaymentAmount(null);
 
-      setSubmitted(true);
+      setApplicationSaved(true);
 
       scrollToForm();
     } catch (error) {
       console.error(
-        'Application submission error:',
+        'Application saving error:',
         error
       );
 
       setSubmitError(
         error instanceof Error
           ? error.message
-          : 'Something went wrong while submitting your application.'
+          : 'Something went wrong while saving your application.'
       );
     } finally {
       setSubmitting(false);
     }
   };
 
-  /* =========================================================
-     SUBMIT MANUAL M-PESA CODE
-     
-     THIS IS THE IMPORTANT CHANGE.
+  /* =======================================================
+     SUBMIT MANUAL M-PESA VERIFICATION
+  ======================================================= */
 
-     The API receives:
+  const handlePaymentVerification = async () => {
+    if (paymentSubmitting) return;
 
-       manualMpesaCode
-       manualMpesaPhone
+    setPaymentError('');
+    setPaymentMessage('');
 
-     The API should save:
+    const applicationNumber =
+      submittedApplication?.application_number;
 
-       manual_mpesa_code
-       manual_mpesa_phone
-       manual_payment_submitted_at
-       payment_status
-  ========================================================= */
+    if (!applicationNumber) {
+      setPaymentError(
+        'Application number is missing. Please contact SMTC.'
+      );
+      return;
+    }
 
-  const handlePaymentVerification =
-    async () => {
-      if (paymentSubmitting) {
-        return;
-      }
+    if (
+      paymentStatus !== 'payment_pending' &&
+      paymentStatus !== 'rejected'
+    ) {
+      return;
+    }
 
-      setPaymentError('');
-      setPaymentMessage('');
+    const code = mpesaCode.trim().toUpperCase();
 
-      const applicationNumber =
-        submittedApplication?.application_number;
+    if (!code) {
+      setPaymentError(
+        'Please enter your M-Pesa transaction code.'
+      );
+      return;
+    }
 
-      if (!applicationNumber) {
-        setPaymentError(
-          'Application number is missing. Please contact SMTC.'
-        );
+    if (!isValidMpesaCode(code)) {
+      setPaymentError(
+        'Please enter a valid M-Pesa transaction code.'
+      );
+      return;
+    }
 
-        return;
-      }
+    const phone = normalizeMpesaPhone(mpesaPhone);
 
-      /* Applicant can only submit when pending/rejected */
+    if (!phone) {
+      setPaymentError(
+        'Please enter the M-Pesa phone number used to make the payment.'
+      );
+      return;
+    }
 
-      if (
-        paymentStatus !==
-          'payment_pending' &&
-        paymentStatus !==
-          'rejected'
-      ) {
-        return;
-      }
+    if (!isValidMpesaPhone(phone)) {
+      setPaymentError(
+        'Please enter a valid Kenyan M-Pesa phone number.'
+      );
+      return;
+    }
 
-      /* -----------------------------------------------
-         VALIDATE M-PESA CODE
-      ----------------------------------------------- */
+    setPaymentSubmitting(true);
 
-      const code =
-        mpesaCode
-          .trim()
-          .toUpperCase();
-
-      if (!code) {
-        setPaymentError(
-          'Please enter your M-Pesa transaction code.'
-        );
-
-        return;
-      }
-
-      if (
-        !isValidMpesaCode(code)
-      ) {
-        setPaymentError(
-          'Please enter a valid M-Pesa transaction code.'
-        );
-
-        return;
-      }
-
-      /* -----------------------------------------------
-         VALIDATE M-PESA PHONE
-      ----------------------------------------------- */
-
-      const phone =
-        normalizeMpesaPhone(
-          mpesaPhone
-        );
-
-      if (!phone) {
-        setPaymentError(
-          'Please enter the M-Pesa phone number used to make the payment.'
-        );
-
-        return;
-      }
-
-      if (
-        !isValidMpesaPhone(phone)
-      ) {
-        setPaymentError(
-          'Please enter a valid Kenyan M-Pesa phone number.'
-        );
-
-        return;
-      }
-
-      /* -----------------------------------------------
-         DISPLAY / LOCK IMMEDIATELY
-      ----------------------------------------------- */
-
-      setMpesaCode(code);
-      setMpesaPhone(phone);
-
-      setSubmittedMpesaCode(code);
-      setSubmittedMpesaPhone(phone);
-
-      setPaymentPhoneNumber(phone);
-
-      setPaymentStatus(
-        'awaiting_approval'
+    try {
+      const response = await fetch(
+        `/api/applications/${encodeURIComponent(
+          applicationNumber
+        )}/payment-verification`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            mpesaCode: code,
+            mpesaPhone: phone,
+            manualMpesaCode: code,
+            manualMpesaPhone: phone,
+            manual_mpesa_code: code,
+            manual_mpesa_phone: phone,
+          }),
+        }
       );
 
-      setPaymentSubmitting(true);
+      const responseText = await response.text();
+
+      let result:
+        | {
+            success?: boolean;
+            message?: string;
+            payment?: PaymentData;
+            manualMpesaCode?: string;
+            manual_mpesa_code?: string;
+            manualMpesaPhone?: string;
+            manual_mpesa_phone?: string;
+          }
+        | null = null;
 
       try {
-        /* =================================================
-           EXISTING PAYMENT VERIFICATION API
-
-           DO NOT CREATE ANOTHER ENDPOINT.
-
-           We are posting both manual payment values.
-        ================================================= */
-
-        const response =
-          await fetch(
-            `/api/applications/${encodeURIComponent(
-              applicationNumber
-            )}/payment-verification`,
-            {
-              method: 'POST',
-
-              headers: {
-                'Content-Type':
-                  'application/json',
-              },
-
-              body: JSON.stringify({
-                /*
-                 * Frontend names
-                 */
-                mpesaCode: code,
-                mpesaPhone: phone,
-
-                /*
-                 * Explicit manual-payment names.
-                 *
-                 * These allow the API to map directly
-                 * to the database fields.
-                 */
-                manualMpesaCode: code,
-                manualMpesaPhone: phone,
-
-                /*
-                 * Snake-case versions are also included
-                 * so the existing API can use either
-                 * naming convention without losing the
-                 * submitted information.
-                 */
-                manual_mpesa_code: code,
-                manual_mpesa_phone: phone,
-              }),
-            }
-          );
-
-        const responseText =
-          await response.text();
-
-        let result:
-          | {
-              success?: boolean;
-              message?: string;
-
-              payment?: PaymentData;
-
-              manualMpesaCode?: string;
-              manual_mpesa_code?: string;
-
-              manualMpesaPhone?: string;
-              manual_mpesa_phone?: string;
-            }
-          | null = null;
-
-        try {
-          result = responseText
-            ? JSON.parse(
-                responseText
-              )
-            : null;
-        } catch {
-          throw new Error(
-            'The payment verification server returned an invalid response.'
-          );
-        }
-
-        /* -----------------------------------------------
-           SERVER REJECTED REQUEST
-        ----------------------------------------------- */
-
-        if (
-          !response.ok ||
-          !result?.success
-        ) {
-          setPaymentStatus(
-            'payment_pending'
-          );
-
-          setSubmittedMpesaCode('');
-          setSubmittedMpesaPhone('');
-
-          throw new Error(
-            result?.message ||
-              'Unable to submit your M-Pesa transaction details.'
-          );
-        }
-
-        /* -----------------------------------------------
-           READ RETURNED PAYMENT
-        ----------------------------------------------- */
-
-        const returnedPayment =
-          result.payment || {};
-
-        const returnedStatus =
-          returnedPayment.status ||
-          returnedPayment.paymentStatus ||
-          'awaiting_approval';
-
-        const normalizedStatus =
-          normalizePaymentStatus(
-            returnedStatus
-          );
-
-        const finalStatus =
-          normalizedStatus ||
-          'awaiting_approval';
-
-        /* -----------------------------------------------
-           RETURNED CODE
-        ----------------------------------------------- */
-
-        const returnedCode =
-          returnedPayment.manualMpesaCode ||
-          returnedPayment.manual_mpesa_code ||
-          returnedPayment.mpesaCode ||
-          returnedPayment.transactionCode ||
-          result.manualMpesaCode ||
-          result.manual_mpesa_code ||
-          code;
-
-        /* -----------------------------------------------
-           RETURNED PHONE
-        ----------------------------------------------- */
-
-        const returnedPhone =
-          returnedPayment.manualMpesaPhone ||
-          returnedPayment.manual_mpesa_phone ||
-          returnedPayment.phoneNumber ||
-          returnedPayment.phone ||
-          result.manualMpesaPhone ||
-          result.manual_mpesa_phone ||
-          phone;
-
-        setMpesaCode(
-          returnedCode
-        );
-
-        setSubmittedMpesaCode(
-          returnedCode
-        );
-
-        setMpesaPhone(
-          returnedPhone
-        );
-
-        setSubmittedMpesaPhone(
-          returnedPhone
-        );
-
-        setPaymentPhoneNumber(
-          returnedPhone
-        );
-
-        /* -----------------------------------------------
-           AMOUNT
-        ----------------------------------------------- */
-
-        if (
-          returnedPayment.amount !==
-            undefined &&
-          returnedPayment.amount !==
-            null
-        ) {
-          setPaymentAmount(
-            Number(
-              returnedPayment.amount
-            )
-          );
-        }
-
-        /* -----------------------------------------------
-           RECEIPT
-        ----------------------------------------------- */
-
-        setMpesaReceipt(
-          returnedPayment.mpesaReceipt ||
-            returnedPayment.receipt ||
-            ''
-        );
-
-        /* -----------------------------------------------
-           TRANSACTION DATE
-        ----------------------------------------------- */
-
-        setPaymentTransactionDate(
-          returnedPayment.transactionDate ||
-            returnedPayment.transaction_date ||
-            ''
-        );
-
-        /* -----------------------------------------------
-           REJECTION
-        ----------------------------------------------- */
-
-        const returnedRejectionReason =
-          returnedPayment.rejectionReason ||
-          returnedPayment.rejection_reason ||
-          '';
-
-        /* -----------------------------------------------
-           AWAITING APPROVAL
-        ----------------------------------------------- */
-
-        if (
-          finalStatus ===
-          'awaiting_approval'
-        ) {
-          applyPaymentState(
-            'awaiting_approval'
-          );
-
-          return;
-        }
-
-        /* -----------------------------------------------
-           APPROVED
-        ----------------------------------------------- */
-
-        if (
-          finalStatus ===
-          'approved'
-        ) {
-          applyPaymentState(
-            'approved'
-          );
-
-          return;
-        }
-
-        /* -----------------------------------------------
-           REJECTED
-        ----------------------------------------------- */
-
-        if (
-          finalStatus ===
-          'rejected'
-        ) {
-          applyPaymentState(
-            'rejected',
-            returnedRejectionReason
-          );
-
-          return;
-        }
-
-        /* -----------------------------------------------
-           FALLBACK
-        ----------------------------------------------- */
-
-        applyPaymentState(
-          'awaiting_approval'
-        );
-      } catch (error) {
-        console.error(
-          'Payment verification submission error:',
-          error
-        );
-
-        setPaymentError(
-          error instanceof Error
-            ? error.message
-            : 'Unable to submit your M-Pesa transaction details.'
-        );
-
-        /*
-         * If the server request failed, the applicant
-         * must be allowed to submit again.
-         */
-        setPaymentStatus(
-          'payment_pending'
-        );
-
-        setPaymentRejected(false);
-        setPaymentApproved(false);
-      } finally {
-        setPaymentSubmitting(
-          false
+        result = responseText
+          ? JSON.parse(responseText)
+          : null;
+      } catch {
+        throw new Error(
+          'The payment verification server returned an invalid response.'
         );
       }
-    };
 
-  /* =========================================================
-     SUCCESS SCREEN
-  ========================================================= */
+      if (!response.ok || !result?.success) {
+        throw new Error(
+          result?.message ||
+            'Unable to submit your M-Pesa transaction details.'
+        );
+      }
+
+      const payment = result.payment || {};
+
+      const returnedStatus =
+        payment.status ||
+        payment.paymentStatus ||
+        'awaiting_approval';
+
+      const normalizedStatus =
+        normalizePaymentStatus(returnedStatus);
+
+      const finalStatus =
+        normalizedStatus || 'awaiting_approval';
+
+      const returnedCode =
+        payment.manualMpesaCode ||
+        payment.manual_mpesa_code ||
+        payment.mpesaCode ||
+        payment.transactionCode ||
+        result.manualMpesaCode ||
+        result.manual_mpesa_code ||
+        code;
+
+      const returnedPhone =
+        payment.manualMpesaPhone ||
+        payment.manual_mpesa_phone ||
+        payment.phoneNumber ||
+        payment.phone ||
+        result.manualMpesaPhone ||
+        result.manual_mpesa_phone ||
+        phone;
+
+      setMpesaCode(returnedCode);
+      setSubmittedMpesaCode(returnedCode);
+
+      setMpesaPhone(returnedPhone);
+      setSubmittedMpesaPhone(returnedPhone);
+
+      setPaymentPhoneNumber(returnedPhone);
+
+      if (
+        payment.amount !== undefined &&
+        payment.amount !== null
+      ) {
+        setPaymentAmount(Number(payment.amount));
+      }
+
+      setMpesaReceipt(
+        payment.mpesaReceipt ||
+          payment.receipt ||
+          ''
+      );
+
+      setPaymentTransactionDate(
+        payment.transactionDate ||
+          payment.transaction_date ||
+          ''
+      );
+
+      const rejectionReason =
+        payment.rejectionReason ||
+        payment.rejection_reason ||
+        '';
+
+      applyPaymentState(
+        finalStatus,
+        rejectionReason
+      );
+    } catch (error) {
+      console.error(
+        'Payment verification submission error:',
+        error
+      );
+
+      setPaymentError(
+        error instanceof Error
+          ? error.message
+          : 'Unable to submit your M-Pesa transaction details.'
+      );
+
+      /*
+       * Do not lock the fields when the server
+       * did not accept the verification request.
+       */
+      setPaymentStatus('payment_pending');
+      setPaymentRejected(false);
+      setPaymentApproved(false);
+    } finally {
+      setPaymentSubmitting(false);
+    }
+  };
+
+  /* =======================================================
+     APPLICATION SAVED / PAYMENT SCREEN
+  ======================================================= */
 
   if (
-    submitted &&
+    applicationSaved &&
     submittedApplication
   ) {
     const applicationFee =
-      Number(
-        submittedApplication.application_fee
-      ) || 1500;
+      Number(submittedApplication.application_fee) ||
+      APPLICATION_FEE;
 
     const displayedPaymentAmount =
-      paymentAmount ??
-      applicationFee;
+      paymentAmount ?? applicationFee;
 
     const displayedPaymentStatus =
       paymentStatus === 'approved'
         ? 'Approved'
-        : paymentStatus ===
-          'rejected'
+        : paymentStatus === 'rejected'
         ? 'Rejected'
-        : paymentStatus ===
-          'awaiting_approval'
+        : paymentStatus === 'awaiting_approval'
         ? 'Awaiting Approval'
         : 'Payment Pending';
+
+    const displayedApplicationStatus =
+      paymentStatus === 'approved'
+        ? 'Fee Approved — Awaiting Admission Review'
+        : paymentStatus === 'rejected'
+        ? 'Payment Rejected'
+        : paymentStatus === 'awaiting_approval'
+        ? 'Awaiting Payment Verification'
+        : 'Awaiting Application Fee';
 
     return (
       <div
         ref={formContainerRef}
         className="rounded-2xl border border-green-200 bg-green-50 p-6 sm:p-8"
       >
-        {/* =================================================
-            SUCCESS HEADER
-        ================================================= */}
+        {/* HEADER */}
 
         <div className="text-center">
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-green-600 text-2xl font-bold text-white shadow-lg">
@@ -1905,24 +1350,23 @@ export function ApplyForm() {
           </div>
 
           <p className="mt-5 text-xs font-bold uppercase tracking-widest text-green-700">
-            Application Received
+            Application Record Saved
           </p>
 
           <h2 className="mt-2 text-2xl font-extrabold text-slate-900 sm:text-3xl">
-            Application Submitted Successfully
+            Your Application Details Have Been Saved
           </h2>
 
           <p className="mx-auto mt-3 max-w-xl text-sm leading-7 text-slate-600">
-            Your application has been successfully
-            submitted to Shifah Medical Training
-            College. Please keep your application
-            number safe.
+            Your application record has been created.
+            To proceed with the admission process,
+            you must first pay the application fee of
+            KSh 1,500 and have your M-Pesa transaction
+            verified by SMTC administration.
           </p>
         </div>
 
-        {/* =================================================
-            APPLICATION NUMBER
-        ================================================= */}
+        {/* APPLICATION NUMBER */}
 
         <div className="mx-auto mt-7 max-w-lg rounded-2xl border-2 border-green-300 bg-white p-6 text-center shadow-sm">
           <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
@@ -1930,20 +1374,16 @@ export function ApplyForm() {
           </p>
 
           <p className="mt-2 break-all text-2xl font-extrabold tracking-wide text-green-700 sm:text-3xl">
-            {
-              submittedApplication.application_number
-            }
+            {submittedApplication.application_number}
           </p>
 
           <p className="mt-3 text-xs text-slate-500">
-            Save this number. You will need it
+            Keep this number safe. You will need it
             when communicating with SMTC.
           </p>
         </div>
 
-        {/* =================================================
-            APPLICATION DETAILS
-        ================================================= */}
+        {/* APPLICATION DETAILS */}
 
         <div className="mx-auto mt-6 max-w-lg overflow-hidden rounded-2xl border border-slate-200 bg-white">
           <div className="border-b border-slate-100 bg-slate-50 px-5 py-4">
@@ -1955,79 +1395,53 @@ export function ApplyForm() {
           <div className="grid gap-5 p-5 sm:grid-cols-2">
             <ConfirmationItem
               label="Application Number"
-              value={
-                submittedApplication.application_number
-              }
+              value={submittedApplication.application_number}
             />
 
             <ConfirmationItem
               label="Course"
-              value={
-                submittedApplication.course
-              }
+              value={submittedApplication.course}
             />
 
             <ConfirmationItem
               label="Intake"
-              value={
-                submittedApplication.intake
-              }
+              value={submittedApplication.intake}
             />
 
             <ConfirmationItem
               label="Application Fee"
-              value="KSh. 1500"
+              value={`KSh ${applicationFee.toLocaleString()}`}
             />
 
             <ConfirmationItem
               label="Payment Status"
-              value={
-                displayedPaymentStatus
-              }
+              value={displayedPaymentStatus}
               status
             />
 
             <ConfirmationItem
-              label="Application Status"
-              value={
-                paymentStatus ===
-                'approved'
-                  ? submittedApplication.application_status
-                  : paymentStatus ===
-                    'rejected'
-                  ? 'Payment Rejected'
-                  : paymentStatus ===
-                    'awaiting_approval'
-                  ? 'Payment Awaiting Approval'
-                  : 'Payment Pending'
-              }
+              label="Application Progress"
+              value={displayedApplicationStatus}
               status
             />
           </div>
         </div>
 
-        {/* =================================================
-            PAYMENT SECTION
-        ================================================= */}
+        {/* PAYMENT SECTION */}
 
         {!paymentApproved && (
           <div className="mx-auto mt-6 max-w-lg">
+            {/* PAYMENT PENDING */}
 
-            {/* =================================================
-                PAYMENT PENDING
-            ================================================= */}
-
-            {paymentStatus ===
-              'payment_pending' && (
+            {paymentStatus === 'payment_pending' && (
               <div className="rounded-2xl border border-green-200 bg-white p-6 shadow-sm">
-
                 <div className="text-center">
                   <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-green-600 text-xs font-extrabold text-white">
                     KSh
                   </div>
 
                   <p className="mt-4 text-xs font-bold uppercase tracking-widest text-green-700">
-                    Step 1
+                    Required Step
                   </p>
 
                   <h3 className="mt-1 text-2xl font-extrabold text-slate-900">
@@ -2035,17 +1449,17 @@ export function ApplyForm() {
                   </h3>
 
                   <p className="mt-1 text-3xl font-extrabold text-green-700">
-                    KSh. 1500
+                    KSh {applicationFee.toLocaleString()}
                   </p>
 
                   <p className="mt-3 text-sm leading-6 text-slate-600">
-                    Complete the application fee
-                    payment using the official
-                    M-Pesa PayBill details below.
+                    Complete the application fee payment
+                    using the official M-Pesa PayBill
+                    details below.
                   </p>
                 </div>
 
-                {/* PAYMENT DETAILS */}
+                {/* M-PESA DETAILS */}
 
                 <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-5">
                   <p className="text-xs font-bold uppercase tracking-widest text-green-700">
@@ -2053,54 +1467,34 @@ export function ApplyForm() {
                   </p>
 
                   <div className="mt-4 space-y-3">
-                    <div className="flex items-center justify-between gap-4 rounded-xl bg-white p-4">
-                      <span className="text-sm text-slate-500">
-                        PayBill Number
-                      </span>
+                    <PaymentDetail
+                      label="PayBill Number"
+                      value={MPESA_PAYBILL}
+                    />
 
-                      <span className="text-xl font-extrabold tracking-wide text-slate-900">
-                        {MPESA_PAYBILL}
-                      </span>
-                    </div>
+                    <PaymentDetail
+                      label="Account Number"
+                      value={MPESA_ACCOUNT}
+                    />
 
-                    <div className="flex items-center justify-between gap-4 rounded-xl bg-white p-4">
-                      <span className="text-sm text-slate-500">
-                        Account Number
-                      </span>
-
-                      <span className="break-all text-right text-lg font-extrabold tracking-wide text-green-700">
-                        {MPESA_ACCOUNT}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center justify-between gap-4 rounded-xl bg-white p-4">
-                      <span className="text-sm text-slate-500">
-                        Amount
-                      </span>
-
-                      <span className="text-lg font-extrabold text-slate-900">
-                        KSh.1500
-                        
-                      </span>
-                    </div>
+                    <PaymentDetail
+                      label="Amount"
+                      value={`KSh ${applicationFee.toLocaleString()}`}
+                    />
                   </div>
                 </div>
 
-                {/* PAYMENT MESSAGE */}
-
                 <div className="mt-5 rounded-xl border border-yellow-200 bg-yellow-50 p-4">
                   <p className="text-sm font-semibold leading-6 text-yellow-800">
-                    Complete the M-Pesa payment first.
-                    After receiving your M-Pesa
-                    confirmation message, enter the
-                    phone number used for payment and
-                    the transaction code below.
+                    Make the payment first. After
+                    receiving your M-Pesa confirmation
+                    message, enter the phone number
+                    used for payment and the transaction
+                    code below.
                   </p>
                 </div>
 
-                {/* =================================================
-                    M-PESA PHONE
-                ================================================= */}
+                {/* PHONE */}
 
                 <div className="mt-6">
                   <label
@@ -2108,9 +1502,7 @@ export function ApplyForm() {
                     className="text-sm font-bold text-slate-900"
                   >
                     M-Pesa Phone Number
-                    <span className="ml-1 text-red-500">
-                      *
-                    </span>
+                    <span className="ml-1 text-red-500">*</span>
                   </label>
 
                   <input
@@ -2118,36 +1510,24 @@ export function ApplyForm() {
                     type="tel"
                     autoComplete="tel"
                     value={mpesaPhone}
-                    disabled={
-                      paymentFieldsLocked
-                    }
+                    disabled={paymentFieldsLocked}
                     onChange={(event) => {
-                      setMpesaPhone(
-                        event.target.value
-                      );
-
+                      setMpesaPhone(event.target.value);
                       setPaymentError('');
                       setPaymentMessage('');
                     }}
                     placeholder="e.g. 0712345678"
                     maxLength={13}
-                    className={`${inputClass} ${
-                      paymentError
-                        ? 'border-red-300 focus:border-red-500 focus:ring-red-500/10'
-                        : ''
-                    }`}
+                    className={inputClass}
                   />
 
                   <p className="mt-2 text-xs leading-5 text-slate-500">
-                    Enter the M-Pesa phone number
-                    that was used to make the
-                    application fee payment.
+                    Enter the M-Pesa phone number used
+                    to make the application fee payment.
                   </p>
                 </div>
 
-                {/* =================================================
-                    TRANSACTION CODE
-                ================================================= */}
+                {/* TRANSACTION CODE */}
 
                 <div className="mt-5">
                   <label
@@ -2155,9 +1535,7 @@ export function ApplyForm() {
                     className="text-sm font-bold text-slate-900"
                   >
                     M-Pesa Transaction Code
-                    <span className="ml-1 text-red-500">
-                      *
-                    </span>
+                    <span className="ml-1 text-red-500">*</span>
                   </label>
 
                   <input
@@ -2165,17 +1543,12 @@ export function ApplyForm() {
                     type="text"
                     autoComplete="off"
                     value={mpesaCode}
-                    disabled={
-                      paymentFieldsLocked
-                    }
+                    disabled={paymentFieldsLocked}
                     onChange={(event) => {
                       setMpesaCode(
                         event.target.value
                           .toUpperCase()
-                          .replace(
-                            /\s/g,
-                            ''
-                          )
+                          .replace(/\s/g, '')
                       );
 
                       setPaymentError('');
@@ -2183,66 +1556,43 @@ export function ApplyForm() {
                     }}
                     placeholder="e.g. UH5021U1A2"
                     maxLength={15}
-                    className={`${inputClass} ${
-                      paymentError
-                        ? 'border-red-300 focus:border-red-500 focus:ring-red-500/10'
-                        : ''
-                    }`}
+                    className={inputClass}
                   />
 
                   <p className="mt-2 text-xs leading-5 text-slate-500">
                     Enter the transaction code exactly
-                    as shown in your M-Pesa
-                    confirmation message.
+                    as shown in your M-Pesa confirmation
+                    message.
                   </p>
                 </div>
 
                 {paymentError && (
-                  <div
-                    className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4"
-                    role="alert"
-                  >
-                    <p className="text-sm font-semibold text-red-700">
-                      {paymentError}
-                    </p>
-                  </div>
+                  <Alert type="error">
+                    {paymentError}
+                  </Alert>
                 )}
 
                 <button
                   type="button"
-                  onClick={
-                    handlePaymentVerification
-                  }
+                  onClick={handlePaymentVerification}
                   disabled={
                     paymentSubmitting ||
                     !mpesaCode.trim() ||
                     !mpesaPhone.trim()
                   }
-                  className={`${buttonBase} mt-5 w-full bg-green-600 text-white shadow-sm hover:bg-green-700 hover:shadow-lg`}
+                  className={`${buttonBase} mt-5 w-full bg-green-600 text-white shadow-sm hover:bg-green-700`}
                 >
-                  {paymentSubmitting ? (
-                    <>
-                      <span className="mr-2">
-                        Submitting for Verification...
-                      </span>
-
-                      <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                    </>
-                  ) : (
-                    'Submit for Verification'
-                  )}
+                  {paymentSubmitting
+                    ? 'Submitting for Verification...'
+                    : 'Submit M-Pesa Details for Verification'}
                 </button>
               </div>
             )}
 
-            {/* =================================================
-                AWAITING APPROVAL
-            ================================================= */}
+            {/* AWAITING APPROVAL */}
 
-            {paymentStatus ===
-              'awaiting_approval' && (
+            {paymentStatus === 'awaiting_approval' && (
               <div className="rounded-2xl border border-yellow-300 bg-yellow-50 p-6">
-
                 <div className="text-center">
                   <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-yellow-500 text-lg font-bold text-white">
                     ...
@@ -2253,53 +1603,47 @@ export function ApplyForm() {
                   </p>
 
                   <h3 className="mt-1 text-xl font-extrabold text-slate-900">
-                    Payment Verification in Progress
+                    Verification in Progress
                   </h3>
 
                   <p className="mt-2 text-sm leading-6 text-yellow-800">
-                    Your M-Pesa transaction details
-                    have been submitted successfully.
+                    Your M-Pesa transaction details have
+                    been received successfully.
                   </p>
 
                   <p className="mt-3 text-sm leading-6 text-slate-600">
                     SMTC administration will verify
-                    your payment. You do not need to
-                    submit the payment again.
+                    your payment. Please do not submit
+                    the same transaction again.
                   </p>
                 </div>
-
-                {/* LOCKED PHONE */}
 
                 <div className="mt-5 rounded-xl border border-yellow-200 bg-white p-4">
                   <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
                     M-Pesa Phone Number
                   </p>
 
-                  <p className="mt-2 text-lg font-extrabold tracking-wide text-slate-900">
-                    {submittedMpesaPhone ||
-                      mpesaPhone}
+                  <p className="mt-2 text-lg font-extrabold text-slate-900">
+                    {submittedMpesaPhone || mpesaPhone}
                   </p>
 
-                  <div className="mt-3 inline-flex rounded-full bg-yellow-100 px-3 py-1 text-xs font-bold text-yellow-800">
-                    🔒 Locked — Awaiting Approval
-                  </div>
+                  <span className="mt-3 inline-flex rounded-full bg-yellow-100 px-3 py-1 text-xs font-bold text-yellow-800">
+                    Locked — Awaiting Approval
+                  </span>
                 </div>
-
-                {/* LOCKED CODE */}
 
                 <div className="mt-4 rounded-xl border border-yellow-200 bg-white p-4">
                   <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
                     Submitted Transaction Code
                   </p>
 
-                  <p className="mt-2 break-all text-lg font-extrabold tracking-wide text-green-700">
-                    {submittedMpesaCode ||
-                      mpesaCode}
+                  <p className="mt-2 break-all text-lg font-extrabold text-green-700">
+                    {submittedMpesaCode || mpesaCode}
                   </p>
 
-                  <div className="mt-3 inline-flex rounded-full bg-yellow-100 px-3 py-1 text-xs font-bold text-yellow-800">
-                    🔒 Locked — Awaiting Approval
-                  </div>
+                  <span className="mt-3 inline-flex rounded-full bg-yellow-100 px-3 py-1 text-xs font-bold text-yellow-800">
+                    Locked — Awaiting Approval
+                  </span>
                 </div>
 
                 {paymentMessage && (
@@ -2326,14 +1670,10 @@ export function ApplyForm() {
               </div>
             )}
 
-            {/* =================================================
-                REJECTED
-            ================================================= */}
+            {/* REJECTED */}
 
-            {paymentStatus ===
-              'rejected' && (
+            {paymentStatus === 'rejected' && (
               <div className="rounded-2xl border border-red-300 bg-red-50 p-6">
-
                 <div className="text-center">
                   <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-red-600 text-xl font-bold text-white">
                     !
@@ -2354,8 +1694,6 @@ export function ApplyForm() {
                   </p>
                 </div>
 
-                {/* REJECTION REASON */}
-
                 {paymentRejectionReason && (
                   <div className="mt-5 rounded-xl border border-red-200 bg-white p-4">
                     <p className="text-xs font-bold uppercase tracking-widest text-red-500">
@@ -2367,8 +1705,6 @@ export function ApplyForm() {
                     </p>
                   </div>
                 )}
-
-                {/* UNLOCKED PHONE */}
 
                 <div className="mt-6">
                   <label
@@ -2383,16 +1719,10 @@ export function ApplyForm() {
                     type="tel"
                     autoComplete="tel"
                     value={mpesaPhone}
-                    disabled={
-                      paymentSubmitting
-                    }
+                    disabled={paymentSubmitting}
                     onChange={(event) => {
-                      setMpesaPhone(
-                        event.target.value
-                      );
-
+                      setMpesaPhone(event.target.value);
                       setPaymentError('');
-                      setPaymentMessage('');
                     }}
                     placeholder="e.g. 0712345678"
                     maxLength={13}
@@ -2400,15 +1730,12 @@ export function ApplyForm() {
                   />
                 </div>
 
-                {/* UNLOCKED CODE */}
-
                 <div className="mt-5">
                   <label
                     htmlFor="corrected-mpesa-code"
                     className="text-sm font-bold text-slate-900"
                   >
-                    Enter Correct M-Pesa Transaction
-                    Code
+                    Correct M-Pesa Transaction Code
                   </label>
 
                   <input
@@ -2416,55 +1743,35 @@ export function ApplyForm() {
                     type="text"
                     autoComplete="off"
                     value={mpesaCode}
-                    disabled={
-                      paymentSubmitting
-                    }
+                    disabled={paymentSubmitting}
                     onChange={(event) => {
                       setMpesaCode(
                         event.target.value
                           .toUpperCase()
-                          .replace(
-                            /\s/g,
-                            ''
-                          )
+                          .replace(/\s/g, '')
                       );
 
                       setPaymentError('');
-                      setPaymentMessage('');
                     }}
                     placeholder="Enter corrected transaction code"
                     maxLength={15}
                     className={inputClass}
                   />
 
-                  <div className="mt-3 inline-flex rounded-full bg-green-100 px-3 py-1 text-xs font-bold text-green-700">
-                    ✓ Transaction details unlocked
-                  </div>
-
-                  <p className="mt-2 text-xs leading-5 text-slate-500">
-                    Enter the correct M-Pesa phone
-                    number and transaction code and
-                    submit them again. The details will
-                    be locked while awaiting approval.
-                  </p>
+                  <span className="mt-3 inline-flex rounded-full bg-green-100 px-3 py-1 text-xs font-bold text-green-700">
+                    Transaction details unlocked
+                  </span>
                 </div>
 
                 {paymentError && (
-                  <div
-                    className="mt-4 rounded-xl border border-red-200 bg-white p-4"
-                    role="alert"
-                  >
-                    <p className="text-sm font-semibold text-red-700">
-                      {paymentError}
-                    </p>
-                  </div>
+                  <Alert type="error">
+                    {paymentError}
+                  </Alert>
                 )}
 
                 <button
                   type="button"
-                  onClick={
-                    handlePaymentVerification
-                  }
+                  onClick={handlePaymentVerification}
                   disabled={
                     paymentSubmitting ||
                     !mpesaCode.trim() ||
@@ -2472,30 +1779,19 @@ export function ApplyForm() {
                   }
                   className={`${buttonBase} mt-5 w-full bg-green-600 text-white shadow-sm hover:bg-green-700`}
                 >
-                  {paymentSubmitting ? (
-                    <>
-                      <span className="mr-2">
-                        Submitting for Verification...
-                      </span>
-
-                      <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                    </>
-                  ) : (
-                    'Submit Corrected Details'
-                  )}
+                  {paymentSubmitting
+                    ? 'Submitting for Verification...'
+                    : 'Submit Corrected Details'}
                 </button>
               </div>
             )}
           </div>
         )}
 
-        {/* =================================================
-            APPROVED
-        ================================================= */}
+        {/* PAYMENT APPROVED */}
 
         {paymentApproved && (
           <div className="mx-auto mt-6 max-w-lg rounded-2xl border border-green-300 bg-white p-6 shadow-sm">
-
             <div className="text-center">
               <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-green-600 text-2xl font-bold text-white shadow-lg">
                 ✓
@@ -2515,105 +1811,71 @@ export function ApplyForm() {
               </p>
             </div>
 
-            {/* PAYMENT DETAILS */}
-
             <div className="mt-6 space-y-4 rounded-xl bg-slate-50 p-5">
+              <PaymentDetail
+                label="Amount Paid"
+                value={`KSh ${displayedPaymentAmount.toLocaleString()}`}
+              />
 
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-sm text-slate-500">
-                  Amount Paid
-                </span>
+              <PaymentDetail
+                label="M-Pesa Transaction Code"
+                value={
+                  submittedMpesaCode ||
+                  mpesaCode ||
+                  'Verified'
+                }
+              />
 
-                <span className="font-extrabold text-slate-900">
-                  KSh{' '}
-                  {displayedPaymentAmount.toLocaleString()}
-                </span>
-              </div>
+              <PaymentDetail
+                label="M-Pesa Phone"
+                value={
+                  submittedMpesaPhone ||
+                  paymentPhoneNumber ||
+                  'Verified'
+                }
+              />
 
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-sm text-slate-500">
-                  M-Pesa Transaction Code
-                </span>
-
-                <span className="break-all text-right font-extrabold text-green-700">
-                  {submittedMpesaCode ||
-                    mpesaCode ||
-                    'Verified'}
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-sm text-slate-500">
-                  M-Pesa Phone
-                </span>
-
-                <span className="font-semibold text-slate-900">
-                  {submittedMpesaPhone ||
-                    paymentPhoneNumber ||
-                    'Verified'}
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-sm text-slate-500">
-                  Payment Status
-                </span>
-
-                <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-bold text-green-700">
-                  Approved
-                </span>
-              </div>
+              <PaymentDetail
+                label="Payment Status"
+                value="Approved"
+              />
 
               {paymentTransactionDate && (
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-sm text-slate-500">
-                    Transaction Date
-                  </span>
-
-                  <span className="font-semibold text-slate-900">
-                    {paymentTransactionDate}
-                  </span>
-                </div>
+                <PaymentDetail
+                  label="Transaction Date"
+                  value={paymentTransactionDate}
+                />
               )}
 
               {mpesaReceipt &&
-                mpesaReceipt !==
-                  submittedMpesaCode && (
-                  <div className="flex items-center justify-between gap-4">
-                    <span className="text-sm text-slate-500">
-                      M-Pesa Receipt
-                    </span>
-
-                    <span className="break-all text-right font-semibold text-slate-900">
-                      {mpesaReceipt}
-                    </span>
-                  </div>
+                mpesaReceipt !== submittedMpesaCode && (
+                  <PaymentDetail
+                    label="M-Pesa Receipt"
+                    value={mpesaReceipt}
+                  />
                 )}
             </div>
 
-            {/* COMPLETE */}
-
             <div className="mt-5 rounded-xl border border-green-200 bg-green-50 p-4">
               <p className="text-sm font-bold text-green-800">
-                Application Process Complete ✓
+                Application Fee Successfully Approved
               </p>
 
               <p className="mt-1 text-xs leading-5 text-green-700">
                 Your application fee has been approved.
-                Your official receipt is now available
-                for download.
+                Your application can now proceed to the
+                admission review stage according to
+                SMTC's application processing workflow.
               </p>
             </div>
-
-            {/* RECEIPT */}
 
             <a
               href={`/api/applications/${encodeURIComponent(
                 submittedApplication.application_number
               )}/receipt`}
-              className={`${buttonBase} mt-5 w-full bg-green-600 text-white shadow-sm hover:bg-green-700 hover:shadow-lg`}
+              className={`${buttonBase} mt-5 w-full bg-green-600 text-white shadow-sm hover:bg-green-700`}
             >
-              ↓ Download Official Receipt
+              Download Official Receipt
             </a>
 
             <p className="mt-3 text-center text-xs leading-5 text-slate-500">
@@ -2623,41 +1885,27 @@ export function ApplyForm() {
           </div>
         )}
 
-        {/* REVIEW */}
+        {/* APPLICATION NUMBER REMINDER */}
 
-        <div className="mt-6 text-center">
-          <button
-            type="button"
-            onClick={() => {
-              setSubmitted(false);
-              setStep(7);
-              setSubmitError('');
-            }}
-            className={`${buttonBase} border border-slate-200 bg-white text-slate-700 hover:border-green-600 hover:text-green-600`}
-          >
-            ← Review Application
-          </button>
+        <div className="mt-6 rounded-xl border border-slate-200 bg-white p-4 text-center">
+          <p className="text-xs leading-6 text-slate-500">
+            Keep your application number for future
+            communication with Shifah Medical Training
+            College.
+          </p>
         </div>
       </div>
     );
   }
 
-  /* =========================================================
+  /* =======================================================
      APPLICATION FORM
-  ========================================================= */
+  ======================================================= */
 
   return (
-    <div
-      ref={formContainerRef}
-      className="w-full"
-    >
-      <form
-        onSubmit={handleFinalSubmit}
-      >
-
-        {/* =================================================
-            PROGRESS
-        ================================================= */}
+    <div ref={formContainerRef} className="w-full">
+      <form onSubmit={handleFinalSubmit}>
+        {/* PROGRESS */}
 
         <div className="mb-10">
           <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -2683,60 +1931,44 @@ export function ApplyForm() {
             <div
               className="h-full rounded-full bg-green-600 transition-all duration-300"
               style={{
-                width: `${
-                  (step / steps.length) *
-                  100
-                }%`,
+                width: `${(step / steps.length) * 100}%`,
               }}
             />
           </div>
 
           <div className="mt-5 hidden gap-2 md:flex">
-            {steps.map(
-              (item, index) => {
-                const number =
-                  index + 1;
+            {steps.map((item, index) => {
+              const number = index + 1;
+              const active = number === step;
+              const completed = number < step;
 
-                const active =
-                  number === step;
-
-                const completed =
-                  number < step;
-
-                return (
-                  <div
-                    key={item}
-                    className={`flex-1 text-center text-[11px] font-bold ${
-                      active ||
-                      completed
-                        ? 'text-green-600'
-                        : 'text-slate-400'
+              return (
+                <div
+                  key={item}
+                  className={`flex-1 text-center text-[11px] font-bold ${
+                    active || completed
+                      ? 'text-green-600'
+                      : 'text-slate-400'
+                  }`}
+                >
+                  <span
+                    className={`mx-auto mb-1 flex h-7 w-7 items-center justify-center rounded-full text-xs ${
+                      active || completed
+                        ? 'bg-green-600 text-white'
+                        : 'bg-slate-100 text-slate-400'
                     }`}
                   >
-                    <span
-                      className={`mx-auto mb-1 flex h-7 w-7 items-center justify-center rounded-full text-xs ${
-                        active ||
-                        completed
-                          ? 'bg-green-600 text-white'
-                          : 'bg-slate-100 text-slate-400'
-                      }`}
-                    >
-                      {completed
-                        ? '✓'
-                        : number}
-                    </span>
+                    {completed ? '✓' : number}
+                  </span>
 
-                    {item}
-                  </div>
-                );
-              }
-            )}
+                  {item}
+                </div>
+              );
+            })}
           </div>
         </div>
 
-        {/* =================================================
-            STEP 1
-        ================================================= */}
+        {/* STEP 1: PERSONAL */}
 
         {step === 1 && (
           <section>
@@ -2746,21 +1978,13 @@ export function ApplyForm() {
             />
 
             <div className="grid gap-5 md:grid-cols-2">
-              <Field
-                label="Surname"
-                required
-                error={errors.surname}
-              >
+              <Field label="Surname" required error={errors.surname}>
                 <input
-                  type="text"
                   className={inputClass}
                   value={data.surname}
                   autoComplete="family-name"
-                  onChange={(event) =>
-                    updateField(
-                      'surname',
-                      event.target.value
-                    )
+                  onChange={(e) =>
+                    updateField('surname', e.target.value)
                   }
                   placeholder="Enter surname"
                 />
@@ -2768,35 +1992,23 @@ export function ApplyForm() {
 
               <Field label="Middle Name">
                 <input
-                  type="text"
                   className={inputClass}
                   value={data.middleName}
                   autoComplete="additional-name"
-                  onChange={(event) =>
-                    updateField(
-                      'middleName',
-                      event.target.value
-                    )
+                  onChange={(e) =>
+                    updateField('middleName', e.target.value)
                   }
                   placeholder="Enter middle name"
                 />
               </Field>
 
-              <Field
-                label="First Name"
-                required
-                error={errors.firstName}
-              >
+              <Field label="First Name" required error={errors.firstName}>
                 <input
-                  type="text"
                   className={inputClass}
                   value={data.firstName}
                   autoComplete="given-name"
-                  onChange={(event) =>
-                    updateField(
-                      'firstName',
-                      event.target.value
-                    )
+                  onChange={(e) =>
+                    updateField('firstName', e.target.value)
                   }
                   placeholder="Enter first name"
                 />
@@ -2811,68 +2023,43 @@ export function ApplyForm() {
                   type="date"
                   className={inputClass}
                   value={data.dateOfBirth}
-                  onChange={(event) =>
-                    updateField(
-                      'dateOfBirth',
-                      event.target.value
-                    )
+                  max={new Date().toISOString().split('T')[0]}
+                  onChange={(e) =>
+                    updateField('dateOfBirth', e.target.value)
                   }
                 />
               </Field>
 
-              <Field
-                label="Gender"
-                required
-                error={errors.gender}
-              >
+              <Field label="Gender" required error={errors.gender}>
                 <select
                   className={inputClass}
                   value={data.gender}
-                  onChange={(event) =>
-                    updateField(
-                      'gender',
-                      event.target.value
-                    )
+                  onChange={(e) =>
+                    updateField('gender', e.target.value)
                   }
                 >
-                  <option value="">
-                    Select gender
-                  </option>
-
-                  <option value="Male">
-                    Male
-                  </option>
-
-                  <option value="Female">
-                    Female
-                  </option>
+                  <option value="">Select gender</option>
+                  <option value="Male">Male</option>
+                  <option value="Female">Female</option>
                 </select>
               </Field>
 
               <Field label="Nationality">
                 <input
-                  type="text"
                   className={inputClass}
                   value={data.nationality}
-                  onChange={(event) =>
-                    updateField(
-                      'nationality',
-                      event.target.value
-                    )
+                  onChange={(e) =>
+                    updateField('nationality', e.target.value)
                   }
                 />
               </Field>
 
               <Field label="Country">
                 <input
-                  type="text"
                   className={inputClass}
                   value={data.country}
-                  onChange={(event) =>
-                    updateField(
-                      'country',
-                      event.target.value
-                    )
+                  onChange={(e) =>
+                    updateField('country', e.target.value)
                   }
                 />
               </Field>
@@ -2880,21 +2067,13 @@ export function ApplyForm() {
               <Field
                 label="ID / Passport Number"
                 required
-                error={
-                  errors.idPassportNumber
-                }
+                error={errors.idPassportNumber}
               >
                 <input
-                  type="text"
                   className={inputClass}
-                  value={
-                    data.idPassportNumber
-                  }
-                  onChange={(event) =>
-                    updateField(
-                      'idPassportNumber',
-                      event.target.value
-                    )
+                  value={data.idPassportNumber}
+                  onChange={(e) =>
+                    updateField('idPassportNumber', e.target.value)
                   }
                   placeholder="Enter ID or passport number"
                 />
@@ -2903,44 +2082,23 @@ export function ApplyForm() {
               <Field label="Marital Status">
                 <select
                   className={inputClass}
-                  value={
-                    data.maritalStatus
-                  }
-                  onChange={(event) =>
-                    updateField(
-                      'maritalStatus',
-                      event.target.value
-                    )
+                  value={data.maritalStatus}
+                  onChange={(e) =>
+                    updateField('maritalStatus', e.target.value)
                   }
                 >
-                  <option value="">
-                    Select marital status
-                  </option>
-
-                  <option value="Single">
-                    Single
-                  </option>
-
-                  <option value="Married">
-                    Married
-                  </option>
-
-                  <option value="Divorced">
-                    Divorced
-                  </option>
-
-                  <option value="Widowed">
-                    Widowed
-                  </option>
+                  <option value="">Select marital status</option>
+                  <option value="Single">Single</option>
+                  <option value="Married">Married</option>
+                  <option value="Divorced">Divorced</option>
+                  <option value="Widowed">Widowed</option>
                 </select>
               </Field>
             </div>
           </section>
         )}
 
-        {/* =================================================
-            STEP 2
-        ================================================= */}
+        {/* STEP 2: CONTACT */}
 
         {step === 2 && (
           <section>
@@ -2952,14 +2110,10 @@ export function ApplyForm() {
             <div className="grid gap-5 md:grid-cols-2">
               <Field label="Postal Address">
                 <input
-                  type="text"
                   className={inputClass}
                   value={data.postalAddress}
-                  onChange={(event) =>
-                    updateField(
-                      'postalAddress',
-                      event.target.value
-                    )
+                  onChange={(e) =>
+                    updateField('postalAddress', e.target.value)
                   }
                   placeholder="P.O. Box / Postal Address"
                 />
@@ -2967,14 +2121,10 @@ export function ApplyForm() {
 
               <Field label="Postal Code">
                 <input
-                  type="text"
                   className={inputClass}
                   value={data.postalCode}
-                  onChange={(event) =>
-                    updateField(
-                      'postalCode',
-                      event.target.value
-                    )
+                  onChange={(e) =>
+                    updateField('postalCode', e.target.value)
                   }
                   placeholder="e.g. 30200"
                 />
@@ -2982,73 +2132,47 @@ export function ApplyForm() {
 
               <Field label="Town">
                 <input
-                  type="text"
                   className={inputClass}
                   value={data.town}
-                  onChange={(event) =>
-                    updateField(
-                      'town',
-                      event.target.value
-                    )
+                  onChange={(e) =>
+                    updateField('town', e.target.value)
                   }
                   placeholder="Enter town"
                 />
               </Field>
 
-              <Field
-                label="County"
-                required
-                error={errors.county}
-              >
+              <Field label="County" required error={errors.county}>
                 <input
-                  type="text"
                   className={inputClass}
                   value={data.county}
-                  onChange={(event) =>
-                    updateField(
-                      'county',
-                      event.target.value
-                    )
+                  onChange={(e) =>
+                    updateField('county', e.target.value)
                   }
                   placeholder="Enter county"
                 />
               </Field>
 
-              <Field
-                label="Mobile Number"
-                required
-                error={errors.mobile}
-              >
+              <Field label="Mobile Number" required error={errors.mobile}>
                 <input
                   type="tel"
                   className={inputClass}
                   value={data.mobile}
                   autoComplete="tel"
-                  onChange={(event) =>
-                    updateField(
-                      'mobile',
-                      event.target.value
-                    )
+                  onChange={(e) =>
+                    updateField('mobile', e.target.value)
                   }
                   placeholder="e.g. 0712345678"
                 />
               </Field>
 
-              <Field
-                label="Email Address"
-                required
-                error={errors.email}
-              >
+              <Field label="Email Address" required error={errors.email}>
                 <input
                   type="email"
                   className={inputClass}
                   value={data.email}
                   autoComplete="email"
-                  onChange={(event) =>
-                    updateField(
-                      'email',
-                      event.target.value
-                    )
+                  onChange={(e) =>
+                    updateField('email', e.target.value)
                   }
                   placeholder="example@email.com"
                 />
@@ -3057,9 +2181,7 @@ export function ApplyForm() {
           </section>
         )}
 
-        {/* =================================================
-            STEP 3
-        ================================================= */}
+        {/* STEP 3: ACADEMIC */}
 
         {step === 3 && (
           <section>
@@ -3075,37 +2197,24 @@ export function ApplyForm() {
                 error={errors.kcseIndex}
               >
                 <input
-                  type="text"
                   className={inputClass}
                   value={data.kcseIndex}
-                  onChange={(event) =>
-                    updateField(
-                      'kcseIndex',
-                      event.target.value
-                    )
+                  onChange={(e) =>
+                    updateField('kcseIndex', e.target.value)
                   }
                   placeholder="Enter KCSE index number"
                 />
               </Field>
 
-              <Field
-                label="KCSE Year"
-                required
-                error={errors.kcseYear}
-              >
+              <Field label="KCSE Year" required error={errors.kcseYear}>
                 <input
                   type="number"
                   min="1990"
-                  max={
-                    new Date().getFullYear()
-                  }
+                  max={new Date().getFullYear()}
                   className={inputClass}
                   value={data.kcseYear}
-                  onChange={(event) =>
-                    updateField(
-                      'kcseYear',
-                      event.target.value
-                    )
+                  onChange={(e) =>
+                    updateField('kcseYear', e.target.value)
                   }
                   placeholder="e.g. 2025"
                 />
@@ -3118,122 +2227,76 @@ export function ApplyForm() {
               >
                 <select
                   className={inputClass}
-                  value={
-                    data.kcseMeanGrade
-                  }
-                  onChange={(event) =>
-                    updateField(
-                      'kcseMeanGrade',
-                      event.target.value
-                    )
+                  value={data.kcseMeanGrade}
+                  onChange={(e) =>
+                    updateField('kcseMeanGrade', e.target.value)
                   }
                 >
-                  <option value="">
-                    Select mean grade
-                  </option>
-
-                  {kcseGrades.map(
-                    (grade) => (
-                      <option
-                        key={grade}
-                        value={grade}
-                      >
-                        {grade}
-                      </option>
-                    )
-                  )}
+                  <option value="">Select mean grade</option>
+                  {kcseGrades.map((grade) => (
+                    <option key={grade} value={grade}>
+                      {grade}
+                    </option>
+                  ))}
                 </select>
               </Field>
 
               <GradeField
                 label="English Grade"
-                value={
-                  data.englishGrade
-                }
+                value={data.englishGrade}
                 onChange={(value) =>
-                  updateField(
-                    'englishGrade',
-                    value
-                  )
+                  updateField('englishGrade', value)
                 }
               />
 
               <GradeField
                 label="Kiswahili Grade"
-                value={
-                  data.kiswahiliGrade
-                }
+                value={data.kiswahiliGrade}
                 onChange={(value) =>
-                  updateField(
-                    'kiswahiliGrade',
-                    value
-                  )
+                  updateField('kiswahiliGrade', value)
                 }
               />
 
               <GradeField
                 label="Biology Grade"
-                value={
-                  data.biologyGrade
-                }
+                value={data.biologyGrade}
                 onChange={(value) =>
-                  updateField(
-                    'biologyGrade',
-                    value
-                  )
+                  updateField('biologyGrade', value)
                 }
               />
 
               <GradeField
                 label="Chemistry Grade"
-                value={
-                  data.chemistryGrade
-                }
+                value={data.chemistryGrade}
                 onChange={(value) =>
-                  updateField(
-                    'chemistryGrade',
-                    value
-                  )
+                  updateField('chemistryGrade', value)
                 }
               />
 
               <GradeField
                 label="Physics Grade"
-                value={
-                  data.physicsGrade
-                }
+                value={data.physicsGrade}
                 onChange={(value) =>
-                  updateField(
-                    'physicsGrade',
-                    value
-                  )
+                  updateField('physicsGrade', value)
                 }
               />
 
               <GradeField
                 label="Mathematics Grade"
-                value={
-                  data.mathematicsGrade
-                }
+                value={data.mathematicsGrade}
                 onChange={(value) =>
-                  updateField(
-                    'mathematicsGrade',
-                    value
-                  )
+                  updateField('mathematicsGrade', value)
                 }
               />
 
               <Field label="Previous Institution">
                 <input
-                  type="text"
                   className={inputClass}
-                  value={
-                    data.previousInstitution
-                  }
-                  onChange={(event) =>
+                  value={data.previousInstitution}
+                  onChange={(e) =>
                     updateField(
                       'previousInstitution',
-                      event.target.value
+                      e.target.value
                     )
                   }
                   placeholder="Previous school / college"
@@ -3242,15 +2305,12 @@ export function ApplyForm() {
 
               <Field label="Highest Qualification">
                 <input
-                  type="text"
                   className={inputClass}
-                  value={
-                    data.highestQualification
-                  }
-                  onChange={(event) =>
+                  value={data.highestQualification}
+                  onChange={(e) =>
                     updateField(
                       'highestQualification',
-                      event.target.value
+                      e.target.value
                     )
                   }
                   placeholder="e.g. KCSE"
@@ -3260,9 +2320,7 @@ export function ApplyForm() {
           </section>
         )}
 
-        {/* =================================================
-            STEP 4
-        ================================================= */}
+        {/* STEP 4: COURSE AND SPONSOR */}
 
         {step === 4 && (
           <section>
@@ -3272,67 +2330,37 @@ export function ApplyForm() {
             />
 
             <div className="space-y-6">
-              <Field
-                label="Course Applied For"
-                required
-                error={errors.course}
-              >
+              <Field label="Course Applied For" required error={errors.course}>
                 <select
                   className={inputClass}
                   value={data.course}
-                  onChange={(event) =>
-                    updateField(
-                      'course',
-                      event.target.value
-                    )
+                  onChange={(e) =>
+                    updateField('course', e.target.value)
                   }
                 >
-                  <option value="">
-                    Select course
-                  </option>
-
-                  {courses.map(
-                    (course) => (
-                      <option
-                        key={course}
-                        value={course}
-                      >
-                        {course}
-                      </option>
-                    )
-                  )}
+                  <option value="">Select course</option>
+                  {courses.map((course) => (
+                    <option key={course} value={course}>
+                      {course}
+                    </option>
+                  ))}
                 </select>
               </Field>
 
-              <Field
-                label="Preferred Intake"
-                required
-                error={errors.intake}
-              >
+              <Field label="Preferred Intake" required error={errors.intake}>
                 <select
                   className={inputClass}
                   value={data.intake}
-                  onChange={(event) =>
-                    updateField(
-                      'intake',
-                      event.target.value
-                    )
+                  onChange={(e) =>
+                    updateField('intake', e.target.value)
                   }
                 >
-                  <option value="">
-                    Select intake
-                  </option>
-
-                  {intakes.map(
-                    (intake) => (
-                      <option
-                        key={intake}
-                        value={intake}
-                      >
-                        {intake}
-                      </option>
-                    )
-                  )}
+                  <option value="">Select intake</option>
+                  {intakes.map((intake) => (
+                    <option key={intake} value={intake}>
+                      {intake}
+                    </option>
+                  ))}
                 </select>
               </Field>
 
@@ -3342,8 +2370,8 @@ export function ApplyForm() {
                 </h4>
 
                 <p className="mt-1 text-xs leading-6 text-slate-500">
-                  Tell us who will be responsible
-                  for financing your education.
+                  Tell us who will be responsible for
+                  financing your education.
                 </p>
               </div>
 
@@ -3355,32 +2383,18 @@ export function ApplyForm() {
                 <select
                   className={inputClass}
                   value={data.sponsorType}
-                  onChange={(event) =>
+                  onChange={(e) =>
                     updateField(
                       'sponsorType',
-                      event.target.value as SponsorType
+                      e.target.value as SponsorType
                     )
                   }
                 >
-                  <option value="">
-                    Select sponsor
-                  </option>
-
-                  <option value="Self">
-                    Self
-                  </option>
-
-                  <option value="Parent">
-                    Parent
-                  </option>
-
-                  <option value="Guardian">
-                    Guardian
-                  </option>
-
-                  <option value="Sponsor">
-                    Sponsor
-                  </option>
+                  <option value="">Select sponsor</option>
+                  <option value="Self">Self</option>
+                  <option value="Parent">Parent</option>
+                  <option value="Guardian">Guardian</option>
+                  <option value="Sponsor">Sponsor</option>
                 </select>
               </Field>
 
@@ -3388,30 +2402,18 @@ export function ApplyForm() {
                 <div className="grid gap-5 md:grid-cols-2">
                   <Field
                     label={
-                      data.sponsorType ===
-                      'Self'
+                      data.sponsorType === 'Self'
                         ? 'Applicant Name'
                         : 'Sponsor Name'
                     }
-                    required={
-                      data.sponsorType !==
-                      'Self'
-                    }
-                    error={
-                      errors.sponsorName
-                    }
+                    required={data.sponsorType !== 'Self'}
+                    error={errors.sponsorName}
                   >
                     <input
-                      type="text"
                       className={inputClass}
-                      value={
-                        data.sponsorName
-                      }
-                      onChange={(event) =>
-                        updateField(
-                          'sponsorName',
-                          event.target.value
-                        )
+                      value={data.sponsorName}
+                      onChange={(e) =>
+                        updateField('sponsorName', e.target.value)
                       }
                       placeholder="Enter full name"
                     />
@@ -3419,15 +2421,12 @@ export function ApplyForm() {
 
                   <Field label="Relationship">
                     <input
-                      type="text"
                       className={inputClass}
-                      value={
-                        data.sponsorRelationship
-                      }
-                      onChange={(event) =>
+                      value={data.sponsorRelationship}
+                      onChange={(e) =>
                         updateField(
                           'sponsorRelationship',
-                          event.target.value
+                          e.target.value
                         )
                       }
                       placeholder="e.g. Father"
@@ -3438,14 +2437,9 @@ export function ApplyForm() {
                     <input
                       type="tel"
                       className={inputClass}
-                      value={
-                        data.sponsorMobile
-                      }
-                      onChange={(event) =>
-                        updateField(
-                          'sponsorMobile',
-                          event.target.value
-                        )
+                      value={data.sponsorMobile}
+                      onChange={(e) =>
+                        updateField('sponsorMobile', e.target.value)
                       }
                       placeholder="Sponsor mobile number"
                     />
@@ -3453,21 +2447,14 @@ export function ApplyForm() {
 
                   <Field
                     label="Email Address"
-                    error={
-                      errors.sponsorEmail
-                    }
+                    error={errors.sponsorEmail}
                   >
                     <input
                       type="email"
                       className={inputClass}
-                      value={
-                        data.sponsorEmail
-                      }
-                      onChange={(event) =>
-                        updateField(
-                          'sponsorEmail',
-                          event.target.value
-                        )
+                      value={data.sponsorEmail}
+                      onChange={(e) =>
+                        updateField('sponsorEmail', e.target.value)
                       }
                       placeholder="Sponsor email"
                     />
@@ -3480,9 +2467,7 @@ export function ApplyForm() {
           </section>
         )}
 
-        {/* =================================================
-            STEP 5
-        ================================================= */}
+        {/* STEP 5: GUARDIAN */}
 
         {step === 5 && (
           <section>
@@ -3498,14 +2483,10 @@ export function ApplyForm() {
                 error={errors.guardianName}
               >
                 <input
-                  type="text"
                   className={inputClass}
                   value={data.guardianName}
-                  onChange={(event) =>
-                    updateField(
-                      'guardianName',
-                      event.target.value
-                    )
+                  onChange={(e) =>
+                    updateField('guardianName', e.target.value)
                   }
                   placeholder="Full name"
                 />
@@ -3514,64 +2495,35 @@ export function ApplyForm() {
               <Field label="Relationship">
                 <select
                   className={inputClass}
-                  value={
-                    data.guardianRelationship
-                  }
-                  onChange={(event) =>
+                  value={data.guardianRelationship}
+                  onChange={(e) =>
                     updateField(
                       'guardianRelationship',
-                      event.target.value
+                      e.target.value
                     )
                   }
                 >
-                  <option value="">
-                    Select relationship
-                  </option>
-
-                  <option value="Father">
-                    Father
-                  </option>
-
-                  <option value="Mother">
-                    Mother
-                  </option>
-
-                  <option value="Guardian">
-                    Guardian
-                  </option>
-
-                  <option value="Spouse">
-                    Spouse
-                  </option>
-
-                  <option value="Sibling">
-                    Sibling
-                  </option>
-
-                  <option value="Other">
-                    Other
-                  </option>
+                  <option value="">Select relationship</option>
+                  <option value="Father">Father</option>
+                  <option value="Mother">Mother</option>
+                  <option value="Guardian">Guardian</option>
+                  <option value="Spouse">Spouse</option>
+                  <option value="Sibling">Sibling</option>
+                  <option value="Other">Other</option>
                 </select>
               </Field>
 
               <Field
                 label="Mobile Number"
                 required
-                error={
-                  errors.guardianMobile
-                }
+                error={errors.guardianMobile}
               >
                 <input
                   type="tel"
                   className={inputClass}
-                  value={
-                    data.guardianMobile
-                  }
-                  onChange={(event) =>
-                    updateField(
-                      'guardianMobile',
-                      event.target.value
-                    )
+                  value={data.guardianMobile}
+                  onChange={(e) =>
+                    updateField('guardianMobile', e.target.value)
                   }
                   placeholder="e.g. 0712345678"
                 />
@@ -3579,21 +2531,14 @@ export function ApplyForm() {
 
               <Field
                 label="Email Address"
-                error={
-                  errors.guardianEmail
-                }
+                error={errors.guardianEmail}
               >
                 <input
                   type="email"
                   className={inputClass}
-                  value={
-                    data.guardianEmail
-                  }
-                  onChange={(event) =>
-                    updateField(
-                      'guardianEmail',
-                      event.target.value
-                    )
+                  value={data.guardianEmail}
+                  onChange={(e) =>
+                    updateField('guardianEmail', e.target.value)
                   }
                   placeholder="guardian@email.com"
                 />
@@ -3602,85 +2547,144 @@ export function ApplyForm() {
           </section>
         )}
 
-        {/* =================================================
-            STEP 6
-        ================================================= */}
+               {/* STEP 6: DOCUMENTS */}
 
         {step === 6 && (
           <section>
             <SectionTitle
               title="Supporting Documents"
-              description="Upload clear copies of the documents required for admission."
+              description="Upload the required documents and any additional supporting documents that may strengthen your application."
             />
 
-            <div className="space-y-5">
-              <FileField
-                label="National ID / Passport"
-                required
-                file={data.idDocument}
-                error={errors.idDocument}
-                onChange={(file) =>
-                  updateField(
-                    'idDocument',
-                    file
-                  )
-                }
-              />
+            <div className="space-y-6">
+              {/* REQUIRED DOCUMENTS */}
 
-              <FileField
-                label="KCSE Certificate / Result Slip"
-                required
-                file={
-                  data.kcseCertificate
-                }
-                error={
-                  errors.kcseCertificate
-                }
-                onChange={(file) =>
-                  updateField(
-                    'kcseCertificate',
-                    file
-                  )
-                }
-              />
+              <div>
+                <h4 className="mb-4 text-sm font-extrabold text-slate-900">
+                  Required Documents
+                </h4>
 
-              <FileField
-                label="Passport Size Photo"
-                required
-                file={
-                  data.passportPhoto
-                }
-                error={
-                  errors.passportPhoto
-                }
-                onChange={(file) =>
-                  updateField(
-                    'passportPhoto',
-                    file
-                  )
-                }
-              />
+                <div className="space-y-5">
+                  <FileField
+                    label="National ID / Passport"
+                    required
+                    file={data.idDocument}
+                    error={errors.idDocument}
+                    onChange={(file) =>
+                      updateField('idDocument', file)
+                    }
+                  />
 
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                <p className="text-xs leading-6 text-slate-500">
-                  Accepted formats: PDF, JPG and PNG.
-                  Maximum file size is 5 MB per
-                  document.
+                  <FileField
+                    label="KCSE Certificate / Result Slip"
+                    required
+                    file={data.kcseCertificate}
+                    error={errors.kcseCertificate}
+                    onChange={(file) =>
+                      updateField('kcseCertificate', file)
+                    }
+                  />
+
+                  <FileField
+                    label="Passport Size Photo"
+                    required
+                    file={data.passportPhoto}
+                    error={errors.passportPhoto}
+                    onChange={(file) =>
+                      updateField('passportPhoto', file)
+                    }
+                  />
+                </div>
+              </div>
+
+              {/* OPTIONAL DOCUMENTS */}
+
+              <div className="border-t border-slate-200 pt-6">
+                <h4 className="text-sm font-extrabold text-slate-900">
+                  Additional Supporting Documents
+                </h4>
+
+                <p className="mt-1 text-xs leading-6 text-slate-500">
+                  These documents are optional. Upload them where
+                  applicable to support your application.
                 </p>
+
+                <div className="mt-5 space-y-5">
+                  <FileField
+                    label="Birth Certificate"
+                    file={data.birthCertificate}
+                    onChange={(file) =>
+                      updateField('birthCertificate', file)
+                    }
+                  />
+
+                  <FileField
+                    label="School Leaving Certificate"
+                    file={data.leavingCertificate}
+                    onChange={(file) =>
+                      updateField('leavingCertificate', file)
+                    }
+                  />
+
+                  <FileField
+                    label="School Testimonials"
+                    file={data.schoolTestimonials}
+                    onChange={(file) =>
+                      updateField('schoolTestimonials', file)
+                    }
+                  />
+
+                  <MultiFileField
+                    label="Additional Academic Certificates"
+                    description="Upload other academic certificates, professional qualifications or relevant training certificates."
+                    files={data.additionalAcademicCertificates}
+                    onChange={(files) =>
+                      updateField(
+                        'additionalAcademicCertificates',
+                        files
+                      )
+                    }
+                  />
+
+                  <MultiFileField
+                    label="Other Supporting Documents"
+                    description="Upload any other documents relevant to your application."
+                    files={data.otherSupportingDocuments}
+                    onChange={(files) =>
+                      updateField(
+                        'otherSupportingDocuments',
+                        files
+                      )
+                    }
+                  />
+                </div>
+              </div>
+
+              {/* UPLOAD GUIDELINES */}
+
+              <div className="rounded-xl border border-green-200 bg-green-50 p-4">
+                <p className="text-sm font-bold text-green-800">
+                  Document Upload Guidelines
+                </p>
+
+                <ul className="mt-2 list-disc space-y-1 pl-5 text-xs leading-6 text-green-700">
+                  <li>Accepted formats: PDF, JPG, JPEG and PNG.</li>
+                  <li>Maximum file size: 5 MB per document.</li>
+                  <li>Ensure uploaded documents are clear and readable.</li>
+                  <li>Required documents must be uploaded before proceeding.</li>
+                  <li>Additional supporting documents are optional.</li>
+                </ul>
               </div>
             </div>
           </section>
         )}
-
-        {/* =================================================
-            STEP 7
-        ================================================= */}
+        {/* STEP 7: REVIEW */}
 
         {step === 7 && (
           <section>
             <SectionTitle
               title="Review Your Application"
-              description="Review all information carefully before submitting your application."
+              description="Review all information carefully before saving your application."
             />
 
             <div className="space-y-6">
@@ -3696,259 +2700,178 @@ export function ApplyForm() {
                     .join(' ')}
                 />
 
-                <ReviewItem
-                  label="Date of Birth"
-                  value={
-                    data.dateOfBirth
-                  }
-                />
-
-                <ReviewItem
-                  label="Gender"
-                  value={data.gender}
-                />
-
-                <ReviewItem
-                  label="Nationality"
-                  value={
-                    data.nationality
-                  }
-                />
-
-                <ReviewItem
-                  label="Country"
-                  value={data.country}
-                />
-
+                <ReviewItem label="Date of Birth" value={data.dateOfBirth} />
+                <ReviewItem label="Gender" value={data.gender} />
+                <ReviewItem label="Nationality" value={data.nationality} />
+                <ReviewItem label="Country" value={data.country} />
                 <ReviewItem
                   label="ID / Passport"
-                  value={
-                    data.idPassportNumber
-                  }
+                  value={data.idPassportNumber}
                 />
-
                 <ReviewItem
                   label="Marital Status"
-                  value={
-                    data.maritalStatus
-                  }
+                  value={data.maritalStatus}
                 />
               </ReviewSection>
 
               <ReviewSection title="Contact Details">
-                <ReviewItem
-                  label="Mobile"
-                  value={data.mobile}
-                />
-
-                <ReviewItem
-                  label="Email"
-                  value={data.email}
-                />
-
-                <ReviewItem
-                  label="Town"
-                  value={data.town}
-                />
-
-                <ReviewItem
-                  label="County"
-                  value={data.county}
-                />
-
+                <ReviewItem label="Mobile" value={data.mobile} />
+                <ReviewItem label="Email" value={data.email} />
+                <ReviewItem label="Town" value={data.town} />
+                <ReviewItem label="County" value={data.county} />
                 <ReviewItem
                   label="Postal Address"
-                  value={
-                    data.postalAddress
-                  }
+                  value={data.postalAddress}
+                />
+                <ReviewItem
+                  label="Postal Code"
+                  value={data.postalCode}
                 />
               </ReviewSection>
 
               <ReviewSection title="Academic Information">
                 <ReviewItem
                   label="KCSE Index"
-                  value={
-                    data.kcseIndex
-                  }
+                  value={data.kcseIndex}
                 />
-
-                <ReviewItem
-                  label="KCSE Year"
-                  value={
-                    data.kcseYear
-                  }
-                />
-
+                <ReviewItem label="KCSE Year" value={data.kcseYear} />
                 <ReviewItem
                   label="Mean Grade"
-                  value={
-                    data.kcseMeanGrade
-                  }
+                  value={data.kcseMeanGrade}
                 />
-
-                <ReviewItem
-                  label="English"
-                  value={
-                    data.englishGrade
-                  }
-                />
-
+                <ReviewItem label="English" value={data.englishGrade} />
                 <ReviewItem
                   label="Kiswahili"
-                  value={
-                    data.kiswahiliGrade
-                  }
+                  value={data.kiswahiliGrade}
                 />
-
-                <ReviewItem
-                  label="Biology"
-                  value={
-                    data.biologyGrade
-                  }
-                />
-
+                <ReviewItem label="Biology" value={data.biologyGrade} />
                 <ReviewItem
                   label="Chemistry"
-                  value={
-                    data.chemistryGrade
-                  }
+                  value={data.chemistryGrade}
                 />
-
-                <ReviewItem
-                  label="Physics"
-                  value={
-                    data.physicsGrade
-                  }
-                />
-
+                <ReviewItem label="Physics" value={data.physicsGrade} />
                 <ReviewItem
                   label="Mathematics"
-                  value={
-                    data.mathematicsGrade
-                  }
+                  value={data.mathematicsGrade}
                 />
-
                 <ReviewItem
                   label="Previous Institution"
-                  value={
-                    data.previousInstitution
-                  }
+                  value={data.previousInstitution}
                 />
-
                 <ReviewItem
                   label="Highest Qualification"
-                  value={
-                    data.highestQualification
-                  }
+                  value={data.highestQualification}
                 />
               </ReviewSection>
 
               <ReviewSection title="Course & Intake">
-                <ReviewItem
-                  label="Course"
-                  value={data.course}
-                />
-
-                <ReviewItem
-                  label="Intake"
-                  value={data.intake}
-                />
-
+                <ReviewItem label="Course" value={data.course} />
+                <ReviewItem label="Intake" value={data.intake} />
                 <ReviewItem
                   label="Sponsor Type"
-                  value={
-                    data.sponsorType
-                  }
+                  value={data.sponsorType}
                 />
               </ReviewSection>
 
               <ReviewSection title="Sponsor Information">
-                <ReviewItem
-                  label="Name"
-                  value={
-                    data.sponsorName
-                  }
-                />
-
+                <ReviewItem label="Name" value={data.sponsorName} />
                 <ReviewItem
                   label="Relationship"
-                  value={
-                    data.sponsorRelationship
-                  }
+                  value={data.sponsorRelationship}
                 />
-
                 <ReviewItem
                   label="Mobile"
-                  value={
-                    data.sponsorMobile
-                  }
+                  value={data.sponsorMobile}
                 />
-
-                <ReviewItem
-                  label="Email"
-                  value={
-                    data.sponsorEmail
-                  }
-                />
+                <ReviewItem label="Email" value={data.sponsorEmail} />
               </ReviewSection>
 
               <ReviewSection title="Parent / Guardian">
-                <ReviewItem
-                  label="Name"
-                  value={
-                    data.guardianName
-                  }
-                />
-
+                <ReviewItem label="Name" value={data.guardianName} />
                 <ReviewItem
                   label="Relationship"
-                  value={
-                    data.guardianRelationship
-                  }
+                  value={data.guardianRelationship}
                 />
-
                 <ReviewItem
                   label="Mobile"
-                  value={
-                    data.guardianMobile
-                  }
+                  value={data.guardianMobile}
                 />
-
                 <ReviewItem
                   label="Email"
-                  value={
-                    data.guardianEmail
-                  }
+                  value={data.guardianEmail}
                 />
               </ReviewSection>
 
-              <ReviewSection title="Documents">
+                           <ReviewSection title="Documents">
                 <ReviewItem
                   label="ID / Passport"
                   value={
-                    data.idDocument
-                      ? data.idDocument.name
-                      : 'Not uploaded'
+                    data.idDocument?.name || 'Not uploaded'
                   }
                 />
 
                 <ReviewItem
                   label="KCSE Certificate"
                   value={
-                    data.kcseCertificate
-                      ? data.kcseCertificate.name
-                      : 'Not uploaded'
+                    data.kcseCertificate?.name ||
+                    'Not uploaded'
                   }
                 />
 
                 <ReviewItem
                   label="Passport Photo"
                   value={
-                    data.passportPhoto
-                      ? data.passportPhoto.name
+                    data.passportPhoto?.name ||
+                    'Not uploaded'
+                  }
+                />
+
+                <ReviewItem
+                  label="Birth Certificate"
+                  value={
+                    data.birthCertificate?.name ||
+                    'Not uploaded'
+                  }
+                />
+
+                <ReviewItem
+                  label="School Leaving Certificate"
+                  value={
+                    data.leavingCertificate?.name ||
+                    'Not uploaded'
+                  }
+                />
+
+                <ReviewItem
+                  label="School Testimonials"
+                  value={
+                    data.schoolTestimonials?.name ||
+                    'Not uploaded'
+                  }
+                />
+
+                <ReviewItem
+                  label="Additional Academic Certificates"
+                  value={
+                    data.additionalAcademicCertificates.length
+                      ? data.additionalAcademicCertificates
+                          .map((file) => file.name)
+                          .join(', ')
                       : 'Not uploaded'
                   }
                 />
+
+                <ReviewItem
+                  label="Other Supporting Documents"
+                  value={
+                    data.otherSupportingDocuments.length
+                      ? data.otherSupportingDocuments
+                          .map((file) => file.name)
+                          .join(', ')
+                      : 'Not uploaded'
+                  }
+                />
+            
               </ReviewSection>
 
               {/* DECLARATION */}
@@ -3957,26 +2880,23 @@ export function ApplyForm() {
                 <label className="flex cursor-pointer items-start gap-3">
                   <input
                     type="checkbox"
-                    checked={
-                      data.declaration
-                    }
-                    onChange={(event) =>
+                    checked={data.declaration}
+                    onChange={(e) =>
                       updateField(
                         'declaration',
-                        event.target.checked
+                        e.target.checked
                       )
                     }
                     className="mt-1 h-4 w-4 accent-green-600"
                   />
 
                   <span className="text-sm leading-6 text-slate-700">
-                    I declare that the information
-                    provided in this application is
-                    true, accurate and complete to the
-                    best of my knowledge. I understand
-                    that providing false information may
-                    result in cancellation of my
-                    application or admission.
+                    I declare that the information provided
+                    in this application is true, accurate
+                    and complete to the best of my knowledge.
+                    I understand that providing false
+                    information may result in cancellation
+                    of my application or admission.
                   </span>
                 </label>
 
@@ -3990,22 +2910,29 @@ export function ApplyForm() {
               <FeeNotice />
 
               {submitError && (
-                <div
-                  className="rounded-xl border border-red-200 bg-red-50 p-4"
-                  role="alert"
-                >
-                  <p className="text-sm font-semibold text-red-700">
-                    {submitError}
-                  </p>
-                </div>
+                <Alert type="error">
+                  {submitError}
+                </Alert>
               )}
+
+              <div className="rounded-xl border border-green-200 bg-green-50 p-4">
+                <p className="text-sm font-bold text-green-800">
+                  Important: Application Fee Required
+                </p>
+
+                <p className="mt-1 text-sm leading-6 text-green-700">
+                  Saving your application details does
+                  not complete the admission application
+                  process. You must pay the KSh 1,500
+                  application fee and receive payment
+                  approval from SMTC.
+                </p>
+              </div>
             </div>
           </section>
         )}
 
-        {/* =================================================
-            NAVIGATION
-        ================================================= */}
+        {/* NAVIGATION */}
 
         <div className="mt-10 flex items-center justify-between border-t border-slate-100 pt-6">
           {step > 1 ? (
@@ -4015,7 +2942,7 @@ export function ApplyForm() {
               disabled={submitting}
               className={`${buttonBase} border border-slate-200 text-slate-600 hover:border-green-600 hover:text-green-600`}
             >
-              ← Back
+              Back
             </button>
           ) : (
             <div />
@@ -4026,19 +2953,19 @@ export function ApplyForm() {
               type="button"
               onClick={nextStep}
               disabled={submitting}
-              className={`${buttonBase} bg-green-600 text-white shadow-sm hover:bg-green-700 hover:shadow-lg`}
+              className={`${buttonBase} bg-green-600 text-white shadow-sm hover:bg-green-700`}
             >
-              Continue →
+              Continue
             </button>
           ) : (
             <button
               type="submit"
               disabled={submitting}
-              className={`${buttonBase} bg-yellow-500 text-slate-900 shadow-sm hover:bg-yellow-400 hover:shadow-lg`}
+              className={`${buttonBase} bg-yellow-500 text-slate-900 shadow-sm hover:bg-yellow-400`}
             >
               {submitting
-                ? 'Submitting...'
-                : 'Submit Application →'}
+                ? 'Saving Application...'
+                : 'Save Application & Continue to Payment'}
             </button>
           )}
         </div>
@@ -4048,7 +2975,7 @@ export function ApplyForm() {
 }
 
 /* =========================================================
-   SECTION TITLE
+   REUSABLE COMPONENTS
 ========================================================= */
 
 function SectionTitle({
@@ -4071,10 +2998,6 @@ function SectionTitle({
   );
 }
 
-/* =========================================================
-   FIELD
-========================================================= */
-
 function Field({
   label,
   required = false,
@@ -4084,7 +3007,7 @@ function Field({
   label: string;
   required?: boolean;
   error?: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <div>
@@ -4092,9 +3015,7 @@ function Field({
         {label}
 
         {required && (
-          <span className="ml-1 text-red-500">
-            *
-          </span>
+          <span className="ml-1 text-red-500">*</span>
         )}
       </label>
 
@@ -4112,10 +3033,6 @@ function Field({
   );
 }
 
-/* =========================================================
-   GRADE FIELD
-========================================================= */
-
 function GradeField({
   label,
   value,
@@ -4123,9 +3040,7 @@ function GradeField({
 }: {
   label: string;
   value: string;
-  onChange: (
-    value: string
-  ) => void;
+  onChange: (value: string) => void;
 }) {
   return (
     <div>
@@ -4136,26 +3051,15 @@ function GradeField({
       <select
         className={inputClass}
         value={value}
-        onChange={(event) =>
-          onChange(
-            event.target.value
-          )
-        }
+        onChange={(e) => onChange(e.target.value)}
       >
-        <option value="">
-          Select grade
-        </option>
+        <option value="">Select grade</option>
 
-        {kcseGrades.map(
-          (grade) => (
-            <option
-              key={grade}
-              value={grade}
-            >
-              {grade}
-            </option>
-          )
-        )}
+        {kcseGrades.map((grade) => (
+          <option key={grade} value={grade}>
+            {grade}
+          </option>
+        ))}
       </select>
     </div>
   );
@@ -4176,19 +3080,19 @@ function FileField({
   required?: boolean;
   file: File | null;
   error?: string;
-  onChange: (
-    file: File | null
-  ) => void;
+  onChange: (file: File | null) => void;
 }) {
+  const [fileError, setFileError] = useState('');
+
   const handleFileChange = (
     event: ChangeEvent<HTMLInputElement>
   ) => {
     const selectedFile =
-      event.target.files?.[0] ??
-      null;
+      event.target.files?.[0] ?? null;
 
     if (!selectedFile) {
       onChange(null);
+      setFileError('');
       return;
     }
 
@@ -4198,29 +3102,28 @@ function FileField({
       'image/png',
     ];
 
-    const maxSize =
-      5 * 1024 * 1024;
+    const maxSize = 5 * 1024 * 1024;
 
-    if (
-      !allowedTypes.includes(
-        selectedFile.type
-      )
-    ) {
+    if (!allowedTypes.includes(selectedFile.type)) {
       onChange(null);
+      setFileError(
+        'Invalid file format. Upload a PDF, JPG or PNG file.'
+      );
       event.target.value = '';
       return;
     }
 
-    if (
-      selectedFile.size >
-      maxSize
-    ) {
+    if (selectedFile.size > maxSize) {
       onChange(null);
+      setFileError(
+        'The selected file exceeds the 5 MB limit.'
+      );
       event.target.value = '';
       return;
     }
 
     onChange(selectedFile);
+    setFileError('');
   };
 
   return (
@@ -4229,9 +3132,7 @@ function FileField({
         {label}
 
         {required && (
-          <span className="ml-1 text-red-500">
-            *
-          </span>
+          <span className="ml-1 text-red-500">*</span>
         )}
       </label>
 
@@ -4240,7 +3141,7 @@ function FileField({
         accept=".pdf,.jpg,.jpeg,.png"
         onChange={handleFileChange}
         className={`mt-2 block w-full rounded-xl border ${
-          error
+          error || fileError
             ? 'border-red-300'
             : 'border-dashed border-slate-300'
         } bg-slate-50 px-4 py-4 text-sm text-slate-600 file:mr-4 file:rounded-lg file:border-0 file:bg-green-600 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white`}
@@ -4252,20 +3153,191 @@ function FileField({
         </p>
       )}
 
-      {error && (
+      {(error || fileError) && (
         <p
           className="mt-1 text-xs font-medium text-red-600"
           role="alert"
         >
-          {error}
+          {fileError || error}
         </p>
       )}
     </div>
   );
 }
-
 /* =========================================================
-   REVIEW SECTION
+   MULTIPLE FILE FIELD
+========================================================= */
+
+function MultiFileField({
+  label,
+  description,
+  files,
+  onChange,
+}: {
+  label: string;
+  description?: string;
+  files: File[];
+  onChange: (files: File[]) => void;
+}) {
+  const [fileError, setFileError] = useState('');
+
+  const allowedTypes = [
+    'application/pdf',
+    'image/jpeg',
+    'image/png',
+  ];
+
+  const maxSize = 5 * 1024 * 1024;
+
+  const handleFileChange = (
+    event: ChangeEvent<HTMLInputElement>
+  ) => {
+    const selectedFiles = Array.from(
+      event.target.files || []
+    );
+
+    if (!selectedFiles.length) return;
+
+    const validFiles: File[] = [];
+    const rejectedFiles: string[] = [];
+
+    for (const file of selectedFiles) {
+      if (!allowedTypes.includes(file.type)) {
+        rejectedFiles.push(
+          `${file.name}: Unsupported file format`
+        );
+        continue;
+      }
+
+      if (file.size > maxSize) {
+        rejectedFiles.push(
+          `${file.name}: Exceeds the 5 MB limit`
+        );
+        continue;
+      }
+
+      const alreadyExists = files.some(
+        (existingFile) =>
+          existingFile.name === file.name &&
+          existingFile.size === file.size
+      );
+
+      const alreadySelected = validFiles.some(
+        (existingFile) =>
+          existingFile.name === file.name &&
+          existingFile.size === file.size
+      );
+
+      if (alreadyExists || alreadySelected) {
+        rejectedFiles.push(
+          `${file.name}: Already added`
+        );
+        continue;
+      }
+
+      validFiles.push(file);
+    }
+
+    if (validFiles.length > 0) {
+      onChange([...files, ...validFiles]);
+    }
+
+    setFileError(
+      rejectedFiles.length
+        ? rejectedFiles.join('. ')
+        : ''
+    );
+
+    // Allow selecting the same file again after removal.
+    event.target.value = '';
+  };
+
+  const removeFile = (index: number) => {
+    onChange(
+      files.filter((_, fileIndex) => fileIndex !== index)
+    );
+
+    setFileError('');
+  };
+
+  return (
+    <div>
+      <label className="text-sm font-bold text-slate-900">
+        {label}
+        <span className="ml-2 text-xs font-medium text-slate-400">
+          (Optional)
+        </span>
+      </label>
+
+      {description && (
+        <p className="mt-1 text-xs leading-5 text-slate-500">
+          {description}
+        </p>
+      )}
+
+      <input
+        type="file"
+        multiple
+        accept=".pdf,.jpg,.jpeg,.png"
+        onChange={handleFileChange}
+        className="mt-3 block w-full rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-sm text-slate-600 file:mr-4 file:rounded-lg file:border-0 file:bg-green-600 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white"
+      />
+
+      {files.length > 0 && (
+        <div className="mt-4 rounded-xl border border-green-200 bg-green-50 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs font-bold uppercase tracking-wide text-green-800">
+              Selected Documents
+            </p>
+
+            <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-bold text-green-700">
+              {files.length} {files.length === 1 ? 'file' : 'files'}
+            </span>
+          </div>
+
+          <div className="mt-3 space-y-2">
+            {files.map((file, index) => (
+              <div
+                key={`${file.name}-${file.size}-${index}`}
+                className="flex items-center justify-between gap-3 rounded-lg border border-green-100 bg-white p-3"
+              >
+                <div className="min-w-0">
+                  <p className="break-all text-xs font-semibold text-slate-800">
+                    {file.name}
+                  </p>
+
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    {(file.size / (1024 * 1024)).toFixed(2)} MB
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => removeFile(index)}
+                  aria-label={`Remove ${file.name}`}
+                  className="shrink-0 rounded-lg bg-red-50 px-3 py-2 text-xs font-bold text-red-600 transition hover:bg-red-100"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {fileError && (
+        <p
+          className="mt-2 text-xs font-medium text-red-600"
+          role="alert"
+        >
+          {fileError}
+        </p>
+      )}
+    </div>
+  );
+}
+/* =========================================================
+   REVIEW COMPONENTS
 ========================================================= */
 
 function ReviewSection({
@@ -4273,7 +3345,7 @@ function ReviewSection({
   children,
 }: {
   title: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
@@ -4289,10 +3361,6 @@ function ReviewSection({
     </div>
   );
 }
-
-/* =========================================================
-   REVIEW ITEM
-========================================================= */
 
 function ReviewItem({
   label,
@@ -4315,7 +3383,7 @@ function ReviewItem({
 }
 
 /* =========================================================
-   CONFIRMATION ITEM
+   CONFIRMATION COMPONENT
 ========================================================= */
 
 function ConfirmationItem({
@@ -4327,6 +3395,16 @@ function ConfirmationItem({
   value: string;
   status?: boolean;
 }) {
+  const statusClass =
+    value === 'Approved'
+      ? 'bg-green-100 text-green-700'
+      : value === 'Rejected' ||
+        value === 'Payment Rejected'
+      ? 'bg-red-100 text-red-700'
+      : value.includes('Awaiting')
+      ? 'bg-yellow-100 text-yellow-800'
+      : 'bg-slate-100 text-slate-700';
+
   return (
     <div>
       <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
@@ -4335,16 +3413,7 @@ function ConfirmationItem({
 
       {status ? (
         <span
-          className={`mt-1 inline-flex rounded-full px-3 py-1 text-xs font-bold ${
-            value === 'Approved'
-              ? 'bg-green-100 text-green-700'
-              : value === 'Rejected'
-              ? 'bg-red-100 text-red-700'
-              : value ===
-                'Awaiting Approval'
-              ? 'bg-yellow-100 text-yellow-800'
-              : 'bg-slate-100 text-slate-700'
-          }`}
+          className={`mt-1 inline-flex rounded-full px-3 py-1 text-xs font-bold ${statusClass}`}
         >
           {value}
         </span>
@@ -4353,6 +3422,57 @@ function ConfirmationItem({
           {value || 'Not available'}
         </p>
       )}
+    </div>
+  );
+}
+
+/* =========================================================
+   PAYMENT DETAIL
+========================================================= */
+
+function PaymentDetail({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <span className="text-sm text-slate-500">
+        {label}
+      </span>
+
+      <span className="break-all text-right text-sm font-extrabold text-slate-900">
+        {value}
+      </span>
+    </div>
+  );
+}
+
+/* =========================================================
+   ALERT
+========================================================= */
+
+function Alert({
+  type,
+  children,
+}: {
+  type: 'error' | 'success';
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className={`mt-4 rounded-xl border p-4 ${
+        type === 'error'
+          ? 'border-red-200 bg-red-50 text-red-700'
+          : 'border-green-200 bg-green-50 text-green-700'
+      }`}
+      role="alert"
+    >
+      <p className="text-sm font-semibold">
+        {children}
+      </p>
     </div>
   );
 }
@@ -4369,20 +3489,21 @@ function FeeNotice() {
           KSh
         </div>
 
-        <div>
+        <div className="min-w-0">
           <p className="text-xs font-bold uppercase tracking-widest text-yellow-700">
             Application Fee
           </p>
 
           <p className="mt-1 text-xl font-extrabold text-slate-900">
-            KSh 1,500 payable after submission
+            KSh {APPLICATION_FEE.toLocaleString()}
           </p>
 
           <p className="mt-1 text-sm leading-6 text-slate-600">
-            After your application has been saved,
-            you will be required to complete the
-            application fee payment using the official
-            M-Pesa PayBill details below.
+            The application record will be saved first.
+            You must then pay the application fee and
+            submit your M-Pesa transaction details for
+            administrator verification. Your application
+            will proceed after payment approval.
           </p>
 
           <div className="mt-4 grid gap-3 sm:grid-cols-2">

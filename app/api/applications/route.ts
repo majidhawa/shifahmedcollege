@@ -9,6 +9,12 @@ import { supabaseAdmin } from '@/lib/supabase-server';
    CONFIGURATION
 ========================================================= */
 
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
+const STORAGE_BUCKET = 'application-documents';
+
 const ALLOWED_FILE_TYPES = [
   'application/pdf',
   'image/jpeg',
@@ -16,6 +22,8 @@ const ALLOWED_FILE_TYPES = [
 ];
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
+
+const APPLICATION_FEE = 1500;
 
 const ALLOWED_COURSES = [
   'Diploma in Mortuary Science Level 6 (Technologist)',
@@ -43,6 +51,31 @@ const ALLOWED_INTAKES = [
 ];
 
 /* =========================================================
+   TYPES
+========================================================= */
+
+type UploadedDocument = {
+  name: string;
+  url: string;
+  mimeType: string;
+  size: number;
+};
+
+type SupportingDocuments = {
+  birthCertificate: UploadedDocument | null;
+  leavingCertificate: UploadedDocument | null;
+  schoolTestimonials: UploadedDocument | null;
+  additionalAcademicCertificates: UploadedDocument[];
+  otherSupportingDocuments: UploadedDocument[];
+};
+
+type UploadedFileResult = {
+  url: string;
+  storagePath: string;
+  document: UploadedDocument;
+};
+
+/* =========================================================
    HELPERS
 ========================================================= */
 
@@ -68,7 +101,8 @@ function generateApplicationNumber(): string {
 function getSafeFileName(fileName: string): string {
   return fileName
     .replace(/[^a-zA-Z0-9._-]/g, '_')
-    .replace(/_+/g, '_');
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
 }
 
 function getExtensionFromMime(mimeType: string): string {
@@ -87,20 +121,55 @@ function getExtensionFromMime(mimeType: string): string {
   }
 }
 
+function isFile(value: FormDataEntryValue | null): value is File {
+  return (
+    typeof File !== 'undefined' &&
+    value instanceof File
+  );
+}
+
 /* =========================================================
    SUPABASE FILE UPLOAD
+
+   Existing database fields continue storing URLs in the
+   same format:
+
+   /uploads/applications/filename.pdf
+
+   Optional supporting documents use the same format.
 ========================================================= */
 
 async function saveUploadedFile(
   value: FormDataEntryValue | null,
   applicationNumber: string,
-  documentName: string
-): Promise<string | null> {
-  if (!(value instanceof File)) {
+  documentName: string,
+  uploadedStoragePaths: string[],
+  required = false
+): Promise<UploadedFileResult | null> {
+  if (!isFile(value)) {
+    if (required) {
+      throw new Error(
+        `${documentName} is required. Please upload the document.`
+      );
+    }
+
+    if (typeof value === 'string' && value.trim()) {
+      throw new Error(
+        `${documentName} must be uploaded as a file.`
+      );
+    }
+
     return null;
   }
 
+  // Ignore empty optional file inputs.
   if (value.size === 0) {
+    if (required) {
+      throw new Error(
+        `${documentName} is required. Please upload the document.`
+      );
+    }
+
     return null;
   }
 
@@ -118,23 +187,27 @@ async function saveUploadedFile(
     );
   }
 
-  // Determine file extension.
-  const extension =
-    getExtensionFromMime(value.type) ||
-    '.bin';
+  const extension = getExtensionFromMime(value.type);
 
-  // Generate a safe filename.
   const safeApplicationNumber =
     getSafeFileName(applicationNumber);
 
-  const fileName =
-    `${safeApplicationNumber}_${documentName}_${Date.now()}${extension}`;
+  const safeDocumentName =
+    getSafeFileName(documentName);
 
-  // Supabase storage path.
+  const originalName =
+    getSafeFileName(value.name.replace(/\.[^/.]+$/, ''));
+
+  const uniquePart = crypto
+    .randomBytes(6)
+    .toString('hex');
+
+  const fileName =
+    `${safeApplicationNumber}_${safeDocumentName}_${Date.now()}_${uniquePart}_${originalName}${extension}`;
+
   const storagePath =
     `applications/${fileName}`;
 
-  // Read file.
   const buffer = Buffer.from(
     await value.arrayBuffer()
   );
@@ -144,9 +217,8 @@ async function saveUploadedFile(
     storagePath
   );
 
-  // Upload to Supabase.
   const { error } = await supabaseAdmin.storage
-    .from('application-documents')
+    .from(STORAGE_BUCKET)
     .upload(
       storagePath,
       buffer,
@@ -167,13 +239,130 @@ async function saveUploadedFile(
     );
   }
 
+  // Track successful uploads for cleanup if the
+  // database transaction subsequently fails.
+  uploadedStoragePaths.push(storagePath);
+
+  const url = `/uploads/applications/${fileName}`;
+
   console.log(
     `${documentName} uploaded successfully:`,
     storagePath
   );
 
-  // Preserve the existing database URL structure.
-  return `/uploads/applications/${fileName}`;
+  return {
+    url,
+    storagePath,
+    document: {
+      name: value.name,
+      url,
+      mimeType: value.type,
+      size: value.size,
+    },
+  };
+}
+
+/* =========================================================
+   OPTIONAL SINGLE DOCUMENT UPLOAD
+========================================================= */
+
+async function uploadOptionalDocument(
+  formData: FormData,
+  fieldName: string,
+  documentName: string,
+  applicationNumber: string,
+  uploadedStoragePaths: string[]
+): Promise<UploadedDocument | null> {
+  const uploaded = await saveUploadedFile(
+    formData.get(fieldName),
+    applicationNumber,
+    documentName,
+    uploadedStoragePaths,
+    false
+  );
+
+  return uploaded?.document ?? null;
+}
+
+/* =========================================================
+   OPTIONAL MULTIPLE DOCUMENT UPLOAD
+========================================================= */
+
+async function uploadMultipleDocuments(
+  formData: FormData,
+  fieldName: string,
+  documentName: string,
+  applicationNumber: string,
+  uploadedStoragePaths: string[]
+): Promise<UploadedDocument[]> {
+  const entries = formData.getAll(fieldName);
+
+  const uploadedDocuments: UploadedDocument[] = [];
+
+  for (let index = 0; index < entries.length; index++) {
+    const entry = entries[index];
+
+    // Ignore empty browser file inputs.
+    if (
+      isFile(entry) &&
+      entry.size === 0
+    ) {
+      continue;
+    }
+
+    const uploaded = await saveUploadedFile(
+      entry,
+      applicationNumber,
+      `${documentName}_${index + 1}`,
+      uploadedStoragePaths,
+      false
+    );
+
+    if (uploaded) {
+      uploadedDocuments.push(uploaded.document);
+    }
+  }
+
+  return uploadedDocuments;
+}
+
+/* =========================================================
+   CLEANUP UPLOADED FILES
+
+   If an upload succeeds but the database transaction
+   fails, remove the uploaded files to avoid orphaned
+   documents in Supabase.
+========================================================= */
+
+async function cleanupUploadedFiles(
+  storagePaths: string[]
+): Promise<void> {
+  if (storagePaths.length === 0) {
+    return;
+  }
+
+  try {
+    const { error } = await supabaseAdmin.storage
+      .from(STORAGE_BUCKET)
+      .remove(storagePaths);
+
+    if (error) {
+      console.error(
+        'SUPABASE UPLOAD CLEANUP ERROR:',
+        error
+      );
+    } else {
+      console.log(
+        'Cleaned up uploaded application documents:',
+        storagePaths.length
+      );
+    }
+  } catch (error) {
+    console.error(
+      'UNEXPECTED DOCUMENT CLEANUP ERROR:',
+      error
+    );
+  }
 }
 
 /* =========================================================
@@ -181,6 +370,10 @@ async function saveUploadedFile(
 ========================================================= */
 
 export async function POST(request: Request) {
+  // Keep track of uploads so they can be removed if
+  // application creation fails.
+  const uploadedStoragePaths: string[] = [];
+
   try {
     /* =====================================================
        READ FORM DATA
@@ -526,29 +719,112 @@ export async function POST(request: Request) {
       generateApplicationNumber();
 
     /* =====================================================
-       DOCUMENT UPLOADS
+       REQUIRED DOCUMENT UPLOADS
+
+       These three documents remain mandatory.
     ===================================================== */
 
-    const idDocument = await saveUploadedFile(
+    const idUpload = await saveUploadedFile(
       formData.get('idDocument'),
       applicationNumber,
-      'ID'
+      'ID',
+      uploadedStoragePaths,
+      true
     );
 
-    const kcseCertificate = await saveUploadedFile(
+    const kcseUpload = await saveUploadedFile(
       formData.get('kcseCertificate'),
       applicationNumber,
-      'KCSE'
+      'KCSE',
+      uploadedStoragePaths,
+      true
     );
 
-    const passportPhoto = await saveUploadedFile(
+    const passportUpload = await saveUploadedFile(
       formData.get('passportPhoto'),
       applicationNumber,
-      'PHOTO'
+      'PHOTO',
+      uploadedStoragePaths,
+      true
     );
+
+    const idDocument = idUpload!.url;
+    const kcseCertificate = kcseUpload!.url;
+    const passportPhoto = passportUpload!.url;
+
+    /* =====================================================
+       OPTIONAL SINGLE DOCUMENT UPLOADS
+    ===================================================== */
+
+    const birthCertificate =
+      await uploadOptionalDocument(
+        formData,
+        'birthCertificate',
+        'BIRTH_CERTIFICATE',
+        applicationNumber,
+        uploadedStoragePaths
+      );
+
+    const leavingCertificate =
+      await uploadOptionalDocument(
+        formData,
+        'leavingCertificate',
+        'LEAVING_CERTIFICATE',
+        applicationNumber,
+        uploadedStoragePaths
+      );
+
+    const schoolTestimonials =
+      await uploadOptionalDocument(
+        formData,
+        'schoolTestimonials',
+        'SCHOOL_TESTIMONIALS',
+        applicationNumber,
+        uploadedStoragePaths
+      );
+
+    /* =====================================================
+       OPTIONAL MULTIPLE DOCUMENT UPLOADS
+    ===================================================== */
+
+    const additionalAcademicCertificates =
+      await uploadMultipleDocuments(
+        formData,
+        'additionalAcademicCertificates',
+        'ADDITIONAL_ACADEMIC_CERTIFICATE',
+        applicationNumber,
+        uploadedStoragePaths
+      );
+
+    const otherSupportingDocuments =
+      await uploadMultipleDocuments(
+        formData,
+        'otherSupportingDocuments',
+        'OTHER_SUPPORTING_DOCUMENT',
+        applicationNumber,
+        uploadedStoragePaths
+      );
+
+    /* =====================================================
+       SUPPORTING DOCUMENTS JSONB
+
+       Only uploaded optional documents are stored.
+       Empty categories are represented by null or [].
+    ===================================================== */
+
+    const supportingDocuments: SupportingDocuments = {
+      birthCertificate,
+      leavingCertificate,
+      schoolTestimonials,
+      additionalAcademicCertificates,
+      otherSupportingDocuments,
+    };
 
     /* =====================================================
        APPLICATION INSERT QUERY
+
+       supporting_documents is the new JSONB column.
+       All existing application columns are preserved.
     ===================================================== */
 
     const query = `
@@ -601,6 +877,7 @@ export async function POST(request: Request) {
         id_document,
         kcse_certificate,
         passport_photo,
+        supporting_documents,
 
         declaration,
         application_fee,
@@ -623,9 +900,9 @@ export async function POST(request: Request) {
 
         $35, $36, $37, $38,
 
-        $39, $40, $41,
+        $39, $40, $41, $42,
 
-        $42, $43, $44, $45
+        $43, $44, $45, $46
       )
 
       RETURNING
@@ -694,24 +971,26 @@ export async function POST(request: Request) {
       guardianMobile,
       guardianEmail,
 
-      // DOCUMENTS
+      // REQUIRED DOCUMENTS
       idDocument,
       kcseCertificate,
       passportPhoto,
 
+      // OPTIONAL SUPPORTING DOCUMENTS
+      JSON.stringify(supportingDocuments),
+
       // APPLICATION STATUS
       declaration,
-      1500,
+      APPLICATION_FEE,
       'Pending',
       'Pending',
     ];
 
     /* =====================================================
        DATABASE TRANSACTION
-       
-       IMPORTANT:
-       The application and parent-student relationships
-       are saved in the same transaction.
+
+       Application and parent-student relationships are
+       saved in the same transaction.
     ===================================================== */
 
     const client = await pool.connect();
@@ -751,7 +1030,7 @@ export async function POST(request: Request) {
 
       /* ================================================
          AUTOMATIC PARENT-STUDENT LINKING
-         
+
          Match existing active parent accounts using
          guardian/sponsor contact information.
 
@@ -798,10 +1077,6 @@ export async function POST(request: Request) {
       );
 
     } catch (transactionError) {
-      /* ================================================
-         ROLLBACK
-      ================================================ */
-
       try {
         await client.query('ROLLBACK');
       } catch (rollbackError) {
@@ -850,6 +1125,28 @@ export async function POST(request: Request) {
             savedApplication.application_status,
         },
 
+        documents: {
+          required: {
+            idDocument: true,
+            kcseCertificate: true,
+            passportPhoto: true,
+          },
+
+          optional: {
+            birthCertificate: Boolean(birthCertificate),
+
+            leavingCertificate: Boolean(leavingCertificate),
+
+            schoolTestimonials: Boolean(schoolTestimonials),
+
+            additionalAcademicCertificates:
+              additionalAcademicCertificates.length,
+
+            otherSupportingDocuments:
+              otherSupportingDocuments.length,
+          },
+        },
+
         parent_linking: {
           linked: linkedParentIds.length > 0,
 
@@ -871,16 +1168,27 @@ export async function POST(request: Request) {
       error
     );
 
+    // Remove any files uploaded before the failure.
+    await cleanupUploadedFiles(uploadedStoragePaths);
+
+    const message =
+      error instanceof Error
+        ? error.message
+        : 'An unexpected error occurred while submitting your application.';
+
+    const isValidationError =
+      /required|must be|exceeds the maximum|valid|not valid|please provide|please select|you must accept/i.test(
+        message
+      );
+
     return NextResponse.json(
       {
         success: false,
-
-        message:
-          error instanceof Error
-            ? error.message
-            : 'An unexpected error occurred while submitting your application.',
+        message,
       },
-      { status: 500 }
+      {
+        status: isValidationError ? 400 : 500,
+      }
     );
   }
 }

@@ -7,6 +7,11 @@ import { requireAdmin } from '@/lib/admin-auth';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
+export const revalidate = 0;
+
+/* =========================================================
+   TYPES
+========================================================= */
 
 type RouteContext = {
   params: Promise<{
@@ -14,7 +19,10 @@ type RouteContext = {
   }>;
 };
 
-type ApplicationStatus = 'Pending' | 'Approved' | 'Rejected';
+type ApplicationStatus =
+  | 'Pending'
+  | 'Approved'
+  | 'Rejected';
 
 type PaymentStatus =
   | 'Pending'
@@ -22,28 +30,69 @@ type PaymentStatus =
   | 'Paid'
   | 'Rejected';
 
+type UploadedDocument = {
+  name: string;
+  url: string;
+  mimeType: string;
+  size: number;
+};
+
+type SupportingDocuments = {
+  birthCertificate: UploadedDocument | null;
+  leavingCertificate: UploadedDocument | null;
+  schoolTestimonials: UploadedDocument | null;
+  additionalAcademicCertificates: UploadedDocument[];
+  otherSupportingDocuments: UploadedDocument[];
+};
+
 /* =========================================================
    OFFICIAL SMTC PROGRAMMES
+
+   These names match the application submission API.
 ========================================================= */
 
 const COURSE_OPTIONS = [
   'Diploma in Mortuary Science Level 6 (Technologist)',
   'Certificate in Mortuary Science Level 5 (Technician)',
   'Certificate in Caregiving Level 4',
+  'Phlebotomy',
+  'Certificate in EMT',
+  'Diploma in EMT',
+  'Paramedicine Level 6',
+  'Dialysis Technology',
+  'ACLS and BLS',
+  'German Language (A1) Proficiency',
+  'German Language (A2) Proficiency',
+  'German Language (B1) Proficiency',
+  'German Language (B2) Proficiency',
+  'Certificate in Community Health Level 5',
+  'Diploma in Community Health Level 6',
+  'Certificate in Health Service Support Level 5',
+] as const;
+
+/* =========================================================
+   LEGACY PROGRAMMES
+
+   Existing records using earlier programme names remain
+   valid and can still be edited without being rejected.
+========================================================= */
+
+const LEGACY_COURSE_OPTIONS = [
   'Certificate in Emergency Medical Technology (EMT)',
   'Diploma in Emergency Medical Technology (EMT) Level 6',
   'Diploma in Paramedicine Level 6',
   'Certificate in Safe Phlebotomy',
   'Certificate in Dialysis Technology',
-  'ACLS and BLS',
   'Certificate in German Language A1 Proficiency',
   'Certificate in German Language A2 Proficiency',
   'Certificate in German Language B1 Proficiency',
   'Certificate in German Language B2 Proficiency',
-  'Certificate in Community Health Level 5',
-  'Diploma in Community Health Level 6',
-  'Certificate in Health Service Support Level 5',
 ] as const;
+
+const ALL_COURSE_OPTIONS = [
+  ...COURSE_OPTIONS,
+  ...LEGACY_COURSE_OPTIONS,
+];
 
 const APPLICATION_STATUSES: readonly ApplicationStatus[] = [
   'Pending',
@@ -57,198 +106,6 @@ const PAYMENT_STATUSES: readonly PaymentStatus[] = [
   'Paid',
   'Rejected',
 ];
-
-/* =========================================================
-   HELPERS
-========================================================= */
-
-function normalizeStatus(
-  value: unknown,
-  allowedValues: readonly string[]
-): string | undefined | null {
-  if (value === undefined) return undefined;
-  if (value === null) return null;
-
-  const normalized = String(value).trim();
-
-  if (!normalized) return null;
-
-  return (
-    allowedValues.find(
-      (item) => item.toLowerCase() === normalized.toLowerCase()
-    ) ?? null
-  );
-}
-
-function cleanValue(value: unknown): unknown {
-  if (value === undefined) return undefined;
-  if (value === null) return null;
-
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    return trimmed === '' ? null : trimmed;
-  }
-
-  return value;
-}
-
-function normalizeNullableString(value: unknown): string | null {
-  if (value === undefined || value === null) return null;
-
-  const normalized = String(value).trim();
-
-  return normalized || null;
-}
-
-function isValidEmail(value: unknown): boolean {
-  if (value === null || value === undefined || value === '') {
-    return true;
-  }
-
-  return (
-    typeof value === 'string' &&
-    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
-  );
-}
-
-function errorCode(error: unknown): string | undefined {
-  if (
-    error &&
-    typeof error === 'object' &&
-    'code' in error
-  ) {
-    return String(
-      (error as { code?: unknown }).code ?? ''
-    );
-  }
-
-  return undefined;
-}
-
-function applicationResponse(
-  application: Record<string, any>
-) {
-  const paymentStatus = String(
-    application.payment_status || 'Pending'
-  ).trim();
-
-  const normalizedStatus = paymentStatus
-    .toLowerCase()
-    .replace(/[\s-]+/g, '_');
-
-  const manualMpesaCode = normalizeNullableString(
-    application.manual_mpesa_code
-  );
-
-  const manualMpesaPhone = normalizeNullableString(
-    application.manual_mpesa_phone
-  );
-
-  const rejectionReason = normalizeNullableString(
-    application.manual_payment_rejection_reason
-  );
-
-  const submittedAt =
-    application.manual_payment_submitted_at || null;
-
-  const verifiedAt =
-    application.manual_payment_verified_at || null;
-
-  const verifiedBy =
-    application.manual_payment_verified_by || null;
-
-  return {
-    ...application,
-
-    manualMpesaCode,
-    manualMpesaPhone,
-
-    manualPaymentSubmittedAt: submittedAt,
-    manualPaymentVerifiedAt: verifiedAt,
-    manualPaymentVerifiedBy: verifiedBy,
-    manualPaymentRejectionReason: rejectionReason,
-
-    manualMpesaPayment: {
-      code: manualMpesaCode,
-      phone: manualMpesaPhone,
-      submittedAt,
-      verifiedAt,
-      verifiedBy,
-      rejectionReason,
-      status: paymentStatus,
-
-      awaitingApproval:
-        normalizedStatus === 'awaiting_approval',
-
-      approved: [
-        'paid',
-        'approved',
-        'verified',
-      ].includes(normalizedStatus),
-
-      rejected: normalizedStatus === 'rejected',
-      submitted: Boolean(manualMpesaCode),
-    },
-  };
-}
-
-/**
- * Resolves either:
- * - Numeric database ID, e.g. 49
- * - Application number, e.g. SMTC/2026/0EC71D68
- *
- * Returns the numeric applications.id in both cases.
- */
-async function resolveApplicationId(
-  identifier: string
-): Promise<number | null> {
-  const value = String(identifier ?? '').trim();
-
-  if (!value) return null;
-
-  let result;
-
-  if (/^\d+$/.test(value)) {
-    const numericId = Number(value);
-
-    if (
-      !Number.isSafeInteger(numericId) ||
-      numericId <= 0
-    ) {
-      return null;
-    }
-
-    result = await pool.query(
-      `
-        SELECT id
-        FROM applications
-        WHERE id = $1
-        LIMIT 1
-      `,
-      [numericId]
-    );
-  } else {
-    result = await pool.query(
-      `
-        SELECT id
-        FROM applications
-        WHERE application_number = $1
-        LIMIT 1
-      `,
-      [value]
-    );
-  }
-
-  if (!result.rows.length) {
-    return null;
-  }
-
-  const resolvedId = Number(result.rows[0].id);
-
-  return Number.isSafeInteger(resolvedId) && resolvedId > 0
-    ? resolvedId
-    : null;
-}
 
 /* =========================================================
    EDITABLE APPLICATION FIELDS
@@ -304,7 +161,7 @@ const EDITABLE_FIELDS = [
   'guardian_mobile',
   'guardian_email',
 
-  // Documents
+  // Existing documents
   'id_document',
   'kcse_certificate',
   'passport_photo',
@@ -320,6 +177,375 @@ const EDITABLE_FIELDS = [
   // Admission
   'admission_number',
 ] as const;
+
+/* =========================================================
+   HELPERS
+========================================================= */
+
+function normalizeStatus(
+  value: unknown,
+  allowedValues: readonly string[]
+): string | undefined | null {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === null) {
+    return null;
+  }
+
+  const normalized = String(value).trim();
+
+  if (!normalized) {
+    return null;
+  }
+
+  return (
+    allowedValues.find(
+      (item) =>
+        item.toLowerCase() === normalized.toLowerCase()
+    ) ?? null
+  );
+}
+
+function cleanValue(value: unknown): unknown {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (value === null) {
+    return null;
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+
+    return trimmed === '' ? null : trimmed;
+  }
+
+  return value;
+}
+
+function normalizeNullableString(
+  value: unknown
+): string | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  const normalized = String(value).trim();
+
+  return normalized || null;
+}
+
+function isValidEmail(value: unknown): boolean {
+  if (
+    value === null ||
+    value === undefined ||
+    value === ''
+  ) {
+    return true;
+  }
+
+  return (
+    typeof value === 'string' &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
+  );
+}
+
+function errorCode(error: unknown): string | undefined {
+  if (
+    error &&
+    typeof error === 'object' &&
+    'code' in error
+  ) {
+    return String(
+      (error as { code?: unknown }).code ?? ''
+    );
+  }
+
+  return undefined;
+}
+
+/* =========================================================
+   SUPPORTING DOCUMENT NORMALIZATION
+
+   PostgreSQL JSONB can be returned as an object or,
+   depending on the query/driver, as a JSON string.
+
+   This helper ensures the API always returns a
+   predictable supporting_documents object.
+========================================================= */
+
+function normalizeSupportingDocuments(
+  value: unknown
+): SupportingDocuments {
+  const empty: SupportingDocuments = {
+    birthCertificate: null,
+    leavingCertificate: null,
+    schoolTestimonials: null,
+    additionalAcademicCertificates: [],
+    otherSupportingDocuments: [],
+  };
+
+  if (!value) {
+    return empty;
+  }
+
+  let parsed: Record<string, unknown>;
+
+  try {
+    if (typeof value === 'string') {
+      const result: unknown = JSON.parse(value);
+
+      if (
+        !result ||
+        typeof result !== 'object' ||
+        Array.isArray(result)
+      ) {
+        return empty;
+      }
+
+      parsed = result as Record<string, unknown>;
+    } else if (
+      typeof value === 'object' &&
+      !Array.isArray(value)
+    ) {
+      parsed = value as Record<string, unknown>;
+    } else {
+      return empty;
+    }
+  } catch {
+    console.error(
+      'INVALID SUPPORTING DOCUMENTS JSON:',
+      value
+    );
+
+    return empty;
+  }
+
+  const normalizeSingle = (
+    document: unknown
+  ): UploadedDocument | null => {
+    if (
+      !document ||
+      typeof document !== 'object' ||
+      Array.isArray(document)
+    ) {
+      return null;
+    }
+
+    const item = document as Record<string, unknown>;
+
+    const name = normalizeNullableString(item.name);
+    const url = normalizeNullableString(item.url);
+
+    if (!url) {
+      return null;
+    }
+
+    return {
+      name: name || 'Supporting document',
+      url,
+      mimeType:
+        normalizeNullableString(item.mimeType) ||
+        'application/octet-stream',
+      size:
+        typeof item.size === 'number' &&
+        Number.isFinite(item.size)
+          ? item.size
+          : 0,
+    };
+  };
+
+  const normalizeMultiple = (
+    documents: unknown
+  ): UploadedDocument[] => {
+    if (!Array.isArray(documents)) {
+      return [];
+    }
+
+    return documents
+      .map(normalizeSingle)
+      .filter(
+        (document): document is UploadedDocument =>
+          document !== null
+      );
+  };
+
+  return {
+    birthCertificate: normalizeSingle(
+      parsed.birthCertificate
+    ),
+
+    leavingCertificate: normalizeSingle(
+      parsed.leavingCertificate
+    ),
+
+    schoolTestimonials: normalizeSingle(
+      parsed.schoolTestimonials
+    ),
+
+    additionalAcademicCertificates:
+      normalizeMultiple(
+        parsed.additionalAcademicCertificates
+      ),
+
+    otherSupportingDocuments:
+      normalizeMultiple(
+        parsed.otherSupportingDocuments
+      ),
+  };
+}
+
+/* =========================================================
+   APPLICATION RESPONSE
+
+   Preserves existing payment response properties and
+   adds a normalized supporting_documents property.
+========================================================= */
+
+function applicationResponse(
+  application: Record<string, any>
+) {
+  const paymentStatus = String(
+    application.payment_status || 'Pending'
+  ).trim();
+
+  const normalizedStatus = paymentStatus
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+
+  const manualMpesaCode = normalizeNullableString(
+    application.manual_mpesa_code
+  );
+
+  const manualMpesaPhone = normalizeNullableString(
+    application.manual_mpesa_phone
+  );
+
+  const rejectionReason = normalizeNullableString(
+    application.manual_payment_rejection_reason
+  );
+
+  const submittedAt =
+    application.manual_payment_submitted_at || null;
+
+  const verifiedAt =
+    application.manual_payment_verified_at || null;
+
+  const verifiedBy =
+    application.manual_payment_verified_by || null;
+
+  const supportingDocuments =
+    normalizeSupportingDocuments(
+      application.supporting_documents
+    );
+
+  return {
+    ...application,
+
+    supporting_documents: supportingDocuments,
+
+    // Also provide a camelCase alias for frontend convenience.
+    supportingDocuments,
+
+    manualMpesaCode,
+    manualMpesaPhone,
+
+    manualPaymentSubmittedAt: submittedAt,
+    manualPaymentVerifiedAt: verifiedAt,
+    manualPaymentVerifiedBy: verifiedBy,
+    manualPaymentRejectionReason: rejectionReason,
+
+    manualMpesaPayment: {
+      code: manualMpesaCode,
+      phone: manualMpesaPhone,
+      submittedAt,
+      verifiedAt,
+      verifiedBy,
+      rejectionReason,
+      status: paymentStatus,
+
+      awaitingApproval:
+        normalizedStatus === 'awaiting_approval',
+
+      approved: [
+        'paid',
+        'approved',
+        'verified',
+      ].includes(normalizedStatus),
+
+      rejected: normalizedStatus === 'rejected',
+
+      submitted: Boolean(manualMpesaCode),
+    },
+  };
+}
+
+/* =========================================================
+   RESOLVE APPLICATION ID
+
+   Supports:
+   - Numeric database ID
+   - Application number
+========================================================= */
+
+async function resolveApplicationId(
+  identifier: string
+): Promise<number | null> {
+  const value = String(identifier ?? '').trim();
+
+  if (!value) {
+    return null;
+  }
+
+  let result;
+
+  if (/^\d+$/.test(value)) {
+    const numericId = Number(value);
+
+    if (
+      !Number.isSafeInteger(numericId) ||
+      numericId <= 0
+    ) {
+      return null;
+    }
+
+    result = await pool.query(
+      `
+        SELECT id
+        FROM applications
+        WHERE id = $1
+        LIMIT 1
+      `,
+      [numericId]
+    );
+  } else {
+    result = await pool.query(
+      `
+        SELECT id
+        FROM applications
+        WHERE application_number = $1
+        LIMIT 1
+      `,
+      [value]
+    );
+  }
+
+  if (!result.rows.length) {
+    return null;
+  }
+
+  const resolvedId = Number(result.rows[0].id);
+
+  return (
+    Number.isSafeInteger(resolvedId) &&
+    resolvedId > 0
+  )
+    ? resolvedId
+    : null;
+}
 
 /* =========================================================
    GET SINGLE APPLICATION
@@ -410,8 +636,11 @@ export async function GET(
           id_document,
           kcse_certificate,
           passport_photo,
+
           previous_qualification_certificate,
           academic_transcripts,
+
+          supporting_documents,
 
           declaration,
 
@@ -466,12 +695,19 @@ export async function GET(
       );
     }
 
+    const application = applicationResponse(
+      result.rows[0]
+    );
+
     return NextResponse.json({
       success: true,
-      application: applicationResponse(result.rows[0]),
+      application,
     });
   } catch (error) {
-    console.error('GET ADMIN APPLICATION ERROR:', error);
+    console.error(
+      'GET ADMIN APPLICATION ERROR:',
+      error
+    );
 
     return NextResponse.json(
       {
@@ -495,7 +731,6 @@ export async function PATCH(
   context: RouteContext
 ) {
   try {
-    // IMPORTANT: requireAdmin() is asynchronous.
     const admin = await requireAdmin();
 
     if (!admin) {
@@ -522,6 +757,10 @@ export async function PATCH(
         { status: 404 }
       );
     }
+
+    /* -----------------------------------------------------
+       READ REQUEST BODY
+    ----------------------------------------------------- */
 
     let parsedBody: unknown;
 
@@ -553,6 +792,10 @@ export async function PATCH(
 
     const body = parsedBody as Record<string, unknown>;
 
+    /* -----------------------------------------------------
+       GET EXISTING APPLICATION
+    ----------------------------------------------------- */
+
     const existingResult = await pool.query(
       `
         SELECT *
@@ -573,7 +816,8 @@ export async function PATCH(
       );
     }
 
-    const existingApplication = existingResult.rows[0];
+    const existingApplication =
+      existingResult.rows[0];
 
     /* -----------------------------------------------------
        NORMALIZE STATUS VALUES
@@ -619,12 +863,19 @@ export async function PATCH(
 
     /* -----------------------------------------------------
        VALIDATE PROGRAMME
+
+       Existing legacy programme names remain accepted.
     ----------------------------------------------------- */
 
     if (
-      Object.prototype.hasOwnProperty.call(body, 'course')
+      Object.prototype.hasOwnProperty.call(
+        body,
+        'course'
+      )
     ) {
-      const course = normalizeNullableString(body.course);
+      const course = normalizeNullableString(
+        body.course
+      );
 
       if (!course) {
         return NextResponse.json(
@@ -641,11 +892,13 @@ export async function PATCH(
       ).trim();
 
       const isOfficialCourse = (
-        COURSE_OPTIONS as readonly string[]
+        ALL_COURSE_OPTIONS as readonly string[]
       ).includes(course);
 
-      // Allow an existing legacy programme to remain unchanged.
-      if (!isOfficialCourse && course !== existingCourse) {
+      if (
+        !isOfficialCourse &&
+        course !== existingCourse
+      ) {
         return NextResponse.json(
           {
             success: false,
@@ -662,9 +915,14 @@ export async function PATCH(
     ----------------------------------------------------- */
 
     if (
-      Object.prototype.hasOwnProperty.call(body, 'intake')
+      Object.prototype.hasOwnProperty.call(
+        body,
+        'intake'
+      )
     ) {
-      const intake = normalizeNullableString(body.intake);
+      const intake = normalizeNullableString(
+        body.intake
+      );
 
       if (!intake) {
         return NextResponse.json(
@@ -699,13 +957,17 @@ export async function PATCH(
 
     for (const field of emailFields) {
       if (
-        Object.prototype.hasOwnProperty.call(body, field) &&
+        Object.prototype.hasOwnProperty.call(
+          body,
+          field
+        ) &&
         !isValidEmail(body[field])
       ) {
         return NextResponse.json(
           {
             success: false,
-            message: `Please provide a valid ${field.replace('_', ' ')}.`,
+            message:
+              `Please provide a valid ${field.replace('_', ' ')}.`,
           },
           { status: 400 }
         );
@@ -716,7 +978,10 @@ export async function PATCH(
        VALIDATE APPLICATION FEE
     ----------------------------------------------------- */
 
-    let applicationFee: number | null | undefined;
+    let applicationFee:
+      | number
+      | null
+      | undefined;
 
     if (
       Object.prototype.hasOwnProperty.call(
@@ -726,11 +991,12 @@ export async function PATCH(
     ) {
       const rawFee = body.application_fee;
 
-      if (rawFee === null) {
-        applicationFee = null;
-      } else if (
-        typeof rawFee === 'string' &&
-        rawFee.trim() === ''
+      if (
+        rawFee === null ||
+        (
+          typeof rawFee === 'string' &&
+          rawFee.trim() === ''
+        )
       ) {
         applicationFee = null;
       } else {
@@ -753,6 +1019,74 @@ export async function PATCH(
     }
 
     /* -----------------------------------------------------
+       VALIDATE SUPPORTING DOCUMENTS JSON
+
+       PATCH supports updating the JSONB document metadata.
+       It does not upload files. Supabase uploads must be
+       handled by a separate multipart/form-data endpoint.
+    ----------------------------------------------------- */
+
+    let supportingDocumentsUpdate:
+      | SupportingDocuments
+      | undefined;
+
+    if (
+      Object.prototype.hasOwnProperty.call(
+        body,
+        'supporting_documents'
+      )
+    ) {
+      const rawDocuments = body.supporting_documents;
+
+      if (
+        !rawDocuments ||
+        typeof rawDocuments !== 'object' ||
+        Array.isArray(rawDocuments)
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              'Supporting documents must be a valid object.',
+          },
+          { status: 400 }
+        );
+      }
+
+      const normalized =
+        normalizeSupportingDocuments(rawDocuments);
+
+      // Prevent a metadata-only PATCH from replacing
+      // existing document records with an empty object.
+      supportingDocumentsUpdate = normalized;
+    } else if (
+      Object.prototype.hasOwnProperty.call(
+        body,
+        'supportingDocuments'
+      )
+    ) {
+      const rawDocuments = body.supportingDocuments;
+
+      if (
+        !rawDocuments ||
+        typeof rawDocuments !== 'object' ||
+        Array.isArray(rawDocuments)
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              'Supporting documents must be a valid object.',
+          },
+          { status: 400 }
+        );
+      }
+
+      supportingDocumentsUpdate =
+        normalizeSupportingDocuments(rawDocuments);
+    }
+
+    /* -----------------------------------------------------
        BUILD SAFE UPDATE MAP
     ----------------------------------------------------- */
 
@@ -760,7 +1094,10 @@ export async function PATCH(
 
     for (const field of EDITABLE_FIELDS) {
       if (
-        Object.prototype.hasOwnProperty.call(body, field)
+        Object.prototype.hasOwnProperty.call(
+          body,
+          field
+        )
       ) {
         updates.set(
           field,
@@ -769,6 +1106,17 @@ export async function PATCH(
             : cleanValue(body[field])
         );
       }
+    }
+
+    /* -----------------------------------------------------
+       SUPPORTING DOCUMENTS UPDATE
+    ----------------------------------------------------- */
+
+    if (supportingDocumentsUpdate !== undefined) {
+      updates.set(
+        'supporting_documents',
+        JSON.stringify(supportingDocumentsUpdate)
+      );
     }
 
     /* -----------------------------------------------------
@@ -813,11 +1161,15 @@ export async function PATCH(
     ----------------------------------------------------- */
 
     if (paymentStatus !== undefined) {
-      updates.set('payment_status', paymentStatus);
+      updates.set(
+        'payment_status',
+        paymentStatus
+      );
     }
 
     /* -----------------------------------------------------
        PAYMENT APPROVED
+
        Supports manual M-Pesa and Daraja STK payments.
     ----------------------------------------------------- */
 
@@ -854,15 +1206,18 @@ export async function PATCH(
 
       const verifiedAt = new Date();
 
-      updates.set('payment_verified_at', verifiedAt);
+      updates.set(
+        'payment_verified_at',
+        verifiedAt
+      );
+
       updates.set('paid_at', verifiedAt);
+
       updates.set(
         'manual_payment_rejection_reason',
         null
       );
 
-      // Record manual verification details only when a
-      // manually submitted M-Pesa code exists.
       if (manualCode) {
         updates.set(
           'manual_payment_verified_at',
@@ -879,9 +1234,10 @@ export async function PATCH(
           manualCode
         );
 
-        const manualPhone = normalizeNullableString(
-          existingApplication.manual_mpesa_phone
-        );
+        const manualPhone =
+          normalizeNullableString(
+            existingApplication.manual_mpesa_phone
+          );
 
         if (manualPhone) {
           updates.set(
@@ -897,9 +1253,21 @@ export async function PATCH(
     ----------------------------------------------------- */
 
     if (paymentStatus === 'Rejected') {
-      updates.set('manual_payment_verified_at', null);
-      updates.set('manual_payment_verified_by', null);
-      updates.set('payment_verified_at', null);
+      updates.set(
+        'manual_payment_verified_at',
+        null
+      );
+
+      updates.set(
+        'manual_payment_verified_by',
+        null
+      );
+
+      updates.set(
+        'payment_verified_at',
+        null
+      );
+
       updates.set('paid_at', null);
 
       if (
@@ -925,15 +1293,26 @@ export async function PATCH(
       paymentStatus === 'Pending' ||
       paymentStatus === 'Awaiting Approval'
     ) {
-      updates.set('manual_payment_verified_at', null);
-      updates.set('manual_payment_verified_by', null);
+      updates.set(
+        'manual_payment_verified_at',
+        null
+      );
+
+      updates.set(
+        'manual_payment_verified_by',
+        null
+      );
 
       updates.set(
         'manual_payment_rejection_reason',
         null
       );
 
-      updates.set('payment_verified_at', null);
+      updates.set(
+        'payment_verified_at',
+        null
+      );
+
       updates.set('paid_at', null);
     }
 
@@ -945,7 +1324,8 @@ export async function PATCH(
       return NextResponse.json(
         {
           success: false,
-          message: 'No editable fields were provided.',
+          message:
+            'No editable fields were provided.',
         },
         { status: 400 }
       );
@@ -953,6 +1333,9 @@ export async function PATCH(
 
     /* -----------------------------------------------------
        BUILD PARAMETERIZED SQL
+
+       Column names are taken only from the fixed
+       server-side allowlist and never from user input.
     ----------------------------------------------------- */
 
     const values: unknown[] = [];
@@ -991,7 +1374,8 @@ export async function PATCH(
       return NextResponse.json(
         {
           success: false,
-          message: 'Application could not be updated.',
+          message:
+            'Application could not be updated.',
         },
         { status: 404 }
       );
@@ -1015,32 +1399,54 @@ export async function PATCH(
       );
     }
 
+    if (supportingDocumentsUpdate !== undefined) {
+      console.log(
+        `Admin ${admin.email} updated supporting document metadata for application #${id}`
+      );
+    }
+
     /* -----------------------------------------------------
        RESPONSE MESSAGE
     ----------------------------------------------------- */
 
-    let message = 'Application updated successfully.';
+    let message =
+      'Application updated successfully.';
 
     if (paymentStatus === 'Paid') {
       message =
         'M-Pesa payment verified and approved successfully.';
     } else if (paymentStatus === 'Rejected') {
-      message = 'M-Pesa payment has been rejected.';
+      message =
+        'M-Pesa payment has been rejected.';
     } else if (
       paymentStatus === 'Awaiting Approval'
     ) {
-      message = 'Payment marked as awaiting approval.';
+      message =
+        'Payment marked as awaiting approval.';
     } else if (paymentStatus === 'Pending') {
-      message = 'Payment status reset to pending.';
-    } else if (applicationStatus === 'Approved') {
-      message = 'Application approved successfully.';
-    } else if (applicationStatus === 'Rejected') {
-      message = 'Application rejected successfully.';
+      message =
+        'Payment status reset to pending.';
+    } else if (
+      applicationStatus === 'Approved'
+    ) {
+      message =
+        'Application approved successfully.';
+    } else if (
+      applicationStatus === 'Rejected'
+    ) {
+      message =
+        'Application rejected successfully.';
+    } else if (
+      supportingDocumentsUpdate !== undefined
+    ) {
+      message =
+        'Supporting document information updated successfully.';
     }
 
     return NextResponse.json({
       success: true,
       message,
+
       application: applicationResponse(
         updatedApplication
       ),
@@ -1073,10 +1479,10 @@ export async function DELETE(
   context: RouteContext
 ) {
   let client: PoolClient | null = null;
+
   let transactionStarted = false;
 
   try {
-    // IMPORTANT: requireAdmin() is asynchronous.
     const admin = await requireAdmin();
 
     if (!admin) {
@@ -1107,6 +1513,7 @@ export async function DELETE(
     client = await pool.connect();
 
     await client.query('BEGIN');
+
     transactionStarted = true;
 
     /* -----------------------------------------------------
@@ -1133,6 +1540,7 @@ export async function DELETE(
 
     if (!existingResult.rows.length) {
       await client.query('ROLLBACK');
+
       transactionStarted = false;
 
       return NextResponse.json(
@@ -1149,8 +1557,7 @@ export async function DELETE(
     /* -----------------------------------------------------
        DELETE RELATED STUDENT FEE PAYMENT RECORDS
 
-       The records are deleted first because they reference
-       applications.id through a foreign key.
+       These records reference applications.id.
     ----------------------------------------------------- */
 
     await client.query(
@@ -1176,12 +1583,14 @@ export async function DELETE(
 
     if (!deleteResult.rows.length) {
       await client.query('ROLLBACK');
+
       transactionStarted = false;
 
       return NextResponse.json(
         {
           success: false,
-          message: 'Application could not be deleted.',
+          message:
+            'Application could not be deleted.',
         },
         { status: 404 }
       );
@@ -1192,6 +1601,7 @@ export async function DELETE(
     ----------------------------------------------------- */
 
     await client.query('COMMIT');
+
     transactionStarted = false;
 
     console.log(
@@ -1200,12 +1610,16 @@ export async function DELETE(
 
     return NextResponse.json({
       success: true,
+
       message:
         'Application and its related student fee payment records were deleted successfully.',
+
       application: {
         id: application.id,
+
         application_number:
           application.application_number,
+
         applicant_name: [
           application.first_name,
           application.middle_name,

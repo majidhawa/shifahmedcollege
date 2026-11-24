@@ -1,4 +1,3 @@
-
 'use client';
 
 import {
@@ -6,6 +5,8 @@ import {
   useEffect,
   useState,
 } from 'react';
+
+import type { ReactNode } from 'react';
 
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
@@ -27,6 +28,24 @@ import {
 /* =========================================================
    TYPES
 ========================================================= */
+
+type UploadedDocument =
+  | string
+  | {
+      name?: string | null;
+      url?: string | null;
+      path?: string | null;
+      mimeType?: string | null;
+      size?: number | null;
+    };
+
+type SupportingDocuments = {
+  birthCertificate: UploadedDocument | null;
+  leavingCertificate: UploadedDocument | null;
+  schoolTestimonials: UploadedDocument | null;
+  additionalAcademicCertificates: UploadedDocument[];
+  otherSupportingDocuments: UploadedDocument[];
+};
 
 type Admission = {
   id: number;
@@ -89,12 +108,16 @@ type Application = {
   guardian_mobile: string;
   guardian_email: string;
 
-  // Uploaded documents
-  id_document: string | null;
-  kcse_certificate: string | null;
-  passport_photo: string | null;
-  previous_qualification_certificate: string | null;
-  academic_transcripts: string | null;
+  // Existing uploaded documents
+  id_document: UploadedDocument | null;
+  kcse_certificate: UploadedDocument | null;
+  passport_photo: UploadedDocument | null;
+  previous_qualification_certificate: UploadedDocument | null;
+  academic_transcripts: UploadedDocument | null;
+
+  // Optional supporting documents
+  supporting_documents?: SupportingDocuments | null;
+  supportingDocuments?: SupportingDocuments | null;
 
   declaration: boolean;
 
@@ -106,7 +129,7 @@ type Application = {
 };
 
 /* =========================================================
-   HELPERS
+   GENERAL HELPERS
 ========================================================= */
 
 function fullName(application: Application) {
@@ -119,7 +142,7 @@ function fullName(application: Application) {
     .join(' ');
 }
 
-function formatDate(value: string) {
+function formatDate(value?: string | null) {
   if (!value) return '—';
 
   const date = new Date(value);
@@ -141,6 +164,26 @@ function formatCurrency(value: number) {
     currency: 'KES',
     minimumFractionDigits: 0,
   }).format(Number(value || 0));
+}
+
+function formatFileSize(size?: number | null) {
+  if (
+    typeof size !== 'number' ||
+    !Number.isFinite(size) ||
+    size <= 0
+  ) {
+    return '';
+  }
+
+  if (size < 1024) {
+    return `${size} B`;
+  }
+
+  if (size < 1024 * 1024) {
+    return `${(size / 1024).toFixed(1)} KB`;
+  }
+
+  return `${(size / (1024 * 1024)).toFixed(2)} MB`;
 }
 
 function isApproved(status?: string | null) {
@@ -168,6 +211,199 @@ function isActive(status?: string | null) {
 }
 
 /* =========================================================
+   DOCUMENT NORMALIZATION
+
+   Supports both formats:
+
+   1. Legacy string:
+      "/uploads/applications/document.pdf"
+
+   2. Current object:
+      {
+        name: "Birth Certificate.pdf",
+        url: "/uploads/applications/document.pdf",
+        mimeType: "application/pdf",
+        size: 123456
+      }
+
+   Also accepts "path" as a fallback for "url".
+========================================================= */
+
+function normalizeUploadedDocument(
+  value: unknown
+): UploadedDocument | null {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+
+    return trimmed ? trimmed : null;
+  }
+
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    Array.isArray(value)
+  ) {
+    return null;
+  }
+
+  const document = value as Record<string, unknown>;
+
+  const url =
+    typeof document.url === 'string'
+      ? document.url.trim()
+      : typeof document.path === 'string'
+        ? document.path.trim()
+        : '';
+
+  if (!url) {
+    return null;
+  }
+
+  return {
+    name:
+      typeof document.name === 'string'
+        ? document.name
+        : null,
+
+    url,
+
+    path: url,
+
+    mimeType:
+      typeof document.mimeType === 'string'
+        ? document.mimeType
+        : null,
+
+    size:
+      typeof document.size === 'number'
+        ? document.size
+        : null,
+  };
+}
+
+function normalizeDocumentArray(
+  value: unknown
+): UploadedDocument[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map(normalizeUploadedDocument)
+    .filter(
+      (document): document is UploadedDocument =>
+        document !== null
+    );
+}
+
+function normalizeSupportingDocuments(
+  value: unknown
+): SupportingDocuments {
+  let documents = value;
+
+  // PostgreSQL JSONB may arrive as an object.
+  // Some API implementations may return it as a JSON string.
+  if (typeof documents === 'string') {
+    try {
+      documents = JSON.parse(documents);
+    } catch {
+      documents = {};
+    }
+  }
+
+  if (
+    !documents ||
+    typeof documents !== 'object' ||
+    Array.isArray(documents)
+  ) {
+    documents = {};
+  }
+
+  const data = documents as Record<string, unknown>;
+
+  return {
+    birthCertificate: normalizeUploadedDocument(
+      data.birthCertificate ??
+        data.birth_certificate
+    ),
+
+    leavingCertificate: normalizeUploadedDocument(
+      data.leavingCertificate ??
+        data.leaving_certificate
+    ),
+
+    schoolTestimonials: normalizeUploadedDocument(
+      data.schoolTestimonials ??
+        data.school_testimonials
+    ),
+
+    additionalAcademicCertificates:
+      normalizeDocumentArray(
+        data.additionalAcademicCertificates ??
+          data.additional_academic_certificates
+      ),
+
+    otherSupportingDocuments:
+      normalizeDocumentArray(
+        data.otherSupportingDocuments ??
+          data.other_supporting_documents
+      ),
+  };
+}
+
+function getDocumentUrl(
+  document: UploadedDocument | null | undefined
+): string | null {
+  if (!document) return null;
+
+  if (typeof document === 'string') {
+    return document.trim() || null;
+  }
+
+  return (
+    document.url?.trim() ||
+    document.path?.trim() ||
+    null
+  );
+}
+
+function getDocumentName(
+  document: UploadedDocument | null | undefined
+): string | null {
+  if (!document || typeof document === 'string') {
+    return null;
+  }
+
+  return document.name?.trim() || null;
+}
+
+function getDocumentSize(
+  document: UploadedDocument | null | undefined
+): number | null {
+  if (
+    !document ||
+    typeof document === 'string' ||
+    typeof document.size !== 'number'
+  ) {
+    return null;
+  }
+
+  return document.size;
+}
+
+function countSupportingDocuments(
+  documents: SupportingDocuments
+) {
+  return [
+    documents.birthCertificate,
+    documents.leavingCertificate,
+    documents.schoolTestimonials,
+  ].filter(Boolean).length +
+    documents.additionalAcademicCertificates.length +
+    documents.otherSupportingDocuments.length;
+}
+
+/* =========================================================
    INFO ROW
 ========================================================= */
 
@@ -184,7 +420,7 @@ function InfoRow({
         {label}
       </p>
 
-      <p className="mt-1 text-sm font-medium text-slate-700">
+      <p className="mt-1 break-words text-sm font-medium text-slate-700">
         {value || '—'}
       </p>
     </div>
@@ -200,7 +436,7 @@ function Section({
   children,
 }: {
   title: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <section className="rounded-3xl border border-slate-200 bg-white shadow-soft">
@@ -219,15 +455,20 @@ function Section({
 
 /* =========================================================
    DOCUMENT CARD
+
+   Displays uploaded documents regardless of whether the
+   API returns a URL string or an object containing metadata.
 ========================================================= */
 
 function DocumentCard({
   title,
-  path,
+  document,
 }: {
   title: string;
-  path: string | null;
+  document: UploadedDocument | null | undefined;
 }) {
+  const path = getDocumentUrl(document);
+
   if (!path) {
     return (
       <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4">
@@ -250,6 +491,11 @@ function DocumentCard({
     );
   }
 
+  const fileName = getDocumentName(document);
+  const fileSize = formatFileSize(
+    getDocumentSize(document)
+  );
+
   return (
     <div className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
       <div className="flex min-w-0 items-center gap-3">
@@ -258,12 +504,19 @@ function DocumentCard({
         </div>
 
         <div className="min-w-0">
-          <p className="text-sm font-bold text-brand-dark">
+          <p className="break-words text-sm font-bold text-brand-dark">
             {title}
           </p>
 
+          {fileName && (
+            <p className="mt-1 break-all text-xs text-slate-500">
+              {fileName}
+            </p>
+          )}
+
           <p className="mt-1 text-xs text-green-600">
             Document uploaded
+            {fileSize ? ` · ${fileSize}` : ''}
           </p>
         </div>
       </div>
@@ -283,11 +536,50 @@ function DocumentCard({
 }
 
 /* =========================================================
+   MULTIPLE DOCUMENTS
+
+   Displays every uploaded file in an array.
+========================================================= */
+
+function MultipleDocumentCards({
+  title,
+  documents,
+}: {
+  title: string;
+  documents: UploadedDocument[];
+}) {
+  if (!documents.length) {
+    return (
+      <DocumentCard
+        title={title}
+        document={null}
+      />
+    );
+  }
+
+  return (
+    <>
+      {documents.map((document, index) => {
+        const path = getDocumentUrl(document);
+
+        return (
+          <DocumentCard
+            key={`${title}-${path || index}-${index}`}
+            title={`${title} ${index + 1}`}
+            document={document}
+          />
+        );
+      })}
+    </>
+  );
+}
+
+/* =========================================================
    PAGE
 ========================================================= */
 
 export default function ApplicationDetailsPage() {
-  const params = useParams();
+  const params = useParams<{ id: string }>();
 
   const id = params?.id;
 
@@ -328,7 +620,7 @@ export default function ApplicationDetailsPage() {
         setError('');
 
         const response = await fetch(
-          `/api/admin/applications/${id}`,
+          `/api/admin/applications/${encodeURIComponent(id)}`,
           {
             cache: 'no-store',
           }
@@ -343,9 +635,25 @@ export default function ApplicationDetailsPage() {
           );
         }
 
-        setApplication(data.application);
+        const receivedApplication =
+          data.application as Application;
+
+        const supportingDocuments =
+          normalizeSupportingDocuments(
+            receivedApplication.supporting_documents ??
+              receivedApplication.supportingDocuments
+          );
+
+        setApplication({
+          ...receivedApplication,
+          supporting_documents: supportingDocuments,
+          supportingDocuments,
+        });
       } catch (err) {
-        console.error(err);
+        console.error(
+          'LOAD APPLICATION ERROR:',
+          err
+        );
 
         setError(
           err instanceof Error
@@ -369,7 +677,7 @@ export default function ApplicationDetailsPage() {
 
       try {
         const response = await fetch(
-          `/api/admin/admissions/application/${id}`,
+          `/api/admin/admissions/application/${encodeURIComponent(id)}`,
           {
             cache: 'no-store',
           }
@@ -394,6 +702,10 @@ export default function ApplicationDetailsPage() {
     },
     [id]
   );
+
+  /* =======================================================
+     INITIAL LOAD
+  ======================================================= */
 
   useEffect(() => {
     loadApplication();
@@ -431,8 +743,7 @@ export default function ApplicationDetailsPage() {
           method: 'PATCH',
 
           headers: {
-            'Content-Type':
-              'application/json',
+            'Content-Type': 'application/json',
           },
 
           body: JSON.stringify({
@@ -450,7 +761,23 @@ export default function ApplicationDetailsPage() {
         );
       }
 
-      setApplication(data.application);
+      const updatedApplication =
+        data.application as Application;
+
+      const supportingDocuments =
+        normalizeSupportingDocuments(
+          updatedApplication?.supporting_documents ??
+            updatedApplication?.supportingDocuments ??
+            application.supporting_documents ??
+            application.supportingDocuments
+        );
+
+      setApplication({
+        ...application,
+        ...updatedApplication,
+        supporting_documents: supportingDocuments,
+        supportingDocuments,
+      });
 
       await loadAdmission();
 
@@ -460,7 +787,10 @@ export default function ApplicationDetailsPage() {
           : 'Application rejected successfully. The admission letter is no longer available for download.'
       );
     } catch (err) {
-      console.error(err);
+      console.error(
+        'UPDATE APPLICATION STATUS ERROR:',
+        err
+      );
 
       setError(
         err instanceof Error
@@ -520,13 +850,11 @@ export default function ApplicationDetailsPage() {
           method: 'POST',
 
           headers: {
-            'Content-Type':
-              'application/json',
+            'Content-Type': 'application/json',
           },
 
           body: JSON.stringify({
-            application_id:
-              application.id,
+            application_id: application.id,
           }),
         }
       );
@@ -549,7 +877,10 @@ export default function ApplicationDetailsPage() {
 
       await loadAdmission();
     } catch (err) {
-      console.error(err);
+      console.error(
+        'CREATE ADMISSION ERROR:',
+        err
+      );
 
       setError(
         err instanceof Error
@@ -618,8 +949,7 @@ export default function ApplicationDetailsPage() {
           'Unable to download admission letter.';
 
         try {
-          const data =
-            await response.json();
+          const data = await response.json();
 
           if (data?.message) {
             message = data.message;
@@ -631,13 +961,9 @@ export default function ApplicationDetailsPage() {
         throw new Error(message);
       }
 
-      const blob =
-        await response.blob();
+      const blob = await response.blob();
 
-      if (
-        !blob ||
-        blob.size === 0
-      ) {
+      if (!blob || blob.size === 0) {
         throw new Error(
           'The admission letter returned by the server is empty.'
         );
@@ -658,15 +984,12 @@ export default function ApplicationDetailsPage() {
           );
 
         if (filenameMatch?.[1]) {
-          filename =
-            filenameMatch[1];
+          filename = filenameMatch[1];
         }
       }
 
       const blobUrl =
-        window.URL.createObjectURL(
-          blob
-        );
+        window.URL.createObjectURL(blob);
 
       const link =
         document.createElement('a');
@@ -680,9 +1003,7 @@ export default function ApplicationDetailsPage() {
 
       link.remove();
 
-      window.URL.revokeObjectURL(
-        blobUrl
-      );
+      window.URL.revokeObjectURL(blobUrl);
 
       await loadAdmission();
 
@@ -733,7 +1054,6 @@ export default function ApplicationDetailsPage() {
     return (
       <div className="px-4 py-10 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-3xl rounded-3xl border border-red-200 bg-red-50 p-8 text-center">
-
           <XCircle className="mx-auto h-10 w-10 text-red-500" />
 
           <h1 className="mt-4 text-xl font-bold text-red-800">
@@ -752,7 +1072,6 @@ export default function ApplicationDetailsPage() {
             <ArrowLeft className="h-4 w-4" />
             Back to Applications
           </Link>
-
         </div>
       </div>
     );
@@ -763,31 +1082,32 @@ export default function ApplicationDetailsPage() {
   ======================================================= */
 
   const applicationApproved =
-    isApproved(
-      application.application_status
-    );
+    isApproved(application.application_status);
 
   const paymentPaid =
-    isPaid(
-      application.payment_status
-    );
+    isPaid(application.payment_status);
 
   const admissionActive =
-    isActive(
-      admission?.admission_status
-    );
+    isActive(admission?.admission_status);
 
   const admissionLetterSaved =
-    Boolean(
-      admission?.admission_letter_path
-    );
+    Boolean(admission?.admission_letter_path);
 
   const canDownloadAdmissionLetter =
     Boolean(
       applicationApproved &&
-      admission &&
-      admissionActive
+        admission &&
+        admissionActive
     );
+
+  const supportingDocuments =
+    normalizeSupportingDocuments(
+      application.supporting_documents ??
+        application.supportingDocuments
+    );
+
+  const additionalDocumentCount =
+    countSupportingDocuments(supportingDocuments);
 
   /* =======================================================
      RENDER
@@ -795,7 +1115,6 @@ export default function ApplicationDetailsPage() {
 
   return (
     <div className="px-4 py-8 sm:px-6 lg:px-8">
-
       <div className="mx-auto max-w-7xl">
 
         {/* =================================================
@@ -815,11 +1134,8 @@ export default function ApplicationDetailsPage() {
         ================================================== */}
 
         <div className="mt-6 rounded-3xl bg-brand-green p-6 text-white shadow-soft">
-
           <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-
             <div>
-
               <p className="text-xs font-bold uppercase tracking-[0.2em] text-brand-gold">
                 Application Details
               </p>
@@ -834,23 +1150,17 @@ export default function ApplicationDetailsPage() {
 
               <p className="mt-1 text-sm text-white/60">
                 Submitted on{' '}
-                {formatDate(
-                  application.created_at
-                )}
+                {formatDate(application.created_at)}
               </p>
-
             </div>
 
             <div>
-
-              {application.application_status ===
-              'Approved' ? (
+              {applicationApproved ? (
                 <span className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-bold text-green-700">
                   <CheckCircle2 className="h-4 w-4" />
                   Approved
                 </span>
-              ) : application.application_status ===
-                'Rejected' ? (
+              ) : application.application_status === 'Rejected' ? (
                 <span className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-bold text-red-700">
                   <XCircle className="h-4 w-4" />
                   Rejected
@@ -860,11 +1170,8 @@ export default function ApplicationDetailsPage() {
                   Pending Review
                 </span>
               )}
-
             </div>
-
           </div>
-
         </div>
 
         {/* =================================================
@@ -888,19 +1195,12 @@ export default function ApplicationDetailsPage() {
         ================================================== */}
 
         <div className="mt-6">
-
           <Section title="Admission">
-
             {admission ? (
-
               <div>
-
                 <div className="rounded-2xl border border-green-200 bg-green-50 p-5">
-
                   <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-
                     <div>
-
                       <p className="text-xs font-bold uppercase tracking-wide text-green-700">
                         Official Admission Number
                       </p>
@@ -910,16 +1210,13 @@ export default function ApplicationDetailsPage() {
                       </p>
 
                       <p className="mt-1 text-xs text-slate-500">
-                        This admission number is stored
-                        permanently against this admission
-                        and must not change when the
-                        admission letter is downloaded.
+                        This admission number is stored permanently
+                        against this admission and must not change
+                        when the admission letter is downloaded.
                       </p>
-
                     </div>
 
                     <div>
-
                       {admissionActive ? (
                         <span className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-bold text-green-700">
                           <CheckCircle2 className="h-4 w-4" />
@@ -931,100 +1228,72 @@ export default function ApplicationDetailsPage() {
                           {admission.admission_status}
                         </span>
                       )}
-
                     </div>
-
                   </div>
-
                 </div>
 
                 <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-
                   <InfoRow
                     label="Student"
-                    value={
-                      admission.student_name
-                    }
+                    value={admission.student_name}
                   />
 
                   <InfoRow
                     label="Course"
-                    value={
-                      admission.course
-                    }
+                    value={admission.course}
                   />
 
                   <InfoRow
                     label="Intake"
-                    value={
-                      admission.intake
-                    }
+                    value={admission.intake}
                   />
 
                   <InfoRow
                     label="Admission Date"
-                    value={formatDate(
-                      admission.admission_date
-                    )}
+                    value={formatDate(admission.admission_date)}
                   />
-
                 </div>
 
                 <div className="mt-6 rounded-2xl border border-brand-green/20 bg-brand-green/5 p-5">
-
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-
                     <div className="flex items-start gap-3">
-
                       <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-green/10">
-
                         <FileText className="h-5 w-5 text-brand-green" />
-
                       </div>
 
                       <div>
-
                         <h3 className="font-bold text-brand-dark">
                           Official Admission Letter
                         </h3>
 
-                        {applicationApproved &&
-                        admissionActive ? (
+                        {applicationApproved && admissionActive ? (
                           admissionLetterSaved ? (
                             <p className="mt-1 text-sm text-green-700">
-                              Saved admission letter
-                              available. Downloading
-                              it returns the stored
-                              document without
-                              regenerating it.
+                              Saved admission letter available.
+                              Downloading it returns the stored
+                              document without regenerating it.
                             </p>
                           ) : (
                             <p className="mt-1 text-sm text-slate-500">
-                              This application is approved.
-                              Generate the admission
-                              letter once and it will be
-                              permanently saved with the
-                              admission record.
+                              This application is approved. Generate
+                              the admission letter once and it will
+                              be permanently saved with the admission
+                              record.
                             </p>
                           )
                         ) : (
                           <p className="mt-1 text-sm font-medium text-slate-500">
-                            The admission letter can only
-                            be downloaded after the
-                            application has been approved
+                            The admission letter can only be downloaded
+                            after the application has been approved
                             and the admission is active.
                           </p>
                         )}
-
                       </div>
-
                     </div>
 
                     <button
                       type="button"
-                      onClick={
-                        downloadAdmissionLetter
-                      }
+                      onClick={downloadAdmissionLetter}
                       disabled={
                         letterLoading ||
                         !canDownloadAdmissionLetter
@@ -1033,14 +1302,13 @@ export default function ApplicationDetailsPage() {
                         !applicationApproved
                           ? 'Approve the application first'
                           : !admissionActive
-                          ? 'Admission must be active'
-                          : admissionLetterSaved
-                          ? 'Download saved admission letter'
-                          : 'Generate and download admission letter'
+                            ? 'Admission must be active'
+                            : admissionLetterSaved
+                              ? 'Download saved admission letter'
+                              : 'Generate and download admission letter'
                       }
                       className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-brand-green px-5 py-3 text-sm font-bold text-white transition hover:bg-brand-dark disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500"
                     >
-
                       {letterLoading ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
                       ) : (
@@ -1050,50 +1318,39 @@ export default function ApplicationDetailsPage() {
                       {letterLoading
                         ? 'Preparing Letter...'
                         : admissionLetterSaved
-                        ? 'Download Admission Letter'
-                        : 'Generate & Download Letter'}
-
+                          ? 'Download Admission Letter'
+                          : 'Generate & Download Letter'}
                     </button>
-
                   </div>
 
                   {!applicationApproved && (
                     <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3">
-
                       <p className="text-xs font-semibold text-amber-800">
                         Admission letter unavailable
                       </p>
 
                       <p className="mt-1 text-xs text-amber-700">
-                        The application must be approved
-                        before the admission letter can be
-                        downloaded.
+                        The application must be approved before
+                        the admission letter can be downloaded.
                       </p>
-
                     </div>
                   )}
 
-                  {applicationApproved &&
-                    !admissionActive && (
+                  {applicationApproved && !admissionActive && (
                     <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3">
-
                       <p className="text-xs font-semibold text-red-800">
                         Admission letter unavailable
                       </p>
 
                       <p className="mt-1 text-xs text-red-700">
-                        The admission must be active before
-                        the admission letter can be
-                        downloaded.
+                        The admission must be active before the
+                        admission letter can be downloaded.
                       </p>
-
                     </div>
                   )}
-
                 </div>
 
                 <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-
                   <a
                     href={`/api/admin/applications/${application.id}/pdf`}
                     target="_blank"
@@ -1103,36 +1360,26 @@ export default function ApplicationDetailsPage() {
                     <Download className="h-4 w-4" />
                     Download Application Form
                   </a>
-
                 </div>
-
               </div>
-
             ) : (
-
               <div>
-
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
-
                   <p className="text-sm font-semibold text-slate-700">
                     No admission has been created yet.
                   </p>
 
                   <p className="mt-1 text-sm text-slate-500">
-                    The application must be approved and
-                    the application fee must be paid before
-                    an admission can be created.
+                    The application must be approved and the
+                    application fee must be paid before an
+                    admission can be created.
                   </p>
-
                 </div>
 
                 <div className="mt-5">
-
                   <button
                     type="button"
-                    onClick={
-                      createAdmission
-                    }
+                    onClick={createAdmission}
                     disabled={
                       admissionLoading ||
                       !applicationApproved ||
@@ -1140,7 +1387,6 @@ export default function ApplicationDetailsPage() {
                     }
                     className="inline-flex items-center justify-center gap-2 rounded-xl bg-brand-green px-5 py-3 text-sm font-bold text-white transition hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-50"
                   >
-
                     {admissionLoading ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
@@ -1150,9 +1396,7 @@ export default function ApplicationDetailsPage() {
                     {admissionLoading
                       ? 'Creating Admission...'
                       : 'Create Admission'}
-
                   </button>
-
                 </div>
 
                 {!applicationApproved && (
@@ -1161,20 +1405,14 @@ export default function ApplicationDetailsPage() {
                   </p>
                 )}
 
-                {applicationApproved &&
-                  !paymentPaid && (
-                    <p className="mt-3 text-xs text-red-500">
-                      Application fee payment must be
-                      confirmed first.
-                    </p>
-                  )}
-
+                {applicationApproved && !paymentPaid && (
+                  <p className="mt-3 text-xs text-red-500">
+                    Application fee payment must be confirmed first.
+                  </p>
+                )}
               </div>
-
             )}
-
           </Section>
-
         </div>
 
         {/* =================================================
@@ -1182,11 +1420,8 @@ export default function ApplicationDetailsPage() {
         ================================================== */}
 
         <div className="mt-6">
-
           <Section title="Personal Information">
-
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-
               <InfoRow
                 label="Full Name"
                 value={fullName(application)}
@@ -1194,50 +1429,35 @@ export default function ApplicationDetailsPage() {
 
               <InfoRow
                 label="Date of Birth"
-                value={formatDate(
-                  application.date_of_birth
-                )}
+                value={formatDate(application.date_of_birth)}
               />
 
               <InfoRow
                 label="Gender"
-                value={
-                  application.gender
-                }
+                value={application.gender}
               />
 
               <InfoRow
                 label="Nationality"
-                value={
-                  application.nationality
-                }
+                value={application.nationality}
               />
 
               <InfoRow
                 label="Country"
-                value={
-                  application.country
-                }
+                value={application.country}
               />
 
               <InfoRow
                 label="ID / Passport Number"
-                value={
-                  application.id_passport_number
-                }
+                value={application.id_passport_number}
               />
 
               <InfoRow
                 label="Marital Status"
-                value={
-                  application.marital_status
-                }
+                value={application.marital_status}
               />
-
             </div>
-
           </Section>
-
         </div>
 
         {/* =================================================
@@ -1245,75 +1465,51 @@ export default function ApplicationDetailsPage() {
         ================================================== */}
 
         <div className="mt-6">
-
           <Section title="Contact Information">
-
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-
               <div className="flex gap-3">
-
                 <Phone className="mt-0.5 h-5 w-5 shrink-0 text-brand-green" />
 
                 <InfoRow
                   label="Mobile"
-                  value={
-                    application.mobile
-                  }
+                  value={application.mobile}
                 />
-
               </div>
 
               <div className="flex gap-3">
-
                 <Mail className="mt-0.5 h-5 w-5 shrink-0 text-brand-green" />
 
                 <InfoRow
                   label="Email"
-                  value={
-                    application.email
-                  }
+                  value={application.email}
                 />
-
               </div>
 
               <div className="flex gap-3">
-
                 <MapPin className="mt-0.5 h-5 w-5 shrink-0 text-brand-green" />
 
                 <InfoRow
                   label="County"
-                  value={
-                    application.county
-                  }
+                  value={application.county}
                 />
-
               </div>
 
               <InfoRow
                 label="Town"
-                value={
-                  application.town
-                }
+                value={application.town}
               />
 
               <InfoRow
                 label="Postal Address"
-                value={
-                  application.postal_address
-                }
+                value={application.postal_address}
               />
 
               <InfoRow
                 label="Postal Code"
-                value={
-                  application.postal_code
-                }
+                value={application.postal_code}
               />
-
             </div>
-
           </Section>
-
         </div>
 
         {/* =================================================
@@ -1321,92 +1517,64 @@ export default function ApplicationDetailsPage() {
         ================================================== */}
 
         <div className="mt-6">
-
           <Section title="Academic Information">
-
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-
               <InfoRow
                 label="KCSE Index"
-                value={
-                  application.kcse_index
-                }
+                value={application.kcse_index}
               />
 
               <InfoRow
                 label="KCSE Year"
-                value={
-                  application.kcse_year
-                }
+                value={application.kcse_year}
               />
 
               <InfoRow
                 label="KCSE Mean Grade"
-                value={
-                  application.kcse_mean_grade
-                }
+                value={application.kcse_mean_grade}
               />
 
               <InfoRow
                 label="English"
-                value={
-                  application.english_grade
-                }
+                value={application.english_grade}
               />
 
               <InfoRow
                 label="Kiswahili"
-                value={
-                  application.kiswahili_grade
-                }
+                value={application.kiswahili_grade}
               />
 
               <InfoRow
                 label="Biology"
-                value={
-                  application.biology_grade
-                }
+                value={application.biology_grade}
               />
 
               <InfoRow
                 label="Chemistry"
-                value={
-                  application.chemistry_grade
-                }
+                value={application.chemistry_grade}
               />
 
               <InfoRow
                 label="Physics"
-                value={
-                  application.physics_grade
-                }
+                value={application.physics_grade}
               />
 
               <InfoRow
                 label="Mathematics"
-                value={
-                  application.mathematics_grade
-                }
+                value={application.mathematics_grade}
               />
 
               <InfoRow
                 label="Previous Institution"
-                value={
-                  application.previous_institution
-                }
+                value={application.previous_institution}
               />
 
               <InfoRow
                 label="Highest Qualification"
-                value={
-                  application.highest_qualification
-                }
+                value={application.highest_qualification}
               />
-
             </div>
-
           </Section>
-
         </div>
 
         {/* =================================================
@@ -1414,29 +1582,19 @@ export default function ApplicationDetailsPage() {
         ================================================== */}
 
         <div className="mt-6">
-
           <Section title="Course & Intake">
-
             <div className="grid gap-6 sm:grid-cols-2">
-
               <InfoRow
                 label="Selected Course"
-                value={
-                  application.course
-                }
+                value={application.course}
               />
 
               <InfoRow
                 label="Intake"
-                value={
-                  application.intake
-                }
+                value={application.intake}
               />
-
             </div>
-
           </Section>
-
         </div>
 
         {/* =================================================
@@ -1444,50 +1602,34 @@ export default function ApplicationDetailsPage() {
         ================================================== */}
 
         <div className="mt-6">
-
           <Section title="Sponsor Information">
-
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-
               <InfoRow
                 label="Sponsor Type"
-                value={
-                  application.sponsor_type
-                }
+                value={application.sponsor_type}
               />
 
               <InfoRow
                 label="Sponsor Name"
-                value={
-                  application.sponsor_name
-                }
+                value={application.sponsor_name}
               />
 
               <InfoRow
                 label="Relationship"
-                value={
-                  application.sponsor_relationship
-                }
+                value={application.sponsor_relationship}
               />
 
               <InfoRow
                 label="Mobile"
-                value={
-                  application.sponsor_mobile
-                }
+                value={application.sponsor_mobile}
               />
 
               <InfoRow
                 label="Email"
-                value={
-                  application.sponsor_email
-                }
+                value={application.sponsor_email}
               />
-
             </div>
-
           </Section>
-
         </div>
 
         {/* =================================================
@@ -1495,101 +1637,132 @@ export default function ApplicationDetailsPage() {
         ================================================== */}
 
         <div className="mt-6">
-
           <Section title="Parent / Guardian Information">
-
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-
               <InfoRow
                 label="Name"
-                value={
-                  application.guardian_name
-                }
+                value={application.guardian_name}
               />
 
               <InfoRow
                 label="Relationship"
-                value={
-                  application.guardian_relationship
-                }
+                value={application.guardian_relationship}
               />
 
               <InfoRow
                 label="Mobile"
-                value={
-                  application.guardian_mobile
-                }
+                value={application.guardian_mobile}
               />
 
               <InfoRow
                 label="Email"
-                value={
-                  application.guardian_email
-                }
+                value={application.guardian_email}
               />
-
             </div>
-
           </Section>
-
         </div>
 
         {/* =================================================
-            DOCUMENTS
-            NOW SUPPORTS ALL FIVE DOCUMENTS
+            REQUIRED / EXISTING DOCUMENTS
         ================================================== */}
 
         <div className="mt-6">
-
-          <Section title="Uploaded Documents">
-
+          <Section title="Required Application Documents">
             <p className="mb-5 text-sm text-slate-500">
-              Review the documents submitted by the
-              applicant. Documents that were not provided
-              during application are marked accordingly.
+              These are the main documents submitted with
+              the application.
             </p>
 
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-
               <DocumentCard
                 title="National ID / Passport"
-                path={
-                  application.id_document
-                }
+                document={application.id_document}
               />
 
               <DocumentCard
                 title="KCSE Certificate / Result Slip"
-                path={
-                  application.kcse_certificate
-                }
+                document={application.kcse_certificate}
               />
 
               <DocumentCard
                 title="Passport Photo"
-                path={
-                  application.passport_photo
-                }
+                document={application.passport_photo}
               />
 
               <DocumentCard
                 title="Previous Qualification Certificate"
-                path={
+                document={
                   application.previous_qualification_certificate
                 }
               />
 
               <DocumentCard
                 title="Academic Transcripts"
-                path={
-                  application.academic_transcripts
+                document={application.academic_transcripts}
+              />
+            </div>
+          </Section>
+        </div>
+
+        {/* =================================================
+            OPTIONAL SUPPORTING DOCUMENTS
+        ================================================== */}
+
+        <div className="mt-6">
+          <Section title="Additional Supporting Documents">
+            <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-slate-500">
+                These documents are optional. Applicants may
+                provide any additional documents relevant to
+                their application.
+              </p>
+
+              <span className="inline-flex w-fit items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                {additionalDocumentCount}{' '}
+                {additionalDocumentCount === 1
+                  ? 'document'
+                  : 'documents'}{' '}
+                uploaded
+              </span>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <DocumentCard
+                title="Birth Certificate"
+                document={
+                  supportingDocuments.birthCertificate
                 }
               />
 
+              <DocumentCard
+                title="Leaving Certificate"
+                document={
+                  supportingDocuments.leavingCertificate
+                }
+              />
+
+              <DocumentCard
+                title="School Testimonials"
+                document={
+                  supportingDocuments.schoolTestimonials
+                }
+              />
+
+              <MultipleDocumentCards
+                title="Additional Academic Certificate"
+                documents={
+                  supportingDocuments.additionalAcademicCertificates
+                }
+              />
+
+              <MultipleDocumentCards
+                title="Other Supporting Document"
+                documents={
+                  supportingDocuments.otherSupportingDocuments
+                }
+              />
             </div>
-
           </Section>
-
         </div>
 
         {/* =================================================
@@ -1597,23 +1770,16 @@ export default function ApplicationDetailsPage() {
         ================================================== */}
 
         <div className="mt-6">
-
           <Section title="Application Fee">
-
             <div className="grid gap-6 sm:grid-cols-3">
-
               <InfoRow
                 label="Application Fee"
-                value={formatCurrency(
-                  application.application_fee
-                )}
+                value={formatCurrency(application.application_fee)}
               />
 
               <InfoRow
                 label="Payment Status"
-                value={
-                  application.payment_status
-                }
+                value={application.payment_status}
               />
 
               <InfoRow
@@ -1624,11 +1790,8 @@ export default function ApplicationDetailsPage() {
                     : 'No'
                 }
               />
-
             </div>
-
           </Section>
-
         </div>
 
         {/* =================================================
@@ -1636,41 +1799,31 @@ export default function ApplicationDetailsPage() {
         ================================================== */}
 
         <div className="mt-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-soft">
-
           <div className="flex items-center gap-3">
-
             <User className="h-5 w-5 text-brand-green" />
 
             <div>
-
               <h2 className="font-bold text-brand-dark">
                 Application Decision
               </h2>
 
               <p className="mt-1 text-sm text-slate-500">
-                Review the application before making
-                an admission decision.
+                Review the application before making an
+                admission decision.
               </p>
-
             </div>
-
           </div>
 
           <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-
             <button
               type="button"
               disabled={
                 actionLoading ||
-                application.application_status ===
-                  'Approved'
+                applicationApproved
               }
-              onClick={() =>
-                updateStatus('Approved')
-              }
+              onClick={() => updateStatus('Approved')}
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-brand-green px-5 py-3 text-sm font-bold text-white transition hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-50"
             >
-
               {actionLoading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
@@ -1678,30 +1831,26 @@ export default function ApplicationDetailsPage() {
               )}
 
               Approve Application
-
             </button>
 
             <button
               type="button"
               disabled={
                 actionLoading ||
-                application.application_status ===
-                  'Rejected'
+                application.application_status === 'Rejected'
               }
-              onClick={() =>
-                updateStatus('Rejected')
-              }
+              onClick={() => updateStatus('Rejected')}
               className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-200 bg-red-50 px-5 py-3 text-sm font-bold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
             >
-
-              <XCircle className="h-4 w-4" />
+              {actionLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <XCircle className="h-4 w-4" />
+              )}
 
               Reject Application
-
             </button>
-
           </div>
-
         </div>
 
       </div>
