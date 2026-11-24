@@ -1,3 +1,4 @@
+
 import { NextResponse } from 'next/server';
 import type { PoolClient } from 'pg';
 
@@ -329,7 +330,7 @@ export async function GET(
   context: RouteContext
 ) {
   try {
-    const admin = requireAdmin();
+    const admin = await requireAdmin();
 
     if (!admin) {
       return NextResponse.json(
@@ -494,7 +495,8 @@ export async function PATCH(
   context: RouteContext
 ) {
   try {
-    const admin = requireAdmin();
+    // IMPORTANT: requireAdmin() is asynchronous.
+    const admin = await requireAdmin();
 
     if (!admin) {
       return NextResponse.json(
@@ -1074,7 +1076,8 @@ export async function DELETE(
   let transactionStarted = false;
 
   try {
-    const admin = requireAdmin();
+    // IMPORTANT: requireAdmin() is asynchronous.
+    const admin = await requireAdmin();
 
     if (!admin) {
       return NextResponse.json(

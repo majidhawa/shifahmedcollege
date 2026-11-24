@@ -1,7 +1,11 @@
 
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useState,
+} from 'react';
 
 import {
   User,
@@ -28,22 +32,28 @@ type AdminData = {
   role: string;
 };
 
-type SystemSettings = {
-  id: number;
-  collegeName: string;
-  slogan: string;
-  phone: string;
-  email: string;
-  address: string;
-  website: string;
-  updatedAt?: string;
-};
-
 type Props = {
   admin: AdminData;
 };
 
 type MessageType = 'success' | 'error' | '';
+
+type ApiResponse = {
+  success?: boolean;
+  message?: string;
+  admin?: {
+    name?: string;
+    email?: string;
+  };
+  settings?: {
+    collegeName?: string;
+    slogan?: string;
+    phone?: string;
+    email?: string;
+    address?: string;
+    website?: string;
+  };
+};
 
 /* =========================================================
    COMPONENT
@@ -72,10 +82,9 @@ export default function AdminSettingsClient({
      SYSTEM SETTINGS
   ======================================================= */
 
-  const [collegeName, setCollegeName] =
-    useState(
-      'SHIFAH MEDICAL TRAINING COLLEGE'
-    );
+  const [collegeName, setCollegeName] = useState(
+    'SHIFAH MEDICAL TRAINING COLLEGE'
+  );
 
   const [slogan, setSlogan] = useState(
     'HEALTH THROUGH INNOVATION AND RESEARCH'
@@ -83,14 +92,13 @@ export default function AdminSettingsClient({
 
   const [phone, setPhone] = useState('');
 
-  const [systemEmail, setSystemEmail] =
-    useState('');
+  const [systemEmail, setSystemEmail] = useState('');
 
-  const [address, setAddress] =
-    useState('Kitale, Kenya');
+  const [address, setAddress] = useState(
+    'Kitale, Kenya'
+  );
 
-  const [website, setWebsite] =
-    useState('');
+  const [website, setWebsite] = useState('');
 
   /* =======================================================
      PASSWORD
@@ -118,8 +126,7 @@ export default function AdminSettingsClient({
      UI STATE
   ======================================================= */
 
-  const [loading, setLoading] =
-    useState(true);
+  const [loading, setLoading] = useState(true);
 
   const [profileSaving, setProfileSaving] =
     useState(false);
@@ -130,8 +137,7 @@ export default function AdminSettingsClient({
   const [passwordSaving, setPasswordSaving] =
     useState(false);
 
-  const [message, setMessage] =
-    useState('');
+  const [message, setMessage] = useState('');
 
   const [messageType, setMessageType] =
     useState<MessageType>('');
@@ -140,24 +146,40 @@ export default function AdminSettingsClient({
      MESSAGE HELPER
   ======================================================= */
 
-  const showMessage = (
-    text: string,
-    type: MessageType
-  ) => {
-    setMessage(text);
-    setMessageType(type);
+  const showMessage = useCallback(
+    (text: string, type: MessageType) => {
+      setMessage(text);
+      setMessageType(type);
 
-    window.scrollTo({
-      top: 0,
-      behavior: 'smooth',
-    });
+      window.scrollTo({
+        top: 0,
+        behavior: 'smooth',
+      });
+    },
+    []
+  );
+
+  /* =======================================================
+     API RESPONSE HELPER
+  ======================================================= */
+
+  const readApiResponse = async (
+    response: Response
+  ): Promise<ApiResponse> => {
+    try {
+      return await response.json();
+    } catch {
+      throw new Error(
+        'The server returned an invalid response.'
+      );
+    }
   };
 
   /* =======================================================
      LOAD SETTINGS
   ======================================================= */
 
-  const loadSettings = async () => {
+  const loadSettings = useCallback(async () => {
     try {
       setLoading(true);
 
@@ -166,66 +188,56 @@ export default function AdminSettingsClient({
         {
           method: 'GET',
           cache: 'no-store',
+          headers: {
+            Accept: 'application/json',
+          },
         }
       );
 
-      const data = await response.json();
+      const data = await readApiResponse(response);
 
       if (!response.ok || !data.success) {
         throw new Error(
-          data.message ||
-            'Unable to load settings.'
+          data.message || 'Unable to load settings.'
         );
       }
 
       /* ===============================================
-         ADMIN
+         ADMIN PROFILE
       =============================================== */
 
       if (data.admin) {
-        setName(
-          data.admin.name || ''
-        );
-
-        setEmail(
-          data.admin.email || ''
-        );
+        setName(data.admin.name || '');
+        setEmail(data.admin.email || '');
       }
 
       /* ===============================================
-         SYSTEM
+         COLLEGE INFORMATION
       =============================================== */
 
       if (data.settings) {
         setCollegeName(
-          data.settings.collegeName || ''
+          data.settings.collegeName ||
+            'SHIFAH MEDICAL TRAINING COLLEGE'
         );
 
         setSlogan(
-          data.settings.slogan || ''
+          data.settings.slogan ||
+            'HEALTH THROUGH INNOVATION AND RESEARCH'
         );
 
-        setPhone(
-          data.settings.phone || ''
-        );
+        setPhone(data.settings.phone || '');
 
-        setSystemEmail(
-          data.settings.email || ''
-        );
+        setSystemEmail(data.settings.email || '');
 
         setAddress(
-          data.settings.address || ''
+          data.settings.address || 'Kitale, Kenya'
         );
 
-        setWebsite(
-          data.settings.website || ''
-        );
+        setWebsite(data.settings.website || '');
       }
     } catch (error) {
-      console.error(
-        'Load settings error:',
-        error
-      );
+      console.error('Load settings error:', error);
 
       showMessage(
         error instanceof Error
@@ -236,22 +248,22 @@ export default function AdminSettingsClient({
     } finally {
       setLoading(false);
     }
-  };
+  }, [showMessage]);
 
   /* =======================================================
      INITIAL LOAD
   ======================================================= */
 
   useEffect(() => {
-    loadSettings();
-  }, []);
+    void loadSettings();
+  }, [loadSettings]);
 
   /* =======================================================
      SAVE PROFILE
   ======================================================= */
 
   const saveProfile = async (
-    event: React.FormEvent
+    event: React.FormEvent<HTMLFormElement>
   ) => {
     event.preventDefault();
 
@@ -276,12 +288,10 @@ export default function AdminSettingsClient({
         '/api/admin/settings',
         {
           method: 'PUT',
-
           headers: {
-            'Content-Type':
-              'application/json',
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
           },
-
           body: JSON.stringify({
             action: 'profile',
             name: name.trim(),
@@ -290,25 +300,25 @@ export default function AdminSettingsClient({
         }
       );
 
-      const data = await response.json();
+      const data = await readApiResponse(response);
 
       if (!response.ok || !data.success) {
         throw new Error(
-          data.message ||
-            'Unable to update profile.'
+          data.message || 'Unable to update profile.'
         );
       }
 
+      if (data.admin) {
+        setName(data.admin.name || name.trim());
+        setEmail(data.admin.email || email.trim());
+      }
+
       showMessage(
-        data.message ||
-          'Profile updated successfully.',
+        data.message || 'Profile updated successfully.',
         'success'
       );
     } catch (error) {
-      console.error(
-        'Profile update error:',
-        error
-      );
+      console.error('Profile update error:', error);
 
       showMessage(
         error instanceof Error
@@ -326,7 +336,7 @@ export default function AdminSettingsClient({
   ======================================================= */
 
   const saveSystemSettings = async (
-    event: React.FormEvent
+    event: React.FormEvent<HTMLFormElement>
   ) => {
     event.preventDefault();
 
@@ -351,37 +361,23 @@ export default function AdminSettingsClient({
         '/api/admin/settings',
         {
           method: 'PUT',
-
           headers: {
-            'Content-Type':
-              'application/json',
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
           },
-
           body: JSON.stringify({
             action: 'system',
-
-            collegeName:
-              collegeName.trim(),
-
-            slogan:
-              slogan.trim(),
-
-            phone:
-              phone.trim(),
-
-            email:
-              systemEmail.trim(),
-
-            address:
-              address.trim(),
-
-            website:
-              website.trim(),
+            collegeName: collegeName.trim(),
+            slogan: slogan.trim(),
+            phone: phone.trim(),
+            email: systemEmail.trim(),
+            address: address.trim(),
+            website: website.trim(),
           }),
         }
       );
 
-      const data = await response.json();
+      const data = await readApiResponse(response);
 
       if (!response.ok || !data.success) {
         throw new Error(
@@ -396,10 +392,7 @@ export default function AdminSettingsClient({
         'success'
       );
     } catch (error) {
-      console.error(
-        'System settings error:',
-        error
-      );
+      console.error('System settings error:', error);
 
       showMessage(
         error instanceof Error
@@ -417,7 +410,7 @@ export default function AdminSettingsClient({
   ======================================================= */
 
   const changePassword = async (
-    event: React.FormEvent
+    event: React.FormEvent<HTMLFormElement>
   ) => {
     event.preventDefault();
 
@@ -444,10 +437,7 @@ export default function AdminSettingsClient({
         );
       }
 
-      if (
-        newPassword !==
-        confirmPassword
-      ) {
+      if (newPassword !== confirmPassword) {
         throw new Error(
           'New passwords do not match.'
         );
@@ -457,30 +447,24 @@ export default function AdminSettingsClient({
         '/api/admin/settings',
         {
           method: 'PUT',
-
           headers: {
-            'Content-Type':
-              'application/json',
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
           },
-
           body: JSON.stringify({
             action: 'password',
-
             currentPassword,
-
             newPassword,
-
             confirmPassword,
           }),
         }
       );
 
-      const data = await response.json();
+      const data = await readApiResponse(response);
 
       if (!response.ok || !data.success) {
         throw new Error(
-          data.message ||
-            'Unable to change password.'
+          data.message || 'Unable to change password.'
         );
       }
 
@@ -488,16 +472,16 @@ export default function AdminSettingsClient({
       setNewPassword('');
       setConfirmPassword('');
 
+      setShowCurrentPassword(false);
+      setShowNewPassword(false);
+      setShowConfirmPassword(false);
+
       showMessage(
-        data.message ||
-          'Password changed successfully.',
+        data.message || 'Password changed successfully.',
         'success'
       );
     } catch (error) {
-      console.error(
-        'Password change error:',
-        error
-      );
+      console.error('Password change error:', error);
 
       showMessage(
         error instanceof Error
@@ -509,6 +493,13 @@ export default function AdminSettingsClient({
       setPasswordSaving(false);
     }
   };
+
+  /* =======================================================
+     PASSWORD INPUT CLASS
+  ======================================================= */
+
+  const passwordInputClass =
+    'w-full rounded-xl border border-slate-200 bg-white px-4 py-3 pr-12 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-brand-green focus:ring-2 focus:ring-brand-green/10';
 
   /* =======================================================
      LOADING
@@ -529,13 +520,6 @@ export default function AdminSettingsClient({
   }
 
   /* =======================================================
-     PASSWORD INPUT HELPER
-  ======================================================= */
-
-  const passwordInputClass =
-    'w-full rounded-xl border border-slate-200 bg-white px-4 py-3 pr-12 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-brand-green focus:ring-2 focus:ring-brand-green/10';
-
-  /* =======================================================
      PAGE
   ======================================================= */
 
@@ -548,6 +532,8 @@ export default function AdminSettingsClient({
 
       {message && (
         <div
+          role="alert"
+          aria-live="polite"
           className={`flex items-start gap-3 rounded-2xl border p-4 ${
             messageType === 'success'
               ? 'border-green-200 bg-green-50 text-green-800'
@@ -567,7 +553,7 @@ export default function AdminSettingsClient({
       )}
 
       {/* =================================================
-          PROFILE
+          ADMINISTRATOR PROFILE
       ================================================= */}
 
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-soft">
@@ -592,57 +578,64 @@ export default function AdminSettingsClient({
           </div>
         </div>
 
-        <form
-          onSubmit={saveProfile}
-          className="p-6"
-        >
+        <form onSubmit={saveProfile} className="p-6">
 
           <div className="grid gap-6 md:grid-cols-2">
 
-            {/* NAME */}
-
             <div>
-              <label className="mb-2 block text-sm font-semibold text-slate-700">
+              <label
+                htmlFor="admin-name"
+                className="mb-2 block text-sm font-semibold text-slate-700"
+              >
                 Full Name
               </label>
 
               <input
+                id="admin-name"
                 type="text"
                 value={name}
                 onChange={(event) =>
                   setName(event.target.value)
                 }
                 placeholder="Administrator name"
+                autoComplete="name"
+                required
                 className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-brand-green focus:ring-2 focus:ring-brand-green/10"
               />
             </div>
 
-            {/* EMAIL */}
-
             <div>
-              <label className="mb-2 block text-sm font-semibold text-slate-700">
+              <label
+                htmlFor="admin-email"
+                className="mb-2 block text-sm font-semibold text-slate-700"
+              >
                 Email Address
               </label>
 
               <input
+                id="admin-email"
                 type="email"
                 value={email}
                 onChange={(event) =>
                   setEmail(event.target.value)
                 }
                 placeholder="admin@example.com"
+                autoComplete="email"
+                required
                 className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-brand-green focus:ring-2 focus:ring-brand-green/10"
               />
             </div>
 
-            {/* ROLE */}
-
             <div>
-              <label className="mb-2 block text-sm font-semibold text-slate-700">
+              <label
+                htmlFor="admin-role"
+                className="mb-2 block text-sm font-semibold text-slate-700"
+              >
                 Role
               </label>
 
               <input
+                id="admin-role"
                 type="text"
                 value={role}
                 disabled
@@ -659,7 +652,6 @@ export default function AdminSettingsClient({
               disabled={profileSaving}
               className="inline-flex items-center gap-2 rounded-xl bg-brand-green px-5 py-3 text-sm font-semibold text-white transition hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-60"
             >
-
               {profileSaving ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
@@ -669,7 +661,6 @@ export default function AdminSettingsClient({
               {profileSaving
                 ? 'Saving...'
                 : 'Save Profile'}
-
             </button>
 
           </div>
@@ -679,7 +670,7 @@ export default function AdminSettingsClient({
       </section>
 
       {/* =================================================
-          SYSTEM SETTINGS
+          COLLEGE INFORMATION
       ================================================= */}
 
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-soft">
@@ -711,73 +702,77 @@ export default function AdminSettingsClient({
 
           <div className="grid gap-6 md:grid-cols-2">
 
-            {/* COLLEGE NAME */}
-
             <div className="md:col-span-2">
-
-              <label className="mb-2 block text-sm font-semibold text-slate-700">
+              <label
+                htmlFor="college-name"
+                className="mb-2 block text-sm font-semibold text-slate-700"
+              >
                 College Name
               </label>
 
               <input
+                id="college-name"
                 type="text"
                 value={collegeName}
                 onChange={(event) =>
                   setCollegeName(event.target.value)
                 }
+                required
                 className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-brand-green focus:ring-2 focus:ring-brand-green/10"
               />
-
             </div>
 
-            {/* SLOGAN */}
-
             <div className="md:col-span-2">
-
-              <label className="mb-2 block text-sm font-semibold text-slate-700">
+              <label
+                htmlFor="college-slogan"
+                className="mb-2 block text-sm font-semibold text-slate-700"
+              >
                 Slogan
               </label>
 
               <input
+                id="college-slogan"
                 type="text"
                 value={slogan}
                 onChange={(event) =>
                   setSlogan(event.target.value)
                 }
+                required
                 className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-brand-green focus:ring-2 focus:ring-brand-green/10"
               />
-
             </div>
 
-            {/* PHONE */}
-
             <div>
-
-              <label className="mb-2 block text-sm font-semibold text-slate-700">
+              <label
+                htmlFor="college-phone"
+                className="mb-2 block text-sm font-semibold text-slate-700"
+              >
                 Phone Number
               </label>
 
               <input
-                type="text"
+                id="college-phone"
+                type="tel"
                 value={phone}
                 onChange={(event) =>
                   setPhone(event.target.value)
                 }
                 placeholder="College phone number"
+                autoComplete="tel"
                 className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-brand-green focus:ring-2 focus:ring-brand-green/10"
               />
-
             </div>
 
-            {/* EMAIL */}
-
             <div>
-
-              <label className="mb-2 block text-sm font-semibold text-slate-700">
+              <label
+                htmlFor="college-email"
+                className="mb-2 block text-sm font-semibold text-slate-700"
+              >
                 College Email
               </label>
 
               <input
+                id="college-email"
                 type="email"
                 value={systemEmail}
                 onChange={(event) =>
@@ -786,18 +781,18 @@ export default function AdminSettingsClient({
                 placeholder="info@college.co.ke"
                 className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-brand-green focus:ring-2 focus:ring-brand-green/10"
               />
-
             </div>
 
-            {/* ADDRESS */}
-
             <div>
-
-              <label className="mb-2 block text-sm font-semibold text-slate-700">
+              <label
+                htmlFor="college-address"
+                className="mb-2 block text-sm font-semibold text-slate-700"
+              >
                 Address
               </label>
 
               <input
+                id="college-address"
                 type="text"
                 value={address}
                 onChange={(event) =>
@@ -805,19 +800,19 @@ export default function AdminSettingsClient({
                 }
                 className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-brand-green focus:ring-2 focus:ring-brand-green/10"
               />
-
             </div>
 
-            {/* WEBSITE */}
-
             <div>
-
-              <label className="mb-2 block text-sm font-semibold text-slate-700">
+              <label
+                htmlFor="college-website"
+                className="mb-2 block text-sm font-semibold text-slate-700"
+              >
                 Website
               </label>
 
               <input
-                type="text"
+                id="college-website"
+                type="url"
                 value={website}
                 onChange={(event) =>
                   setWebsite(event.target.value)
@@ -825,7 +820,6 @@ export default function AdminSettingsClient({
                 placeholder="https://..."
                 className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-brand-green focus:ring-2 focus:ring-brand-green/10"
               />
-
             </div>
 
           </div>
@@ -837,7 +831,6 @@ export default function AdminSettingsClient({
               disabled={systemSaving}
               className="inline-flex items-center gap-2 rounded-xl bg-brand-green px-5 py-3 text-sm font-semibold text-white transition hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-60"
             >
-
               {systemSaving ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
@@ -847,7 +840,6 @@ export default function AdminSettingsClient({
               {systemSaving
                 ? 'Saving...'
                 : 'Save College Information'}
-
             </button>
 
           </div>
@@ -857,13 +849,12 @@ export default function AdminSettingsClient({
       </section>
 
       {/* =================================================
-          PASSWORD
+          CHANGE PASSWORD
       ================================================= */}
 
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-soft">
 
         <div className="border-b border-slate-200 px-6 py-5">
-
           <div className="flex items-center gap-3">
 
             <div className="rounded-xl bg-red-50 p-3">
@@ -881,48 +872,42 @@ export default function AdminSettingsClient({
             </div>
 
           </div>
-
         </div>
 
-        <form
-          onSubmit={changePassword}
-          className="p-6"
-        >
+        <form onSubmit={changePassword} className="p-6">
 
           <div className="grid gap-6 md:grid-cols-2">
 
-            {/* CURRENT PASSWORD */}
-
             <div className="md:col-span-2">
-
-              <label className="mb-2 block text-sm font-semibold text-slate-700">
+              <label
+                htmlFor="current-password"
+                className="mb-2 block text-sm font-semibold text-slate-700"
+              >
                 Current Password
               </label>
 
               <div className="relative">
-
                 <input
-                  type={
-                    showCurrentPassword
-                      ? 'text'
-                      : 'password'
-                  }
+                  id="current-password"
+                  type={showCurrentPassword ? 'text' : 'password'}
                   value={currentPassword}
                   onChange={(event) =>
-                    setCurrentPassword(
-                      event.target.value
-                    )
+                    setCurrentPassword(event.target.value)
                   }
                   autoComplete="current-password"
+                  required
                   className={passwordInputClass}
                 />
 
                 <button
                   type="button"
+                  aria-label={
+                    showCurrentPassword
+                      ? 'Hide current password'
+                      : 'Show current password'
+                  }
                   onClick={() =>
-                    setShowCurrentPassword(
-                      (value) => !value
-                    )
+                    setShowCurrentPassword((value) => !value)
                   }
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-brand-green"
                 >
@@ -932,43 +917,40 @@ export default function AdminSettingsClient({
                     <Eye className="h-5 w-5" />
                   )}
                 </button>
-
               </div>
-
             </div>
 
-            {/* NEW PASSWORD */}
-
             <div>
-
-              <label className="mb-2 block text-sm font-semibold text-slate-700">
+              <label
+                htmlFor="new-password"
+                className="mb-2 block text-sm font-semibold text-slate-700"
+              >
                 New Password
               </label>
 
               <div className="relative">
-
                 <input
-                  type={
-                    showNewPassword
-                      ? 'text'
-                      : 'password'
-                  }
+                  id="new-password"
+                  type={showNewPassword ? 'text' : 'password'}
                   value={newPassword}
                   onChange={(event) =>
-                    setNewPassword(
-                      event.target.value
-                    )
+                    setNewPassword(event.target.value)
                   }
                   autoComplete="new-password"
+                  minLength={8}
+                  required
                   className={passwordInputClass}
                 />
 
                 <button
                   type="button"
+                  aria-label={
+                    showNewPassword
+                      ? 'Hide new password'
+                      : 'Show new password'
+                  }
                   onClick={() =>
-                    setShowNewPassword(
-                      (value) => !value
-                    )
+                    setShowNewPassword((value) => !value)
                   }
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-brand-green"
                 >
@@ -978,47 +960,44 @@ export default function AdminSettingsClient({
                     <Eye className="h-5 w-5" />
                   )}
                 </button>
-
               </div>
 
               <p className="mt-2 text-xs text-slate-400">
                 Minimum 8 characters.
               </p>
-
             </div>
 
-            {/* CONFIRM PASSWORD */}
-
             <div>
-
-              <label className="mb-2 block text-sm font-semibold text-slate-700">
+              <label
+                htmlFor="confirm-password"
+                className="mb-2 block text-sm font-semibold text-slate-700"
+              >
                 Confirm New Password
               </label>
 
               <div className="relative">
-
                 <input
-                  type={
-                    showConfirmPassword
-                      ? 'text'
-                      : 'password'
-                  }
+                  id="confirm-password"
+                  type={showConfirmPassword ? 'text' : 'password'}
                   value={confirmPassword}
                   onChange={(event) =>
-                    setConfirmPassword(
-                      event.target.value
-                    )
+                    setConfirmPassword(event.target.value)
                   }
                   autoComplete="new-password"
+                  minLength={8}
+                  required
                   className={passwordInputClass}
                 />
 
                 <button
                   type="button"
+                  aria-label={
+                    showConfirmPassword
+                      ? 'Hide confirmation password'
+                      : 'Show confirmation password'
+                  }
                   onClick={() =>
-                    setShowConfirmPassword(
-                      (value) => !value
-                    )
+                    setShowConfirmPassword((value) => !value)
                   }
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-brand-green"
                 >
@@ -1028,9 +1007,7 @@ export default function AdminSettingsClient({
                     <Eye className="h-5 w-5" />
                   )}
                 </button>
-
               </div>
-
             </div>
 
           </div>
@@ -1042,7 +1019,6 @@ export default function AdminSettingsClient({
               disabled={passwordSaving}
               className="inline-flex items-center gap-2 rounded-xl bg-brand-green px-5 py-3 text-sm font-semibold text-white transition hover:bg-brand-dark disabled:cursor-not-allowed disabled:opacity-60"
             >
-
               {passwordSaving ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
@@ -1052,7 +1028,6 @@ export default function AdminSettingsClient({
               {passwordSaving
                 ? 'Changing...'
                 : 'Change Password'}
-
             </button>
 
           </div>
@@ -1068,7 +1043,6 @@ export default function AdminSettingsClient({
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-soft">
 
         <div className="border-b border-slate-200 px-6 py-5">
-
           <div className="flex items-center gap-3">
 
             <div className="rounded-xl bg-green-50 p-3">
@@ -1086,7 +1060,6 @@ export default function AdminSettingsClient({
             </div>
 
           </div>
-
         </div>
 
         <div className="p-6">
@@ -1094,25 +1067,20 @@ export default function AdminSettingsClient({
           <div className="grid gap-4 md:grid-cols-3">
 
             <div className="rounded-xl bg-slate-50 p-4">
-
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                 Account Status
               </p>
 
               <div className="mt-2 flex items-center gap-2">
-
                 <CheckCircle2 className="h-5 w-5 text-brand-green" />
 
                 <span className="text-sm font-semibold text-brand-green">
                   Active
                 </span>
-
               </div>
-
             </div>
 
             <div className="rounded-xl bg-slate-50 p-4">
-
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                 Authentication
               </p>
@@ -1120,11 +1088,9 @@ export default function AdminSettingsClient({
               <p className="mt-2 text-sm font-semibold text-slate-700">
                 Secure Session
               </p>
-
             </div>
 
             <div className="rounded-xl bg-slate-50 p-4">
-
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                 Session Cookie
               </p>
@@ -1132,19 +1098,16 @@ export default function AdminSettingsClient({
               <p className="mt-2 text-sm font-semibold text-slate-700">
                 HTTP Only
               </p>
-
             </div>
 
           </div>
 
           <div className="mt-5 rounded-xl border border-blue-100 bg-blue-50 p-4">
-
             <div className="flex items-start gap-3">
 
               <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-blue-600" />
 
               <div>
-
                 <p className="text-sm font-semibold text-blue-900">
                   Administrator security
                 </p>
@@ -1154,23 +1117,24 @@ export default function AdminSettingsClient({
                   using an HTTP-only signed session cookie.
                   Passwords are stored using bcrypt hashing.
                 </p>
-
               </div>
 
             </div>
-
           </div>
 
           <button
             type="button"
-            onClick={loadSettings}
-            className="mt-5 inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            onClick={() => void loadSettings()}
+            disabled={loading}
+            className="mt-5 inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
           >
+            <RefreshCw
+              className={`h-4 w-4 ${
+                loading ? 'animate-spin' : ''
+              }`}
+            />
 
-            <RefreshCw className="h-4 w-4" />
-
-            Refresh Settings
-
+            {loading ? 'Refreshing...' : 'Refresh Settings'}
           </button>
 
         </div>
@@ -1180,4 +1144,3 @@ export default function AdminSettingsClient({
     </div>
   );
 }
-

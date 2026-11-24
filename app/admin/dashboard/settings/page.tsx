@@ -6,16 +6,17 @@ import AdminSettingsClient from './AdminSettingsClient';
 
 export const dynamic = 'force-dynamic';
 
-export default function SettingsPage() {
+export default async function SettingsPage() {
   /* =====================================================
      ADMIN AUTHENTICATION
   ===================================================== */
 
-  const admin = requireAdmin();
+  // Wait for the administrator session to resolve
+  const admin = await requireAdmin();
 
   /*
    * If there is no authenticated administrator,
-   * send the user to the admin login page.
+   * redirect the user to the admin login page.
    */
   if (!admin) {
     redirect('/admin/login');
@@ -75,4 +76,3 @@ export default function SettingsPage() {
     </div>
   );
 }
-

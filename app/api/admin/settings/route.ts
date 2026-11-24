@@ -22,13 +22,13 @@ export async function GET() {
        AUTHENTICATION
     ===================================================== */
 
-    const admin = requireAdmin();
+    const admin = await requireAdmin();
 
     if (!admin) {
       return NextResponse.json(
         {
           success: false,
-          message: 'Unauthorized.',
+          message: 'Unauthorized. Please log in again.',
         },
         { status: 401 }
       );
@@ -61,6 +61,22 @@ export async function GET() {
           message: 'Administrator account not found.',
         },
         { status: 404 }
+      );
+    }
+
+    const databaseAdmin = adminResult.rows[0];
+
+    /* =====================================================
+       CHECK ADMIN ACCOUNT STATUS
+    ===================================================== */
+
+    if (!databaseAdmin.is_active) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: 'This administrator account has been disabled.',
+        },
+        { status: 403 }
       );
     }
 
@@ -128,19 +144,19 @@ export async function GET() {
     }
 
     /* =====================================================
-       RETURN
+       RETURN SETTINGS
     ===================================================== */
 
     return NextResponse.json({
       success: true,
 
       admin: {
-        id: adminResult.rows[0].id,
-        name: adminResult.rows[0].name,
-        email: adminResult.rows[0].email,
-        role: adminResult.rows[0].role,
-        isActive: adminResult.rows[0].is_active,
-        lastLogin: adminResult.rows[0].last_login,
+        id: databaseAdmin.id,
+        name: databaseAdmin.name,
+        email: databaseAdmin.email,
+        role: databaseAdmin.role,
+        isActive: databaseAdmin.is_active,
+        lastLogin: databaseAdmin.last_login,
       },
 
       settings: {
@@ -170,6 +186,11 @@ export async function GET() {
 /* =========================================================
    PUT SETTINGS
    PUT /api/admin/settings
+
+   Supported actions:
+   - profile
+   - password
+   - system
 ========================================================= */
 
 export async function PUT(request: Request) {
@@ -178,23 +199,47 @@ export async function PUT(request: Request) {
        AUTHENTICATION
     ===================================================== */
 
-    const admin = requireAdmin();
+    const admin = await requireAdmin();
 
     if (!admin) {
       return NextResponse.json(
         {
           success: false,
-          message: 'Unauthorized.',
+          message: 'Unauthorized. Please log in again.',
         },
         { status: 401 }
       );
     }
 
     /* =====================================================
-       READ BODY
+       READ REQUEST BODY
     ===================================================== */
 
-    const body = await request.json();
+    let body: {
+      action?: unknown;
+      name?: unknown;
+      email?: unknown;
+      currentPassword?: unknown;
+      newPassword?: unknown;
+      confirmPassword?: unknown;
+      collegeName?: unknown;
+      slogan?: unknown;
+      phone?: unknown;
+      address?: unknown;
+      website?: unknown;
+    };
+
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json(
+        {
+          success: false,
+          message: 'Invalid request body.',
+        },
+        { status: 400 }
+      );
+    }
 
     const action =
       typeof body.action === 'string'
@@ -215,6 +260,10 @@ export async function PUT(request: Request) {
         typeof body.email === 'string'
           ? body.email.trim().toLowerCase()
           : '';
+
+      /* =================================================
+         VALIDATION
+      ================================================= */
 
       if (!name) {
         return NextResponse.json(
@@ -237,7 +286,7 @@ export async function PUT(request: Request) {
       }
 
       /* =================================================
-         CHECK EMAIL
+         CHECK EMAIL DUPLICATION
       ================================================= */
 
       const existingAdmin = await pool.query(
@@ -263,7 +312,7 @@ export async function PUT(request: Request) {
       }
 
       /* =================================================
-         UPDATE ADMIN
+         UPDATE ADMIN PROFILE
       ================================================= */
 
       const result = await pool.query(
@@ -295,10 +344,10 @@ export async function PUT(request: Request) {
       const updatedAdmin = result.rows[0];
 
       /* =================================================
-         REFRESH SESSION
+         REFRESH ADMIN SESSION
       ================================================= */
 
-      createAdminSession({
+      await createAdminSession({
         id: updatedAdmin.id,
         name: updatedAdmin.name,
         email: updatedAdmin.email,
@@ -306,10 +355,20 @@ export async function PUT(request: Request) {
         rememberMe: true,
       });
 
+      /* =================================================
+         SUCCESS
+      ================================================= */
+
       return NextResponse.json({
         success: true,
         message: 'Administrator profile updated successfully.',
-        admin: updatedAdmin,
+
+        admin: {
+          id: updatedAdmin.id,
+          name: updatedAdmin.name,
+          email: updatedAdmin.email,
+          role: updatedAdmin.role,
+        },
       });
     }
 
@@ -332,6 +391,10 @@ export async function PUT(request: Request) {
         typeof body.confirmPassword === 'string'
           ? body.confirmPassword
           : '';
+
+      /* =================================================
+         VALIDATION
+      ================================================= */
 
       if (!currentPassword) {
         return NextResponse.json(
@@ -375,14 +438,15 @@ export async function PUT(request: Request) {
       }
 
       /* =================================================
-         GET CURRENT PASSWORD
+         GET CURRENT ADMIN PASSWORD
       ================================================= */
 
       const adminResult = await pool.query(
         `
         SELECT
           id,
-          password_hash
+          password_hash,
+          is_active
         FROM admin_users
         WHERE id = $1
         LIMIT 1
@@ -400,18 +464,28 @@ export async function PUT(request: Request) {
         );
       }
 
-      const currentHash =
-        adminResult.rows[0].password_hash;
+      const databaseAdmin = adminResult.rows[0];
+
+      if (!databaseAdmin.is_active) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: 'This administrator account has been disabled.',
+          },
+          { status: 403 }
+        );
+      }
+
+      const currentHash = databaseAdmin.password_hash;
 
       /* =================================================
          VERIFY CURRENT PASSWORD
       ================================================= */
 
-      const currentPasswordMatches =
-        await bcrypt.compare(
-          currentPassword,
-          currentHash
-        );
+      const currentPasswordMatches = await bcrypt.compare(
+        currentPassword,
+        currentHash
+      );
 
       if (!currentPasswordMatches) {
         return NextResponse.json(
@@ -424,14 +498,13 @@ export async function PUT(request: Request) {
       }
 
       /* =================================================
-         PREVENT SAME PASSWORD
+         PREVENT REUSING CURRENT PASSWORD
       ================================================= */
 
-      const samePassword =
-        await bcrypt.compare(
-          newPassword,
-          currentHash
-        );
+      const samePassword = await bcrypt.compare(
+        newPassword,
+        currentHash
+      );
 
       if (samePassword) {
         return NextResponse.json(
@@ -448,26 +521,42 @@ export async function PUT(request: Request) {
          HASH NEW PASSWORD
       ================================================= */
 
-      const newPasswordHash =
-        await bcrypt.hash(newPassword, 12);
+      const newPasswordHash = await bcrypt.hash(
+        newPassword,
+        12
+      );
 
       /* =================================================
          UPDATE PASSWORD
       ================================================= */
 
-      await pool.query(
+      const updateResult = await pool.query(
         `
         UPDATE admin_users
         SET password_hash = $1
         WHERE id = $2
+        RETURNING id
         `,
         [newPasswordHash, admin.id]
       );
 
+      if (updateResult.rowCount === 0) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: 'Unable to update administrator password.',
+          },
+          { status: 500 }
+        );
+      }
+
+      /* =================================================
+         SUCCESS
+      ================================================= */
+
       return NextResponse.json({
         success: true,
-        message:
-          'Password changed successfully.',
+        message: 'Password changed successfully.',
       });
     }
 
@@ -506,6 +595,10 @@ export async function PUT(request: Request) {
           ? body.website.trim()
           : '';
 
+      /* =================================================
+         VALIDATION
+      ================================================= */
+
       if (!collegeName) {
         return NextResponse.json(
           {
@@ -525,6 +618,10 @@ export async function PUT(request: Request) {
           { status: 400 }
         );
       }
+
+      /* =================================================
+         INSERT OR UPDATE SYSTEM SETTINGS
+      ================================================= */
 
       const result = await pool.query(
         `
@@ -579,10 +676,13 @@ export async function PUT(request: Request) {
 
       const settings = result.rows[0];
 
+      /* =================================================
+         SUCCESS
+      ================================================= */
+
       return NextResponse.json({
         success: true,
-        message:
-          'System settings updated successfully.',
+        message: 'System settings updated successfully.',
 
         settings: {
           id: settings.id,
@@ -614,11 +714,9 @@ export async function PUT(request: Request) {
     return NextResponse.json(
       {
         success: false,
-        message:
-          'Unable to save settings. Please try again.',
+        message: 'Unable to save settings. Please try again.',
       },
       { status: 500 }
     );
   }
 }
-

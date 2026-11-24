@@ -7,9 +7,16 @@ import { requireAdmin } from '@/lib/admin-auth';
 import { linkApplicationsToParent } from '@/lib/parent-student-linking';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 type UserRole = 'lecturer' | 'parent';
 type UserStatus = 'active' | 'inactive';
+
+type RouteContext = {
+  params: Promise<{
+    id: string;
+  }>;
+};
 
 function cleanString(value: unknown): string {
   return String(value || '').trim();
@@ -54,14 +61,14 @@ function normalizeProgramIds(value: unknown): number[] {
 
 export async function GET(
   request: Request,
-  context: {
-    params: Promise<{
-      id: string;
-    }>;
-  }
+  context: RouteContext
 ) {
   try {
-    const admin = requireAdmin();
+    /* =====================================================
+       AUTHENTICATION
+    ===================================================== */
+
+    const admin = await requireAdmin();
 
     if (!admin) {
       return NextResponse.json(
@@ -72,6 +79,10 @@ export async function GET(
         { status: 401 }
       );
     }
+
+    /* =====================================================
+       GET USER ID
+    ===================================================== */
 
     const { id } = await context.params;
     const userId = Number(id);
@@ -85,6 +96,10 @@ export async function GET(
         { status: 400 }
       );
     }
+
+    /* =====================================================
+       GET USER DETAILS
+    ===================================================== */
 
     const result = await pool.query(
       `
@@ -176,18 +191,18 @@ export async function GET(
 
 export async function PATCH(
   request: Request,
-  context: {
-    params: Promise<{
-      id: string;
-    }>;
-  }
+  context: RouteContext
 ) {
   const client = await pool.connect();
 
   let transactionStarted = false;
 
   try {
-    const admin = requireAdmin();
+    /* =====================================================
+       AUTHENTICATION
+    ===================================================== */
+
+    const admin = await requireAdmin();
 
     if (!admin) {
       return NextResponse.json(
@@ -198,6 +213,10 @@ export async function PATCH(
         { status: 401 }
       );
     }
+
+    /* =====================================================
+       GET USER ID
+    ===================================================== */
 
     const { id } = await context.params;
     const userId = Number(id);
@@ -211,6 +230,10 @@ export async function PATCH(
         { status: 400 }
       );
     }
+
+    /* =====================================================
+       READ REQUEST BODY
+    ===================================================== */
 
     let body: any;
 
@@ -350,7 +373,7 @@ export async function PATCH(
     }
 
     /* =====================================================
-       VALIDATE PROGRAMS
+       VALIDATE SELECTED PROGRAMS
     ===================================================== */
 
     if (role === 'lecturer' && programIds.length > 0) {
@@ -393,7 +416,6 @@ export async function PATCH(
       userResult = await client.query(
         `
           UPDATE users
-
           SET
             name = $1,
             email = $2,
@@ -402,9 +424,7 @@ export async function PATCH(
             role = $5,
             active = $6,
             updated_at = CURRENT_TIMESTAMP
-
           WHERE id = $7
-
           RETURNING
             id,
             name,
@@ -429,7 +449,6 @@ export async function PATCH(
       userResult = await client.query(
         `
           UPDATE users
-
           SET
             name = $1,
             email = $2,
@@ -437,9 +456,7 @@ export async function PATCH(
             role = $4,
             active = $5,
             updated_at = CURRENT_TIMESTAMP
-
           WHERE id = $6
-
           RETURNING
             id,
             name,
@@ -462,6 +479,10 @@ export async function PATCH(
     }
 
     const user = userResult.rows[0];
+
+    if (!user) {
+      throw new Error('User update failed.');
+    }
 
     /* =====================================================
        REMOVE OLD COURSE ASSIGNMENTS
@@ -501,9 +522,6 @@ export async function PATCH(
 
        Reconcile existing applications using the updated
        parent's email and phone details.
-
-       This also handles a lecturer account being changed
-       into a parent account.
     ===================================================== */
 
     let linkedApplicationIds: number[] = [];
@@ -524,9 +542,17 @@ export async function PATCH(
     await client.query('COMMIT');
     transactionStarted = false;
 
+    /* =====================================================
+       LOG UPDATE
+    ===================================================== */
+
     console.log(
       `Admin ${admin.email} updated LMS user #${userId} with ${programIds.length} course assignment(s) and ${linkedApplicationIds.length} new parent-student link(s).`
     );
+
+    /* =====================================================
+       SUCCESS RESPONSE
+    ===================================================== */
 
     return NextResponse.json({
       success: true,
@@ -545,12 +571,19 @@ export async function PATCH(
         application_ids: linkedApplicationIds,
       },
     });
-  } catch (error: any) {
+  } catch (error) {
+    /* =====================================================
+       ROLLBACK TRANSACTION
+    ===================================================== */
+
     if (transactionStarted) {
       try {
         await client.query('ROLLBACK');
-      } catch {
-        // Ignore rollback errors.
+      } catch (rollbackError) {
+        console.error(
+          'ROLLBACK LMS USER UPDATE ERROR:',
+          rollbackError
+        );
       }
     }
 
@@ -578,14 +611,14 @@ export async function PATCH(
 
 export async function DELETE(
   request: Request,
-  context: {
-    params: Promise<{
-      id: string;
-    }>;
-  }
+  context: RouteContext
 ) {
   try {
-    const admin = requireAdmin();
+    /* =====================================================
+       AUTHENTICATION
+    ===================================================== */
+
+    const admin = await requireAdmin();
 
     if (!admin) {
       return NextResponse.json(
@@ -596,6 +629,10 @@ export async function DELETE(
         { status: 401 }
       );
     }
+
+    /* =====================================================
+       GET USER ID
+    ===================================================== */
 
     const { id } = await context.params;
     const userId = Number(id);
@@ -609,6 +646,10 @@ export async function DELETE(
         { status: 400 }
       );
     }
+
+    /* =====================================================
+       DELETE USER
+    ===================================================== */
 
     const result = await pool.query(
       `
@@ -633,9 +674,17 @@ export async function DELETE(
       );
     }
 
+    /* =====================================================
+       LOG DELETION
+    ===================================================== */
+
     console.log(
       `Admin ${admin.email} deleted LMS user #${userId}.`
     );
+
+    /* =====================================================
+       SUCCESS RESPONSE
+    ===================================================== */
 
     return NextResponse.json({
       success: true,

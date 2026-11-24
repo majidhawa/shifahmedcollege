@@ -4,7 +4,13 @@ import { NextResponse } from 'next/server';
 import pool from '@/lib/db';
 import { requireLecturer } from '@/lib/lecturer-auth';
 
+/* =========================================================
+   ROUTE CONFIGURATION
+========================================================= */
+
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 /* =========================================================
    GET /api/lecturer/students
@@ -33,7 +39,7 @@ export const runtime = 'nodejs';
 export async function GET() {
   try {
     /* =====================================================
-       GET CURRENT LECTURER
+       1. GET CURRENT LECTURER
     ===================================================== */
 
     const lecturer = await requireLecturer();
@@ -51,7 +57,7 @@ export async function GET() {
     }
 
     /* =====================================================
-       VERIFY LECTURER ACCOUNT
+       2. VERIFY LECTURER ACCOUNT
     ===================================================== */
 
     const lecturerResult = await pool.query(
@@ -76,8 +82,7 @@ export async function GET() {
       return NextResponse.json(
         {
           success: false,
-          message:
-            'Lecturer account was not found or is inactive.',
+          message: 'Lecturer account was not found or is inactive.',
         },
         {
           status: 401,
@@ -88,7 +93,7 @@ export async function GET() {
     const currentLecturer = lecturerResult.rows[0];
 
     /* =====================================================
-       GET STUDENTS
+       3. GET STUDENTS ASSIGNED TO LECTURER'S PROGRAMS
 
        Lecturer
           ↓
@@ -100,77 +105,42 @@ export async function GET() {
           ↓
        Admissions
 
-       IMPORTANT:
-
-       Student phone and email are stored in applications:
-
-       applications.mobile
-       applications.email
-
-       We therefore JOIN applications using:
-
-       applications.id = lms_enrollments.application_id
+       Contact details come from applications.
     ===================================================== */
 
     const studentsResult = await pool.query(
       `
         SELECT DISTINCT
-          /* =========================
-             APPLICATION
-          ========================= */
 
+          /* APPLICATION */
           app.id AS application_id,
-
           app.application_number,
-
           app.first_name,
           app.middle_name,
           app.surname,
-
           app.mobile AS student_phone,
           app.email AS student_email,
-
           app.course AS application_course,
           app.intake,
 
-          /* =========================
-             ADMISSION
-          ========================= */
-
+          /* ADMISSION */
           a.id AS admission_id,
-
           a.student_name,
-
           a.admission_number,
-
           a.admission_date,
-
           a.admission_status,
 
-          /* =========================
-             ENROLLMENT
-          ========================= */
-
+          /* ENROLLMENT */
           e.id AS enrollment_id,
-
           e.student_number,
-
           e.year_of_study,
-
           e.enrollment_status,
-
           e.enrolled_at,
 
-          /* =========================
-             PROGRAM
-          ========================= */
-
+          /* PROGRAM */
           p.id AS program_id,
-
           p.name AS program_name,
-
           p.code AS program_code,
-
           p.level AS program_level
 
         FROM lms_lecturer_programs lp
@@ -189,171 +159,101 @@ export async function GET() {
 
         WHERE lp.lecturer_id = $1
 
-        ORDER BY
-          a.student_name ASC
+        ORDER BY a.student_name ASC
       `,
       [currentLecturer.id]
     );
 
     /* =====================================================
-       FORMAT STUDENTS
+       4. FORMAT STUDENTS
     ===================================================== */
 
-    const students = studentsResult.rows.map(
-      (student) => {
-        /* -----------------------------------------------
-           BUILD STUDENT NAME
+    const students = studentsResult.rows.map((student) => {
+      /* BUILD STUDENT NAME */
 
-           Prefer the structured application names.
-        ------------------------------------------------ */
+      const fullName =
+        [
+          student.first_name,
+          student.middle_name,
+          student.surname,
+        ]
+          .filter(
+            (name) =>
+              name !== null &&
+              name !== undefined &&
+              String(name).trim() !== ''
+          )
+          .join(' ') ||
+        student.student_name ||
+        'Student';
 
-        const fullName =
-          [
-            student.first_name,
-            student.middle_name,
-            student.surname,
-          ]
-            .filter(
-              (name) =>
-                name !== null &&
-                name !== undefined &&
-                String(name).trim() !== ''
-            )
-            .join(' ') ||
-          student.student_name ||
-          'Student';
+      /* ADMISSION NUMBER FALLBACK
 
-        /* -----------------------------------------------
-           ADMISSION NUMBER
+         Priority:
+         1. admissions.admission_number
+         2. enrollment.student_number
+         3. applications.application_number
+      */
 
-           Priority:
+      const admissionNumber =
+        student.admission_number ||
+        student.student_number ||
+        student.application_number ||
+        null;
 
-           1. admissions.admission_number
-           2. enrollment.student_number
-           3. applications.application_number
-        ------------------------------------------------ */
+      return {
+        /* FRONTEND ID */
+        id: student.enrollment_id,
 
-        const admissionNumber =
-          student.admission_number ||
-          student.student_number ||
-          student.application_number ||
-          null;
+        /* STUDENT */
+        name: fullName,
+        admission_number: admissionNumber,
 
-        return {
-          /* =========================
-             FRONTEND ID
-          ========================= */
+        /* CONTACT */
+        email: student.student_email || null,
+        phone: student.student_phone || null,
 
-          id: student.enrollment_id,
+        /* COURSE */
+        course:
+          student.program_name ||
+          student.application_course ||
+          null,
 
-          /* =========================
-             STUDENT
-          ========================= */
+        /* STATUS */
+        status:
+          student.enrollment_status ||
+          student.admission_status ||
+          'Active',
 
-          name: fullName,
+        /* APPLICATION */
+        application_id: student.application_id,
+        application_number: student.application_number,
 
-          admission_number:
-            admissionNumber,
+        /* ENROLLMENT */
+        enrollment_id: student.enrollment_id,
+        student_number: student.student_number,
+        year_of_study: student.year_of_study,
+        enrollment_status: student.enrollment_status,
+        enrolled_at: student.enrolled_at,
 
-          /* =========================
-             CONTACT
+        /* ADMISSION */
+        admission_id: student.admission_id,
+        intake: student.intake,
+        admission_date: student.admission_date,
+        admission_status: student.admission_status,
 
-             THESE ARE NOW REAL VALUES
-             FROM applications.
-          ========================= */
-
-          email:
-            student.student_email || null,
-
-          phone:
-            student.student_phone || null,
-
-          /* =========================
-             COURSE
-          ========================= */
-
-          course:
-            student.program_name ||
-            student.application_course ||
-            null,
-
-          /* =========================
-             STATUS
-          ========================= */
-
-          status:
-            student.enrollment_status ||
-            student.admission_status ||
-            'Active',
-
-          /* =========================
-             APPLICATION
-          ========================= */
-
-          application_id:
-            student.application_id,
-
-          application_number:
-            student.application_number,
-
-          /* =========================
-             ENROLLMENT
-          ========================= */
-
-          enrollment_id:
-            student.enrollment_id,
-
-          student_number:
-            student.student_number,
-
-          year_of_study:
-            student.year_of_study,
-
-          enrollment_status:
-            student.enrollment_status,
-
-          enrolled_at:
-            student.enrolled_at,
-
-          /* =========================
-             ADMISSION
-          ========================= */
-
-          admission_id:
-            student.admission_id,
-
-          intake:
-            student.intake,
-
-          admission_date:
-            student.admission_date,
-
-          admission_status:
-            student.admission_status,
-
-          /* =========================
-             PROGRAM
-          ========================= */
-
-          program: {
-            id:
-              student.program_id,
-
-            name:
-              student.program_name,
-
-            code:
-              student.program_code,
-
-            level:
-              student.program_level,
-          },
-        };
-      }
-    );
+        /* PROGRAM */
+        program: {
+          id: student.program_id,
+          name: student.program_name,
+          code: student.program_code,
+          level: student.program_level,
+        },
+      };
+    });
 
     /* =====================================================
-       RESPONSE
+       5. RETURN RESPONSE
     ===================================================== */
 
     return NextResponse.json(
@@ -369,7 +269,6 @@ export async function GET() {
         },
 
         students,
-
         count: students.length,
       },
       {
@@ -377,6 +276,10 @@ export async function GET() {
       }
     );
   } catch (error) {
+    /* =====================================================
+       ERROR HANDLING
+    ===================================================== */
+
     console.error(
       'GET LECTURER STUDENTS ERROR:',
       error
@@ -396,4 +299,3 @@ export async function GET() {
     );
   }
 }
-

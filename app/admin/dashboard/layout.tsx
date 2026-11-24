@@ -5,12 +5,12 @@ import AdminHeader from '@/components/admin/AdminHeader';
 import AdminSidebar from '@/components/admin/AdminSidebar';
 import { requireAdmin } from '@/lib/admin-auth';
 
-export default function AdminDashboardLayout({
+export default async function AdminDashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const admin = requireAdmin();
+  const admin = await requireAdmin();
 
   if (!admin) {
     redirect('/admin/login');
@@ -45,4 +45,3 @@ export default function AdminDashboardLayout({
     </div>
   );
 }
-

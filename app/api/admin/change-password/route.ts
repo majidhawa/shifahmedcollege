@@ -1,3 +1,4 @@
+
 import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 
@@ -7,8 +8,12 @@ import {
   clearAdminSession,
 } from '@/lib/admin-auth';
 
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
 /* =========================================================
    POST /api/admin/change-password
+   Change the currently authenticated administrator's password
 ========================================================= */
 
 export async function POST(request: Request) {
@@ -17,23 +22,40 @@ export async function POST(request: Request) {
        GET CURRENT ADMIN SESSION
     ===================================================== */
 
-    const admin = getAdminSession();
+    const admin = await getAdminSession();
 
     if (!admin) {
       return NextResponse.json(
         {
           success: false,
-          message: 'Your admin session has expired. Please log in again.',
+          message:
+            'Your admin session has expired. Please log in again.',
         },
         { status: 401 }
       );
     }
 
     /* =====================================================
-       READ REQUEST
+       READ REQUEST BODY
     ===================================================== */
 
-    const body = await request.json();
+    let body: {
+      currentPassword?: unknown;
+      newPassword?: unknown;
+      confirmPassword?: unknown;
+    };
+
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json(
+        {
+          success: false,
+          message: 'Invalid request body.',
+        },
+        { status: 400 }
+      );
+    }
 
     const currentPassword =
       typeof body.currentPassword === 'string'
@@ -154,18 +176,16 @@ export async function POST(request: Request) {
        VERIFY CURRENT PASSWORD
     ===================================================== */
 
-    const currentPasswordMatches =
-      await bcrypt.compare(
-        currentPassword,
-        databaseAdmin.password_hash
-      );
+    const currentPasswordMatches = await bcrypt.compare(
+      currentPassword,
+      databaseAdmin.password_hash
+    );
 
     if (!currentPasswordMatches) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            'Your current password is incorrect.',
+          message: 'Your current password is incorrect.',
         },
         { status: 401 }
       );
@@ -175,28 +195,38 @@ export async function POST(request: Request) {
        HASH NEW PASSWORD
     ===================================================== */
 
-    const newPasswordHash =
-      await bcrypt.hash(
-        newPassword,
-        12
-      );
+    const newPasswordHash = await bcrypt.hash(
+      newPassword,
+      12
+    );
 
     /* =====================================================
        UPDATE PASSWORD
     ===================================================== */
 
-    await pool.query(
+    const updateResult = await pool.query(
       `
       UPDATE admin_users
-      SET
-        password_hash = $1
+      SET password_hash = $1
       WHERE id = $2
+      RETURNING id
       `,
       [
         newPasswordHash,
         admin.id,
       ]
     );
+
+    if (updateResult.rowCount === 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            'Password could not be updated. Please try again.',
+        },
+        { status: 500 }
+      );
+    }
 
     /* =====================================================
        SECURITY
@@ -214,7 +244,6 @@ export async function POST(request: Request) {
       message:
         'Password changed successfully. Please log in again.',
     });
-
   } catch (error) {
     console.error(
       'Admin password change error:',
