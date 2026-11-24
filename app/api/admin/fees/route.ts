@@ -1,4 +1,3 @@
-
 import { NextRequest, NextResponse } from 'next/server';
 import { randomBytes } from 'crypto';
 import type { PoolClient } from 'pg';
@@ -9,7 +8,17 @@ import { requireAdmin } from '@/lib/admin-auth';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-type Component = 'TUITION' | 'ADMIN' | 'PROGRAMME';
+/* =========================================================
+   TYPES AND CONFIGURATION
+========================================================= */
+
+type Component =
+  | 'TUITION'
+  | 'ADMIN'
+  | 'PROGRAMME'
+  | 'UNIFORM'
+  | 'SCRUB';
+
 type Method = 'Bank' | 'M-Pesa';
 
 const YEAR = '2026/2027';
@@ -18,6 +27,8 @@ const VALID_COMPONENTS: Component[] = [
   'TUITION',
   'ADMIN',
   'PROGRAMME',
+  'UNIFORM',
+  'SCRUB',
 ];
 
 const VALID_METHODS: Method[] = ['Bank', 'M-Pesa'];
@@ -28,6 +39,10 @@ const VALID_ACADEMIC_STATUSES = [
   'SUSPENDED',
   'WITHDRAWN',
 ] as const;
+
+/* =========================================================
+   COMMON HELPERS
+========================================================= */
 
 function authError() {
   if (!requireAdmin()) {
@@ -67,9 +82,8 @@ function validDate(value: unknown): string | null {
  * $1 = Academic year
  * $2 = Course name
  *
- * IMPORTANT:
- * This query is standalone. It must not reference
- * aliases such as a.course or ad.course.
+ * This query is standalone and must not reference
+ * aliases from another SQL query.
  */
 function courseMatchSql() {
   return `
@@ -116,19 +130,114 @@ function totalProgrammeFee(fee: {
   return totalTuition + admin;
 }
 
-function rollbackResponse(
+/**
+ * Get the allocation limit for a payment category.
+ *
+ * UNIFORM and SCRUB use the amounts selected for the
+ * individual student in student_fee_accounts.
+ */
+function getAllocationLimit(
+  component: Component,
+  amounts: {
+    tuition: number;
+    admin: number;
+    uniform: number;
+    scrub: number;
+  },
+) {
+  switch (component) {
+    case 'ADMIN':
+      return amounts.admin;
+
+    case 'PROGRAMME':
+    case 'TUITION':
+      return amounts.tuition;
+
+    case 'UNIFORM':
+      return amounts.uniform;
+
+    case 'SCRUB':
+      return amounts.scrub;
+
+    default:
+      return 0;
+  }
+}
+
+/**
+ * Validate whether the selected category is available
+ * for the student and programme.
+ */
+function validatePaymentCategory(
+  component: Component,
+  fee: {
+    billing_type: string;
+    total_terms: number;
+  },
+  amounts: {
+    admin: number;
+    uniform: number;
+    scrub: number;
+  },
+  termNumber: number | null,
+): string | null {
+  if (component === 'ADMIN' && amounts.admin <= 0) {
+    return 'This programme does not have an administrative charge.';
+  }
+
+  if (
+    component === 'PROGRAMME' &&
+    fee.billing_type !== 'ONE_TIME'
+  ) {
+    return 'This course is billed by academic term, not as a one-time programme.';
+  }
+
+  if (
+    component === 'TUITION' &&
+    fee.billing_type !== 'PER_TERM'
+  ) {
+    return 'This course uses a one-time programme tuition fee. Select Programme instead.';
+  }
+
+  if (
+    component === 'TUITION' &&
+    (
+      termNumber === null ||
+      !Number.isInteger(termNumber) ||
+      termNumber < 1 ||
+      termNumber > Number(fee.total_terms)
+    )
+  ) {
+    return `Select a valid term between 1 and ${fee.total_terms}.`;
+  }
+
+  if (component === 'UNIFORM' && amounts.uniform <= 0) {
+    return 'Uniform has not been selected or added to this student’s charges.';
+  }
+
+  if (component === 'SCRUB' && amounts.scrub <= 0) {
+    return 'Scrub has not been selected or added to this student’s charges.';
+  }
+
+  return null;
+}
+
+/**
+ * Roll back a transaction and return a JSON error response.
+ */
+async function rollbackResponse(
   client: PoolClient,
   message: string,
   status = 400,
 ) {
-  return client.query('ROLLBACK').then(() =>
-    NextResponse.json(
-      {
-        success: false,
-        message,
-      },
-      { status },
-    ),
+  await client.query('ROLLBACK');
+
+  return NextResponse.json(
+    {
+      success: false,
+      message,
+    },
+    { status },
   );
 }
 
@@ -179,16 +288,21 @@ export async function GET() {
         fee.admin_charge,
         fee.total_terms,
         fee.terms_per_year,
+
         COALESCE(fa.application_fee, 1500) AS application_fee,
         COALESCE(fa.application_fee_paid, 1500) AS application_fee_paid,
+
         COALESCE(fa.uniform_fee, 0) AS uniform_fee,
         COALESCE(fa.scrub_fee, 0) AS scrub_fee,
 
         (
           CASE
-            WHEN fee.id IS NULL THEN COALESCE(fa.total_fee, 0)
+            WHEN fee.id IS NULL
+              THEN COALESCE(fa.total_fee, 0)
+
             WHEN fee.billing_type = 'PER_TERM'
               THEN (fee.tuition_fee * fee.total_terms) + fee.admin_charge
+
             ELSE fee.tuition_fee + fee.admin_charge
           END
           + COALESCE(fa.application_fee, 1500)
@@ -199,13 +313,22 @@ export async function GET() {
         COALESCE(paid.tuition_paid, 0) AS tuition_paid,
         COALESCE(paid.admin_paid, 0) AS admin_paid,
         COALESCE(paid.programme_paid, 0) AS programme_paid,
-        (COALESCE(paid.total_paid, 0) + COALESCE(fa.application_fee_paid, 1500)) AS total_paid,
+        COALESCE(paid.uniform_paid, 0) AS uniform_paid,
+        COALESCE(paid.scrub_paid, 0) AS scrub_paid,
+
+        (
+          COALESCE(paid.total_paid, 0)
+          + COALESCE(fa.application_fee_paid, 1500)
+        ) AS total_paid,
 
         GREATEST(
           CASE
-            WHEN fee.id IS NULL THEN COALESCE(fa.total_fee, 0)
+            WHEN fee.id IS NULL
+              THEN COALESCE(fa.total_fee, 0)
+
             WHEN fee.billing_type = 'PER_TERM'
               THEN (fee.tuition_fee * fee.total_terms) + fee.admin_charge
+
             ELSE fee.tuition_fee + fee.admin_charge
           END
           + COALESCE(fa.application_fee, 1500)
@@ -260,10 +383,7 @@ export async function GET() {
         ON fa.application_id = a.id
 
       /**
-       * Course fee lookup.
-       *
-       * The aliases ad and a are valid here because
-       * they are defined in the outer query.
+       * COURSE FEE STRUCTURE
        */
       LEFT JOIN LATERAL (
         SELECT cfs.*
@@ -299,6 +419,8 @@ export async function GET() {
 
       /**
        * PAYMENT TOTALS
+       *
+       * Each payment category is calculated separately.
        */
       LEFT JOIN LATERAL (
         SELECT
@@ -322,6 +444,20 @@ export async function GET() {
             ),
             0
           ) AS programme_paid,
+
+          COALESCE(
+            SUM(amount_paid) FILTER (
+              WHERE payment_component = 'UNIFORM'
+            ),
+            0
+          ) AS uniform_paid,
+
+          COALESCE(
+            SUM(amount_paid) FILTER (
+              WHERE payment_component = 'SCRUB'
+            ),
+            0
+          ) AS scrub_paid,
 
           COALESCE(
             SUM(amount_paid),
@@ -441,17 +577,39 @@ export async function GET() {
      */
     const totalsResult = await pool.query(`
       SELECT
-        (SELECT COUNT(*)::INTEGER FROM student_fee_payments) AS transactions,
         (
-          COALESCE((SELECT SUM(amount_paid) FROM student_fee_payments), 0)
-          + COALESCE((
-            SELECT SUM(COALESCE(fa.application_fee_paid, 1500))
-            FROM admissions ad
-            INNER JOIN applications a ON a.id = ad.application_id
-            LEFT JOIN student_fee_accounts fa ON fa.application_id = a.id
-            WHERE ad.admission_number IS NOT NULL
-              AND BTRIM(ad.admission_number) <> ''
-          ), 0)
+          SELECT COUNT(*)::INTEGER
+          FROM student_fee_payments
+        ) AS transactions,
+
+        (
+          COALESCE(
+            (
+              SELECT SUM(amount_paid)
+              FROM student_fee_payments
+            ),
+            0
+          )
+          +
+          COALESCE(
+            (
+              SELECT SUM(
+                COALESCE(fa.application_fee_paid, 1500)
+              )
+              FROM admissions ad
+
+              INNER JOIN applications a
+                ON a.id = ad.application_id
+
+              LEFT JOIN student_fee_accounts fa
+                ON fa.application_id = a.id
+
+              WHERE
+                ad.admission_number IS NOT NULL
+                AND BTRIM(ad.admission_number) <> ''
+            ),
+            0
+          )
         ) AS total_collected
     `);
 
@@ -465,9 +623,12 @@ export async function GET() {
           SUM(
             (
               CASE
-                WHEN fee.id IS NULL THEN COALESCE(fa.total_fee, 0)
+                WHEN fee.id IS NULL
+                  THEN COALESCE(fa.total_fee, 0)
+
                 WHEN fee.billing_type = 'PER_TERM'
                   THEN (fee.tuition_fee * fee.total_terms) + fee.admin_charge
+
                 ELSE fee.tuition_fee + fee.admin_charge
               END
               + COALESCE(fa.application_fee, 1500)
@@ -534,15 +695,15 @@ export async function GET() {
 
       summary: {
         transactions: Number(
-          totalsResult.rows[0]?.transactions || 0
+          totalsResult.rows[0]?.transactions || 0,
         ),
 
         total_collected: Number(
-          totalsResult.rows[0]?.total_collected || 0
+          totalsResult.rows[0]?.total_collected || 0,
         ),
 
         total_billed: Number(
-          billedResult.rows[0]?.total_billed || 0
+          billedResult.rows[0]?.total_billed || 0,
         ),
       },
     });
@@ -588,16 +749,15 @@ export async function POST(request: NextRequest) {
         : Number(body.termNumber);
 
     const reference = String(
-      body.referenceCode || ''
+      body.referenceCode || '',
     )
       .trim()
       .toUpperCase();
 
     const paidDate = validDate(body.paymentDate);
 
-    /**
-     * VALIDATION
-     */
+    /* ---------------- VALIDATION ---------------- */
+
     if (
       !Number.isInteger(applicationId) ||
       applicationId <= 0
@@ -697,9 +857,8 @@ export async function POST(request: NextRequest) {
     await client.query('BEGIN');
     begun = true;
 
-    /**
-     * LOCK AND FIND STUDENT
-     */
+    /* ---------------- FIND AND LOCK STUDENT ---------------- */
+
     const studentResult = await client.query(
       `
       SELECT
@@ -750,16 +909,8 @@ export async function POST(request: NextRequest) {
 
     const student = studentResult.rows[0];
 
-    /**
-     * IMPORTANT FIX:
-     *
-     * Use the standalone courseMatchSql() function.
-     * Do not reference ad.course or a.course here,
-     * because those aliases are not part of this query.
-     *
-     * $1 = academic year
-     * $2 = student's course name
-     */
+    /* ---------------- COURSE FEE STRUCTURE ---------------- */
+
     const feeResult = await client.query(
       courseMatchSql(),
       [
@@ -787,7 +938,9 @@ export async function POST(request: NextRequest) {
       !Number.isFinite(tuition) ||
       tuition < 0 ||
       !Number.isFinite(admin) ||
-      admin < 0
+      admin < 0 ||
+      !Number.isFinite(totalTerms) ||
+      totalTerms < 0
     ) {
       return await rollbackResponse(
         client,
@@ -795,58 +948,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    /**
-     * PAYMENT CATEGORY VALIDATION
-     */
-
-    // Administrative charges are payable once.
-    if (component === 'ADMIN' && admin <= 0) {
-      return await rollbackResponse(
-        client,
-        'This programme does not have an administrative charge.',
-      );
-    }
-
-    // PROGRAMME is only for one-time tuition.
-    if (
-      component === 'PROGRAMME' &&
-      fee.billing_type !== 'ONE_TIME'
-    ) {
-      return await rollbackResponse(
-        client,
-        'This course is billed by academic term, not as a one-time programme.',
-      );
-    }
-
-    // TUITION is only for term-based programmes.
-    if (
-      component === 'TUITION' &&
-      fee.billing_type !== 'PER_TERM'
-    ) {
-      return await rollbackResponse(
-        client,
-        'This course uses a one-time programme tuition fee. Select Programme instead.',
-      );
-    }
-
-    // Validate term number.
-    if (
-      component === 'TUITION' &&
-      (
-        !Number.isInteger(termNumber) ||
-        termNumber === null ||
-        termNumber < 1 ||
-        termNumber > totalTerms
-      )
-    ) {
-      return await rollbackResponse(
-        client,
-        `Select a valid term between 1 and ${totalTerms}.`,
-      );
-    }
+    /* ---------------- CREATE OR UPDATE FEE ACCOUNT ---------------- */
 
     /**
-     * CREATE OR UPDATE STUDENT FEE ACCOUNT
+     * IMPORTANT:
+     * Do not overwrite uniform_fee or scrub_fee here.
+     * Those amounts are selected separately for each student.
      */
     const accountResult = await client.query(
       `
@@ -865,7 +972,10 @@ export async function POST(request: NextRequest) {
         course_fee_structure_id = EXCLUDED.course_fee_structure_id,
         updated_at = NOW()
 
-      RETURNING id
+      RETURNING
+        id,
+        COALESCE(uniform_fee, 0) AS uniform_fee,
+        COALESCE(scrub_fee, 0) AS scrub_fee
       `,
       [
         applicationId,
@@ -874,19 +984,49 @@ export async function POST(request: NextRequest) {
       ],
     );
 
-    const accountId = accountResult.rows[0].id;
+    const account = accountResult.rows[0];
+    const accountId = account.id;
+
+    const uniformFee = Number(account.uniform_fee || 0);
+    const scrubFee = Number(account.scrub_fee || 0);
+
+    /* ---------------- CATEGORY VALIDATION ---------------- */
+
+    const categoryError = validatePaymentCategory(
+      component,
+      fee,
+      {
+        admin,
+        uniform: uniformFee,
+        scrub: scrubFee,
+      },
+      termNumber,
+    );
+
+    if (categoryError) {
+      return await rollbackResponse(
+        client,
+        categoryError,
+      );
+    }
+
+    /* ---------------- CHECK EXISTING ALLOCATION ---------------- */
 
     /**
-     * CHECK EXISTING ALLOCATION
-     *
      * ADMIN:
-     * One administrative allocation for the entire course.
+     * One administrative allocation for the programme.
      *
      * PROGRAMME:
-     * One programme tuition allocation.
+     * One allocation for one-time programme tuition.
      *
      * TUITION:
      * Separate allocation for each academic term.
+     *
+     * UNIFORM:
+     * One allocation for the selected uniform charge.
+     *
+     * SCRUB:
+     * One allocation for the selected scrub charge.
      */
     const allocationResult = await client.query(
       `
@@ -924,21 +1064,20 @@ export async function POST(request: NextRequest) {
     );
 
     const alreadyAllocated = Number(
-      allocationResult.rows[0]?.paid || 0
+      allocationResult.rows[0]?.paid || 0,
     );
 
-    /**
-     * DETERMINE PAYMENT LIMIT
-     */
-    let allocationLimit = 0;
+    /* ---------------- DETERMINE PAYMENT LIMIT ---------------- */
 
-    if (component === 'ADMIN') {
-      allocationLimit = admin;
-    } else if (component === 'PROGRAMME') {
-      allocationLimit = tuition;
-    } else {
-      allocationLimit = tuition;
-    }
+    const allocationLimit = getAllocationLimit(
+      component,
+      {
+        tuition,
+        admin,
+        uniform: uniformFee,
+        scrub: scrubFee,
+      },
+    );
 
     const remaining = Math.max(
       allocationLimit - alreadyAllocated,
@@ -952,17 +1091,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    /**
-     * GENERATE RECEIPT NUMBER
-     */
+    /* ---------------- GENERATE RECEIPT NUMBER ---------------- */
+
     const receiptNumber =
       `SMTC-FEE-${Date.now()}-${randomBytes(3)
         .toString('hex')
         .toUpperCase()}`;
 
-    /**
-     * RECORD PAYMENT
-     */
+    /* ---------------- RECORD PAYMENT ---------------- */
+
     const paymentResult = await client.query(
       `
       INSERT INTO student_fee_payments (
@@ -1015,9 +1152,8 @@ export async function POST(request: NextRequest) {
       ],
     );
 
-    /**
-     * COMMIT TRANSACTION
-     */
+    /* ---------------- COMMIT ---------------- */
+
     await client.query('COMMIT');
     begun = false;
 
@@ -1109,7 +1245,7 @@ export async function PATCH(request: NextRequest) {
     const progress = Number(body.progressPercent);
 
     const status = String(
-      body.status || 'IN_PROGRESS'
+      body.status || 'IN_PROGRESS',
     );
 
     const startDate = body.courseStartDate
@@ -1120,9 +1256,8 @@ export async function PATCH(request: NextRequest) {
       ? validDate(body.expectedCompletionDate)
       : null;
 
-    /**
-     * VALIDATION
-     */
+    /* ---------------- VALIDATION ---------------- */
+
     if (
       !Number.isInteger(applicationId) ||
       applicationId <= 0
@@ -1167,7 +1302,7 @@ export async function PATCH(request: NextRequest) {
 
     if (
       !VALID_ACADEMIC_STATUSES.includes(
-        status as (typeof VALID_ACADEMIC_STATUSES)[number]
+        status as (typeof VALID_ACADEMIC_STATUSES)[number],
       )
     ) {
       return NextResponse.json(
@@ -1195,9 +1330,8 @@ export async function PATCH(request: NextRequest) {
     await client.query('BEGIN');
     begun = true;
 
-    /**
-     * FIND AND LOCK STUDENT
-     */
+    /* ---------------- FIND AND LOCK STUDENT ---------------- */
+
     const studentResult = await client.query(
       `
       SELECT
@@ -1221,24 +1355,15 @@ export async function PATCH(request: NextRequest) {
     );
 
     if (!studentResult.rows.length) {
-      await client.query('ROLLBACK');
-      begun = false;
-
-      return NextResponse.json(
-        {
-          success: false,
-          message: 'Student not found.',
-        },
-        { status: 404 },
+      return await rollbackResponse(
+        client,
+        'Student not found.',
+        404,
       );
     }
 
-    /**
-     * COURSE FEE STRUCTURE
-     *
-     * Uses $1 = year and $2 = course.
-     * No undefined SQL aliases.
-     */
+    /* ---------------- COURSE FEE STRUCTURE ---------------- */
+
     const feeResult = await client.query(
       courseMatchSql(),
       [
@@ -1250,25 +1375,18 @@ export async function PATCH(request: NextRequest) {
     const fee = feeResult.rows[0];
 
     if (!fee) {
-      await client.query('ROLLBACK');
-      begun = false;
-
-      return NextResponse.json(
-        {
-          success: false,
-          message: 'Course fee structure not found.',
-        },
-        { status: 400 },
+      return await rollbackResponse(
+        client,
+        'Course fee structure not found.',
       );
     }
 
     const maxTerms = Number(
-      fee.total_terms || 0
+      fee.total_terms || 0,
     );
 
-    /**
-     * TERM VALIDATION
-     */
+    /* ---------------- TERM VALIDATION ---------------- */
+
     if (
       maxTerms > 0 &&
       (
@@ -1276,15 +1394,9 @@ export async function PATCH(request: NextRequest) {
         completedTerms > maxTerms
       )
     ) {
-      await client.query('ROLLBACK');
-      begun = false;
-
-      return NextResponse.json(
-        {
-          success: false,
-          message: `This course has ${maxTerms} terms.`,
-        },
-        { status: 400 },
+      return await rollbackResponse(
+        client,
+        `This course has ${maxTerms} terms.`,
       );
     }
 
@@ -1293,27 +1405,21 @@ export async function PATCH(request: NextRequest) {
       completedTerms >= currentTerm &&
       status !== 'COMPLETED'
     ) {
-      await client.query('ROLLBACK');
-      begun = false;
-
-      return NextResponse.json(
-        {
-          success: false,
-          message: 'Current term must be after the completed terms.',
-        },
-        { status: 400 },
+      return await rollbackResponse(
+        client,
+        'Current term must be after the completed terms.',
       );
     }
 
-    /**
-     * CALCULATE COURSE FEE
-     */
+    /* ---------------- CALCULATE COURSE FEE ---------------- */
+
     const accountTotal = totalProgrammeFee(fee);
 
+    /* ---------------- UPDATE ACADEMIC PROGRESS ---------------- */
+
     /**
-     * UPDATE ACADEMIC PROGRESS
-     *
-     * This does not depend on payment progress.
+     * This updates academic progress only.
+     * It does not change selected uniform or scrub charges.
      */
     await client.query(
       `
@@ -1420,7 +1526,6 @@ export async function PATCH(request: NextRequest) {
   }
 }
 
-
 /* =========================================================
    PUT: EDIT AN EXISTING STUDENT FEE PAYMENT
 ========================================================= */
@@ -1430,6 +1535,7 @@ export async function PUT(request: NextRequest) {
   if (denied) return denied;
 
   const client = await pool.connect();
+
   let begun = false;
 
   try {
@@ -1437,6 +1543,7 @@ export async function PUT(request: NextRequest) {
 
     const paymentId = Number(body.id);
     const amount = Number(body.amountPaid);
+
     const method = body.paymentMethod as Method;
     const component = body.paymentComponent as Component;
 
@@ -1454,30 +1561,44 @@ export async function PUT(request: NextRequest) {
         ? null
         : Number(body.termNumber);
 
+    /* ---------------- VALIDATION ---------------- */
+
     if (!Number.isInteger(paymentId) || paymentId <= 0) {
       return NextResponse.json(
-        { success: false, message: 'Invalid payment record.' },
+        {
+          success: false,
+          message: 'Invalid payment record.',
+        },
         { status: 400 },
       );
     }
 
     if (!Number.isFinite(amount) || amount <= 0) {
       return NextResponse.json(
-        { success: false, message: 'Enter a valid payment amount.' },
+        {
+          success: false,
+          message: 'Enter a valid payment amount.',
+        },
         { status: 400 },
       );
     }
 
     if (!VALID_METHODS.includes(method)) {
       return NextResponse.json(
-        { success: false, message: 'Select Bank or M-Pesa.' },
+        {
+          success: false,
+          message: 'Select Bank or M-Pesa.',
+        },
         { status: 400 },
       );
     }
 
     if (!VALID_COMPONENTS.includes(component)) {
       return NextResponse.json(
-        { success: false, message: 'Select a valid payment category.' },
+        {
+          success: false,
+          message: 'Select a valid payment category.',
+        },
         { status: 400 },
       );
     }
@@ -1494,14 +1615,23 @@ export async function PUT(request: NextRequest) {
 
     if (!paidDate) {
       return NextResponse.json(
-        { success: false, message: 'Select a valid payment date.' },
+        {
+          success: false,
+          message: 'Select a valid payment date.',
+        },
         { status: 400 },
       );
     }
 
-    if (phoneNumber && !/^\+?[0-9\s-]{7,20}$/.test(phoneNumber)) {
+    if (
+      phoneNumber &&
+      !/^\+?[0-9\s-]{7,20}$/.test(phoneNumber)
+    ) {
       return NextResponse.json(
-        { success: false, message: 'Enter a valid phone number.' },
+        {
+          success: false,
+          message: 'Enter a valid phone number.',
+        },
         { status: 400 },
       );
     }
@@ -1515,12 +1645,18 @@ export async function PUT(request: NextRequest) {
       )
     ) {
       return NextResponse.json(
-        { success: false, message: 'Select a valid academic term.' },
+        {
+          success: false,
+          message: 'Select a valid academic term.',
+        },
         { status: 400 },
       );
     }
 
-    if (component !== 'TUITION' && termNumber !== null) {
+    if (
+      component !== 'TUITION' &&
+      termNumber !== null
+    ) {
       return NextResponse.json(
         {
           success: false,
@@ -1533,10 +1669,8 @@ export async function PUT(request: NextRequest) {
     await client.query('BEGIN');
     begun = true;
 
-    /*
-     * Lock the payment and application while editing.
-     * Admissions supplies the student's current course.
-     */
+    /* ---------------- LOCK PAYMENT AND STUDENT ---------------- */
+
     const paymentResult = await client.query(
       `
       SELECT
@@ -1546,8 +1680,13 @@ export async function PUT(request: NextRequest) {
         fp.amount_paid,
         fp.payment_component,
         fp.term_number,
+
         a.mobile,
-        COALESCE(NULLIF(ad.course, ''), a.course) AS course
+
+        COALESCE(
+          NULLIF(ad.course, ''),
+          a.course
+        ) AS course
 
       FROM student_fee_payments fp
 
@@ -1575,20 +1714,28 @@ export async function PUT(request: NextRequest) {
     }
 
     const existingPayment = paymentResult.rows[0];
-    const applicationId = Number(existingPayment.application_id);
 
-    /*
-     * A transaction reference must not be used by another payment.
-     */
+    const applicationId = Number(
+      existingPayment.application_id,
+    );
+
+    /* ---------------- CHECK DUPLICATE REFERENCE ---------------- */
+
     const duplicateResult = await client.query(
       `
       SELECT id
       FROM student_fee_payments
-      WHERE UPPER(BTRIM(mpesa_code)) = $1
+
+      WHERE
+        UPPER(BTRIM(mpesa_code)) = $1
         AND id <> $2
+
       LIMIT 1
       `,
-      [reference, paymentId],
+      [
+        reference,
+        paymentId,
+      ],
     );
 
     if (duplicateResult.rows.length) {
@@ -1599,12 +1746,14 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    /*
-     * Find the approved fee structure for this student's course.
-     */
+    /* ---------------- COURSE FEE STRUCTURE ---------------- */
+
     const feeResult = await client.query(
       courseMatchSql(),
-      [YEAR, existingPayment.course || ''],
+      [
+        YEAR,
+        existingPayment.course || '',
+      ],
     );
 
     if (!feeResult.rows.length) {
@@ -1615,6 +1764,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const fee = feeResult.rows[0];
+
     const tuition = Number(fee.tuition_fee);
     const admin = Number(fee.admin_charge);
     const totalTerms = Number(fee.total_terms);
@@ -1623,7 +1773,9 @@ export async function PUT(request: NextRequest) {
       !Number.isFinite(tuition) ||
       tuition < 0 ||
       !Number.isFinite(admin) ||
-      admin < 0
+      admin < 0 ||
+      !Number.isFinite(totalTerms) ||
+      totalTerms < 0
     ) {
       return await rollbackResponse(
         client,
@@ -1631,79 +1783,123 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    if (component === 'ADMIN' && admin <= 0) {
-      return await rollbackResponse(
-        client,
-        'This programme does not have an administrative charge.',
-      );
-    }
+    /* ---------------- GET STUDENT FEE ACCOUNT ---------------- */
 
-    if (
-      component === 'PROGRAMME' &&
-      fee.billing_type !== 'ONE_TIME'
-    ) {
-      return await rollbackResponse(
-        client,
-        'This course is billed by academic term, not as a one-time programme.',
-      );
-    }
-
-    if (
-      component === 'TUITION' &&
-      fee.billing_type !== 'PER_TERM'
-    ) {
-      return await rollbackResponse(
-        client,
-        'This course uses one-time programme tuition. Select Programme instead.',
-      );
-    }
-
-    if (
-      component === 'TUITION' &&
-      (
-        termNumber === null ||
-        termNumber > totalTerms
-      )
-    ) {
-      return await rollbackResponse(
-        client,
-        `Select a valid term between 1 and ${totalTerms}.`,
-      );
-    }
-
-    /*
-     * Allocation limit:
-     * ADMIN = one administrative charge for the programme.
-     * PROGRAMME = one-time programme tuition.
-     * TUITION = tuition for the selected term.
+    /**
+     * The selected Uniform and Scrub amounts must come
+     * from this student's fee account.
+     *
+     * Locking the row also prevents concurrent edits to
+     * the selected additional charges during this update.
      */
-    const allocationLimit =
-      component === 'ADMIN' ? admin : tuition;
+    const accountCheckResult = await client.query(
+      `
+      SELECT
+        id,
 
-    /*
-     * Exclude this payment from the existing allocation so its
-     * current amount does not count against the edited amount.
+        COALESCE(uniform_fee, 0) AS uniform_fee,
+        COALESCE(scrub_fee, 0) AS scrub_fee
+
+      FROM student_fee_accounts
+
+      WHERE application_id = $1
+
+      LIMIT 1
+
+      FOR UPDATE
+      `,
+      [applicationId],
+    );
+
+    if (!accountCheckResult.rows.length) {
+      return await rollbackResponse(
+        client,
+        'The student fee account could not be found. Add the student fee account before recording this payment.',
+      );
+    }
+
+    const existingAccount = accountCheckResult.rows[0];
+
+    const uniformFee = Number(
+      existingAccount.uniform_fee || 0,
+    );
+
+    const scrubFee = Number(
+      existingAccount.scrub_fee || 0,
+    );
+
+    /* ---------------- CATEGORY VALIDATION ---------------- */
+
+    const categoryError = validatePaymentCategory(
+      component,
+      fee,
+      {
+        admin,
+        uniform: uniformFee,
+        scrub: scrubFee,
+      },
+      termNumber,
+    );
+
+    if (categoryError) {
+      return await rollbackResponse(
+        client,
+        categoryError,
+      );
+    }
+
+    /* ---------------- DETERMINE ALLOCATION LIMIT ---------------- */
+
+    const allocationLimit = getAllocationLimit(
+      component,
+      {
+        tuition,
+        admin,
+        uniform: uniformFee,
+        scrub: scrubFee,
+      },
+    );
+
+    /**
+     * Exclude the payment being edited from the allocation.
+     * This ensures its existing amount does not count against
+     * the new amount.
      */
     const allocationResult = await client.query(
       `
-      SELECT COALESCE(SUM(amount_paid), 0) AS paid
+      SELECT
+        COALESCE(
+          SUM(amount_paid),
+          0
+        ) AS paid
+
       FROM student_fee_payments
-      WHERE application_id = $1
+
+      WHERE
+        application_id = $1
         AND payment_component = $2
         AND id <> $3
+
         AND (
           (
             $2 = 'TUITION'
             AND term_number = $4
           )
+
           OR
+
           (
             $2 <> 'TUITION'
             AND term_number IS NULL
           )
         )
       `,
-      [applicationId, component, paymentId, termNumber],
+      [
+        applicationId,
+        component,
+        paymentId,
+        termNumber,
+      ],
     );
 
     const alreadyAllocated = Number(
@@ -1722,12 +1918,14 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    /*
-     * Keep the student's fee account synchronized with the
-     * current approved course fee structure.
-     */
+    /* ---------------- UPDATE FEE ACCOUNT ---------------- */
+
     const totalFee = totalProgrammeFee(fee);
 
+    /**
+     * Update the programme fee structure without changing
+     * the student's selected uniform or scrub charges.
+     */
     const accountResult = await client.query(
       `
       INSERT INTO student_fee_accounts (
@@ -1735,22 +1933,33 @@ export async function PUT(request: NextRequest) {
         total_fee,
         course_fee_structure_id
       )
+
       VALUES ($1, $2, $3)
+
       ON CONFLICT (application_id)
+
       DO UPDATE SET
         total_fee = EXCLUDED.total_fee,
         course_fee_structure_id = EXCLUDED.course_fee_structure_id,
         updated_at = NOW()
+
       RETURNING id
       `,
-      [applicationId, totalFee, fee.id],
+      [
+        applicationId,
+        totalFee,
+        fee.id,
+      ],
     );
 
     const accountId = accountResult.rows[0].id;
 
+    /* ---------------- UPDATE PAYMENT ---------------- */
+
     const updatedResult = await client.query(
       `
       UPDATE student_fee_payments
+
       SET
         fee_account_id = $1,
         mpesa_code = $2,
@@ -1760,7 +1969,9 @@ export async function PUT(request: NextRequest) {
         payment_date = $6::date,
         payment_component = $7,
         term_number = $8
+
       WHERE id = $9
+
       RETURNING
         id,
         receipt_number,
@@ -1801,11 +2012,16 @@ export async function PUT(request: NextRequest) {
       try {
         await client.query('ROLLBACK');
       } catch (rollbackError) {
-        console.error('PUT /api/admin/fees rollback error:', rollbackError);
+        console.error(
+          'PUT /api/admin/fees rollback error:',
+          rollbackError,
+        );
       }
     }
 
-    const pgError = error as { code?: string };
+    const pgError = error as {
+      code?: string;
+    };
 
     if (pgError.code === '23505') {
       return NextResponse.json(
@@ -1820,7 +2036,10 @@ export async function PUT(request: NextRequest) {
     console.error('PUT /api/admin/fees:', error);
 
     return NextResponse.json(
-      { success: false, message: 'Failed to update payment.' },
+      {
+        success: false,
+        message: 'Failed to update payment.',
+      },
       { status: 500 },
     );
   } finally {
@@ -1837,15 +2056,25 @@ export async function DELETE(request: NextRequest) {
   if (denied) return denied;
 
   const client = await pool.connect();
+
   let begun = false;
 
   try {
     const { searchParams } = new URL(request.url);
-    const paymentId = Number(searchParams.get('id'));
 
-    if (!Number.isInteger(paymentId) || paymentId <= 0) {
+    const paymentId = Number(
+      searchParams.get('id'),
+    );
+
+    if (
+      !Number.isInteger(paymentId) ||
+      paymentId <= 0
+    ) {
       return NextResponse.json(
-        { success: false, message: 'Invalid payment record.' },
+        {
+          success: false,
+          message: 'Invalid payment record.',
+        },
         { status: 400 },
       );
     }
@@ -1860,8 +2089,11 @@ export async function DELETE(request: NextRequest) {
         receipt_number,
         application_id,
         amount_paid
+
       FROM student_fee_payments
+
       WHERE id = $1
+
       FOR UPDATE
       `,
       [paymentId],
@@ -1877,12 +2109,18 @@ export async function DELETE(request: NextRequest) {
 
     const payment = paymentResult.rows[0];
 
-    /*
+    /**
      * Delete only the selected transaction.
      * The application, admission and fee account remain intact.
+     *
+     * This also restores the outstanding balance for
+     * Uniform and Scrub when either payment is deleted.
      */
     await client.query(
-      `DELETE FROM student_fee_payments WHERE id = $1`,
+      `
+      DELETE FROM student_fee_payments
+      WHERE id = $1
+      `,
       [paymentId],
     );
 
@@ -1892,6 +2130,7 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({
       success: true,
       message: 'Payment deleted successfully.',
+
       deleted: {
         id: payment.id,
         receipt_number: payment.receipt_number,
@@ -1904,14 +2143,20 @@ export async function DELETE(request: NextRequest) {
       try {
         await client.query('ROLLBACK');
       } catch (rollbackError) {
-        console.error('DELETE /api/admin/fees rollback error:', rollbackError);
+        console.error(
+          'DELETE /api/admin/fees rollback error:',
+          rollbackError,
+        );
       }
     }
 
     console.error('DELETE /api/admin/fees:', error);
 
     return NextResponse.json(
-      { success: false, message: 'Failed to delete payment.' },
+      {
+        success: false,
+        message: 'Failed to delete payment.',
+      },
       { status: 500 },
     );
   } finally {
