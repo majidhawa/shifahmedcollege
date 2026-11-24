@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import pool from '@/lib/db';
 import { requireLecturer } from '@/lib/lecturer-auth';
-
+export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 /* =========================================================
