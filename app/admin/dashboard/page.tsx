@@ -262,6 +262,14 @@ export default function AdminDashboardPage() {
             student activity from one central location.
           </p>
 
+          <Link
+            href="/admin/dashboard/lecturer-assignments"
+            className="mt-5 inline-flex items-center gap-2 rounded-xl bg-brand-green px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-brand-dark"
+          >
+            <GraduationCap className="h-4 w-4" />
+            Manage Lecturer Assignments
+          </Link>
+
         </div>
 
         {/* =================================================

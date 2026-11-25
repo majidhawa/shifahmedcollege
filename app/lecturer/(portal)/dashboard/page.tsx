@@ -67,27 +67,26 @@ async function getDashboardStats(
     `
       WITH lecturer_programs AS (
 
-        SELECT DISTINCT
-          lp.program_id
-
-        FROM lms_lecturer_programs lp
-
-        INNER JOIN lms_programs p
-          ON p.id = lp.program_id
-
-        WHERE lp.lecturer_id = $1
+        SELECT DISTINCT p.id AS program_id
+        FROM lms_programs p
+        WHERE EXISTS (
+          SELECT 1 FROM lms_lecturer_programs lp
+          WHERE lp.program_id = p.id AND lp.lecturer_id = $1
+        )
+        OR EXISTS (
+          SELECT 1 FROM lms_lecturer_units lu
+          INNER JOIN lms_units u ON u.id = lu.unit_id
+          WHERE lu.lecturer_id = $1 AND u.program_id = p.id
+        )
 
       ),
 
       lecturer_units AS (
 
-        SELECT DISTINCT
-          u.id
-
+        SELECT DISTINCT u.id
         FROM lms_units u
-
-        INNER JOIN lecturer_programs lp
-          ON lp.program_id = u.program_id
+        INNER JOIN lms_lecturer_units lu ON lu.unit_id = u.id
+        WHERE lu.lecturer_id = $1
 
       ),
 
@@ -142,12 +141,9 @@ async function getDashboardStats(
         ================================================= */
 
         (
-          SELECT COUNT(DISTINCT e.application_id)::int
-
-          FROM lms_enrollments e
-
-          INNER JOIN lecturer_programs lp
-            ON lp.program_id = e.program_id
+          SELECT COUNT(DISTINCT ls.application_id)::int
+          FROM lms_lecturer_students ls
+          WHERE ls.lecturer_id = $1
 
         ) AS students,
 

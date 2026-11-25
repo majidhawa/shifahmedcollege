@@ -416,8 +416,8 @@ export default async function LecturerQuizManagementPage({
         INNER JOIN lms_programs p
           ON p.id = u.program_id
 
-        INNER JOIN lms_lecturer_programs lp
-          ON lp.program_id = p.id
+        INNER JOIN lms_lecturer_units lp
+          ON lp.unit_id = u.id
 
         LEFT JOIN lms_quiz_questions qq
           ON qq.quiz_id = q.id

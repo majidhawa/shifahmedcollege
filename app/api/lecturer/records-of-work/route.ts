@@ -30,7 +30,12 @@ export async function GET(request: NextRequest) {
       }
 
       const assigned = await pool.query(
-        `SELECT 1 FROM lms_lecturer_programs WHERE lecturer_id = $1 AND program_id = $2 LIMIT 1`,
+        `SELECT 1
+         FROM lms_programs p
+         WHERE p.id = $2 AND (
+           EXISTS (SELECT 1 FROM lms_lecturer_programs lp WHERE lp.lecturer_id = $1 AND lp.program_id = p.id)
+           OR EXISTS (SELECT 1 FROM lms_lecturer_units lu INNER JOIN lms_units u ON u.id = lu.unit_id WHERE lu.lecturer_id = $1 AND u.program_id = p.id)
+         ) LIMIT 1`,
         [lecturer.id, parsedProgramId]
       );
       if (!assigned.rowCount) return fail('This programme is not assigned to your account.', 403);
@@ -40,8 +45,12 @@ export async function GET(request: NextRequest) {
                 COALESCE(to_jsonb(u)->>'name', to_jsonb(u)->>'unit_name', to_jsonb(u)->>'title', 'Unit ' || u.id::text) AS name
          FROM lms_units u
          WHERE u.program_id = $1
+           AND (
+             EXISTS (SELECT 1 FROM lms_lecturer_units lu WHERE lu.lecturer_id = $2 AND lu.unit_id = u.id)
+             OR EXISTS (SELECT 1 FROM lms_lecturer_programs lp WHERE lp.lecturer_id = $2 AND lp.program_id = u.program_id)
+           )
          ORDER BY name`,
-        [parsedProgramId]
+        [parsedProgramId, lecturer.id]
       );
       return NextResponse.json({ success: true, units: units.rows });
     }
@@ -51,9 +60,9 @@ export async function GET(request: NextRequest) {
         `SELECT DISTINCT p.id,
                 COALESCE(to_jsonb(p)->>'name', to_jsonb(p)->>'program_name', to_jsonb(p)->>'title', 'Programme ' || p.id::text) AS name,
                 COALESCE(to_jsonb(p)->>'level', to_jsonb(p)->>'course_level', '') AS level
-         FROM lms_lecturer_programs lp
-         INNER JOIN lms_programs p ON p.id = lp.program_id
-         WHERE lp.lecturer_id = $1
+         FROM lms_programs p
+         WHERE EXISTS (SELECT 1 FROM lms_lecturer_programs lp WHERE lp.lecturer_id = $1 AND lp.program_id = p.id)
+            OR EXISTS (SELECT 1 FROM lms_lecturer_units lu INNER JOIN lms_units u ON u.id = lu.unit_id WHERE lu.lecturer_id = $1 AND u.program_id = p.id)
          ORDER BY name`,
         [lecturer.id]
       ),
@@ -92,15 +101,24 @@ export async function POST(request: NextRequest) {
     if (unitId !== null && (!Number.isInteger(unitId) || unitId <= 0)) return fail('Invalid unit selected.');
 
     const assigned = await pool.query(
-      `SELECT 1 FROM lms_lecturer_programs WHERE lecturer_id = $1 AND program_id = $2 LIMIT 1`,
-      [lecturer.id, programId]
+      `SELECT 1 FROM lms_programs p
+       WHERE p.id = $2 AND (
+         EXISTS (SELECT 1 FROM lms_lecturer_programs lp WHERE lp.lecturer_id = $1 AND lp.program_id = p.id)
+         OR ($3::integer IS NOT NULL AND EXISTS (SELECT 1 FROM lms_lecturer_units lu WHERE lu.lecturer_id = $1 AND lu.unit_id = $3))
+       ) LIMIT 1`,
+      [lecturer.id, programId, unitId]
     );
     if (!assigned.rowCount) return fail('You cannot create a record for an unassigned programme.', 403);
 
     if (unitId !== null) {
       const validUnit = await pool.query(
-        `SELECT 1 FROM lms_units WHERE id = $1 AND program_id = $2 LIMIT 1`,
-        [unitId, programId]
+        `SELECT 1 FROM lms_units u
+         WHERE u.id = $1 AND u.program_id = $2
+           AND (
+             EXISTS (SELECT 1 FROM lms_lecturer_units lu WHERE lu.lecturer_id = $3 AND lu.unit_id = u.id)
+             OR EXISTS (SELECT 1 FROM lms_lecturer_programs lp WHERE lp.lecturer_id = $3 AND lp.program_id = u.program_id)
+           ) LIMIT 1`,
+        [unitId, programId, lecturer.id]
       );
       if (!validUnit.rowCount) return fail('The selected unit does not belong to this programme.');
     }

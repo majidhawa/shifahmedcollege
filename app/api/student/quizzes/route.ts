@@ -157,8 +157,7 @@ export async function GET() {
        * in which this student is enrolled.
        */
       INNER JOIN lms_enrollments e
-        ON e.program_id = p.id
-        AND e.application_id = $1
+        ON e.application_id = $1
 
       LEFT JOIN lms_quiz_questions qq
         ON qq.quiz_id = q.id
@@ -176,6 +175,7 @@ export async function GET() {
         /*
          * Do not show cancelled/dropped enrollments.
          */
+        AND public.lms_student_can_access_unit($1, e.program_id, u.id)
         AND (
           e.enrollment_status IS NULL
           OR LOWER(e.enrollment_status::text)

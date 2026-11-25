@@ -219,20 +219,11 @@ export default async function StudentUnitsPage({
         ON p.id = e.program_id
 
       LEFT JOIN LATERAL (
-        SELECT
-          u.name
-        FROM lms_lecturer_programs lp
-
-        INNER JOIN users u
-          ON u.id = lp.lecturer_id
-
-        WHERE lp.program_id = p.id
-
-        ORDER BY
-          u.name ASC,
-          u.id ASC
-
-        LIMIT 1
+        SELECT STRING_AGG(DISTINCT u.name, ', ' ORDER BY u.name) AS name
+        FROM lms_lecturer_students ls
+        INNER JOIN users u ON u.id = ls.lecturer_id
+        WHERE ls.application_id = e.application_id
+          AND ls.program_id = e.program_id
       ) lecturer
         ON TRUE
 
@@ -387,7 +378,8 @@ export default async function StudentUnitsPage({
         u.description AS unit_description,
 
         ue.id AS unit_enrollment_id,
-        ue.status AS unit_enrollment_status
+        ue.status AS unit_enrollment_status,
+        TRUE AS is_assigned
 
       FROM lms_units u
 
@@ -408,7 +400,7 @@ export default async function StudentUnitsPage({
       ) ue
         ON TRUE
 
-      WHERE u.program_id = $2
+      WHERE public.lms_student_can_access_unit($3, $2, u.id)
 
       ORDER BY
         u.id ASC
@@ -416,6 +408,7 @@ export default async function StudentUnitsPage({
     [
       enrollmentId,
       programId,
+      applicationId,
     ]
   );
 
@@ -445,7 +438,7 @@ export default async function StudentUnitsPage({
       INNER JOIN lms_units u
         ON u.id = t.unit_id
 
-      WHERE u.program_id = $1
+      WHERE public.lms_student_can_access_unit($1, $2, u.id)
 
         AND (
           t.status IS NULL
@@ -459,7 +452,7 @@ export default async function StudentUnitsPage({
         t.order_number ASC NULLS LAST,
         t.id ASC
     `,
-    [programId]
+    [applicationId, programId]
   );
 
   /* =======================================================
@@ -492,7 +485,7 @@ export default async function StudentUnitsPage({
       INNER JOIN lms_units u
         ON u.id = t.unit_id
 
-      WHERE u.program_id = $1
+      WHERE public.lms_student_can_access_unit($1, $2, u.id)
 
         AND (
           l.status IS NULL
@@ -508,7 +501,7 @@ export default async function StudentUnitsPage({
         l.order_number ASC NULLS LAST,
         l.id ASC
     `,
-    [programId]
+    [applicationId, programId]
   );
 
   /* =======================================================
@@ -633,17 +626,7 @@ export default async function StudentUnitsPage({
         row.unit_enrollment_status ||
         null;
 
-      const normalizedStatus =
-        unitEnrollmentStatus
-          ? String(
-              unitEnrollmentStatus
-            ).toLowerCase()
-          : null;
-
-      const assigned =
-        unitEnrollmentId !== null &&
-        normalizedStatus !== 'cancelled' &&
-        normalizedStatus !== 'dropped';
+      const assigned = row.is_assigned === true;
 
       const topics =
         topicsByUnit.get(unitId) || [];
@@ -674,8 +657,7 @@ export default async function StudentUnitsPage({
           unitEnrollmentId,
 
         enrollmentStatus:
-          unitEnrollmentStatus ||
-          'not_assigned',
+          unitEnrollmentStatus || (assigned ? 'active' : 'not_assigned'),
 
         assigned,
 

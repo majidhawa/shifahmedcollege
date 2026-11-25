@@ -71,8 +71,8 @@ export async function GET(
         INNER JOIN lms_programs p
           ON p.id = u.program_id
 
-        INNER JOIN lms_lecturer_programs lp
-          ON lp.program_id = u.program_id
+        INNER JOIN lms_lecturer_units lp
+          ON lp.unit_id = u.id
 
         WHERE l.id = $1
           AND lp.lecturer_id = $2
@@ -204,8 +204,8 @@ export async function POST(
         INNER JOIN lms_units u
           ON u.id = t.unit_id
 
-        INNER JOIN lms_lecturer_programs lp
-          ON lp.program_id = u.program_id
+        INNER JOIN lms_lecturer_units lp
+          ON lp.unit_id = u.id
 
         WHERE l.id = $1
           AND lp.lecturer_id = $2

@@ -426,12 +426,15 @@ export async function GET() {
         WHERE
           qa.submitted_at IS NOT NULL
 
-          AND EXISTS (
-            SELECT 1
-            FROM lms_lecturer_programs lp
-            WHERE
-              lp.program_id = p.id
-              AND lp.lecturer_id = $1
+          AND (
+            EXISTS (
+              SELECT 1 FROM lms_lecturer_units lu
+              WHERE lu.lecturer_id = $1 AND lu.unit_id = u.id
+            )
+            OR EXISTS (
+              SELECT 1 FROM lms_lecturer_programs lp
+              WHERE lp.program_id = p.id AND lp.lecturer_id = $1
+            )
           )
 
         ORDER BY
@@ -550,12 +553,15 @@ export async function GET() {
         WHERE
           s.submitted_at IS NOT NULL
 
-          AND EXISTS (
-            SELECT 1
-            FROM lms_lecturer_programs lp
-            WHERE
-              lp.program_id = p.id
-              AND lp.lecturer_id = $1
+          AND (
+            EXISTS (
+              SELECT 1 FROM lms_lecturer_units lu
+              WHERE lu.lecturer_id = $1 AND lu.unit_id = u.id
+            )
+            OR EXISTS (
+              SELECT 1 FROM lms_lecturer_programs lp
+              WHERE lp.program_id = p.id AND lp.lecturer_id = $1
+            )
           )
 
         ORDER BY

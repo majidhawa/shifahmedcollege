@@ -297,12 +297,17 @@ export async function GET(request: Request) {
       `
         EXISTS (
           SELECT 1
-
           FROM lms_enrollments e
-
-          WHERE
-            e.application_id = $1
-            AND e.program_id = t.program_id
+          WHERE e.application_id = $1
+            AND (
+              (t.unit_id IS NOT NULL AND public.lms_student_can_access_unit(e.application_id, e.program_id, t.unit_id))
+              OR (t.unit_id IS NULL AND e.program_id = t.program_id AND EXISTS (
+                SELECT 1 FROM lms_lecturer_students ls
+                WHERE ls.application_id = e.application_id
+                  AND ls.program_id = e.program_id
+                  AND ls.unit_id IS NULL
+              ))
+            )
         )
       `,
       't.day_of_week BETWEEN 1 AND 5',
@@ -467,10 +472,11 @@ export async function GET(request: Request) {
 
           FROM lms_units u
 
-          INNER JOIN lms_enrollments e
-            ON e.program_id = u.program_id
-
-          WHERE e.application_id = $1
+          WHERE EXISTS (
+            SELECT 1 FROM lms_enrollments e
+            WHERE e.application_id = $1
+              AND public.lms_student_can_access_unit(e.application_id, e.program_id, u.id)
+          )
 
           ORDER BY
             u.program_id ASC,
@@ -487,12 +493,17 @@ export async function GET(request: Request) {
       `
         EXISTS (
           SELECT 1
-
           FROM lms_enrollments e
-
-          WHERE
-            e.application_id = $1
-            AND e.program_id = t.program_id
+          WHERE e.application_id = $1
+            AND (
+              (t.unit_id IS NOT NULL AND public.lms_student_can_access_unit(e.application_id, e.program_id, t.unit_id))
+              OR (t.unit_id IS NULL AND e.program_id = t.program_id AND EXISTS (
+                SELECT 1 FROM lms_lecturer_students ls
+                WHERE ls.application_id = e.application_id
+                  AND ls.program_id = e.program_id
+                  AND ls.unit_id IS NULL
+              ))
+            )
         )
       `,
       't.day_of_week BETWEEN 1 AND 5',

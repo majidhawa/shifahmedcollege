@@ -86,10 +86,10 @@ export async function GET(
         ON p.id = u.program_id
 
       INNER JOIN lms_enrollments e
-        ON e.program_id = p.id
-        AND e.application_id = $1
+        ON e.application_id = $1
 
-      WHERE q.id = $2
+      WHERE public.lms_student_can_access_unit(e.application_id, e.program_id, u.id)
+        AND q.id = $2
 
         AND LOWER(q.status::text)
             IN ('active', 'published')

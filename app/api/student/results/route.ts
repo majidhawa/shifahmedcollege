@@ -235,6 +235,7 @@ export async function GET() {
           WITH student_enrollments AS (
             SELECT DISTINCT ON (e.program_id)
               e.id AS enrollment_id,
+              e.application_id,
               e.program_id
 
             FROM lms_enrollments e
@@ -332,9 +333,10 @@ export async function GET() {
             ON p.id = u.program_id
 
           INNER JOIN student_enrollments e
-            ON e.program_id = p.id
+            ON e.application_id = $1
 
-          WHERE LOWER(
+          WHERE public.lms_student_can_access_unit(e.application_id, e.program_id, u.id)
+            AND LOWER(
             COALESCE(
               t.status::text,
               'active'
@@ -386,6 +388,7 @@ export async function GET() {
           WITH student_enrollments AS (
             SELECT DISTINCT ON (e.program_id)
               e.id AS enrollment_id,
+              e.application_id,
               e.program_id
 
             FROM lms_enrollments e
@@ -495,9 +498,10 @@ export async function GET() {
             ON p.id = u.program_id
 
           INNER JOIN student_enrollments e
-            ON e.program_id = p.id
+            ON e.application_id = $1
 
-          WHERE LOWER(
+          WHERE public.lms_student_can_access_unit(e.application_id, e.program_id, u.id)
+            AND LOWER(
             COALESCE(
               t.status::text,
               'active'

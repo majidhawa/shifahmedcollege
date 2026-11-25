@@ -103,10 +103,10 @@ export async function GET(
           ON p.id = u.program_id
 
         INNER JOIN lms_enrollments e
-          ON e.program_id = p.id
-         AND e.application_id = $2
+          ON e.application_id = $2
 
-        WHERE a.id = $1
+        WHERE public.lms_student_can_access_unit(e.application_id, e.program_id, u.id)
+        AND a.id = $1
 
           AND (
             e.enrollment_status IS NULL
@@ -500,7 +500,8 @@ export async function POST(
           ON e.program_id = p.id
          AND e.application_id = $2
 
-        WHERE a.id = $1
+        WHERE public.lms_student_can_access_unit(e.application_id, e.program_id, u.id)
+        AND a.id = $1
 
           AND (
             e.enrollment_status IS NULL

@@ -80,16 +80,22 @@ export async function GET() {
 
         FROM lms_units u
 
-        INNER JOIN lms_lecturer_programs lp
-          ON lp.program_id = u.program_id
-
         INNER JOIN lms_programs p
           ON p.id = u.program_id
 
         LEFT JOIN lms_topics t
           ON t.unit_id = u.id
 
-        WHERE lp.lecturer_id = $1
+        WHERE (
+          EXISTS (
+            SELECT 1 FROM lms_lecturer_units lu
+            WHERE lu.lecturer_id = $1 AND lu.unit_id = u.id
+          )
+          OR EXISTS (
+            SELECT 1 FROM lms_lecturer_programs lp
+            WHERE lp.lecturer_id = $1 AND lp.program_id = u.program_id
+          )
+        )
 
         GROUP BY
           u.id,
@@ -342,13 +348,8 @@ export async function POST(request: Request) {
     ===================================================== */
 
     const assignment = await pool.query(
-      `
-        SELECT 1
-        FROM lms_lecturer_programs
-        WHERE lecturer_id = $1
-          AND program_id = $2
-        LIMIT 1
-      `,
+      `SELECT 1 FROM lms_lecturer_programs
+       WHERE lecturer_id = $1 AND program_id = $2 LIMIT 1`,
       [lecturer.id, programId]
     );
 
@@ -401,6 +402,14 @@ export async function POST(request: Request) {
         termNumber,
         status,
       ]
+    );
+
+    await pool.query(
+      `INSERT INTO lms_lecturer_units (lecturer_id, unit_id, direct_access)
+       VALUES ($1, $2, TRUE)
+       ON CONFLICT (lecturer_id, unit_id)
+       DO UPDATE SET direct_access = TRUE, updated_at = CURRENT_TIMESTAMP`,
+      [lecturer.id, result.rows[0].id]
     );
 
     return NextResponse.json(
@@ -618,11 +627,11 @@ async function updateUnit(request: Request) {
           u.program_id
         FROM lms_units u
 
-        INNER JOIN lms_lecturer_programs lp
-          ON lp.program_id = u.program_id
-
         WHERE u.id = $1
-          AND lp.lecturer_id = $2
+          AND (
+            EXISTS (SELECT 1 FROM lms_lecturer_units lu WHERE lu.unit_id = u.id AND lu.lecturer_id = $2)
+            OR EXISTS (SELECT 1 FROM lms_lecturer_programs lp WHERE lp.program_id = u.program_id AND lp.lecturer_id = $2)
+          )
 
         LIMIT 1
       `,
@@ -854,11 +863,11 @@ export async function DELETE(request: Request) {
           u.program_id
         FROM lms_units u
 
-        INNER JOIN lms_lecturer_programs lp
-          ON lp.program_id = u.program_id
-
         WHERE u.id = $1
-          AND lp.lecturer_id = $2
+          AND (
+            EXISTS (SELECT 1 FROM lms_lecturer_units lu WHERE lu.unit_id = u.id AND lu.lecturer_id = $2)
+            OR EXISTS (SELECT 1 FROM lms_lecturer_programs lp WHERE lp.program_id = u.program_id AND lp.lecturer_id = $2)
+          )
 
         LIMIT 1
       `,

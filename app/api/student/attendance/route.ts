@@ -348,6 +348,19 @@ export async function GET(
 
     const conditions: string[] = [
       'att.enrollment_id = ANY($1::int[])',
+      `EXISTS (
+        SELECT 1 FROM lms_enrollments e
+        WHERE e.id = att.enrollment_id
+          AND (
+            (att.unit_id IS NOT NULL AND public.lms_student_can_access_unit(e.application_id, e.program_id, att.unit_id))
+            OR (att.unit_id IS NULL AND EXISTS (
+              SELECT 1 FROM lms_lecturer_students ls
+              WHERE ls.application_id = e.application_id
+                AND ls.program_id = e.program_id
+                AND ls.unit_id IS NULL
+            ))
+          )
+      )`,
     ];
 
     const values: unknown[] = [

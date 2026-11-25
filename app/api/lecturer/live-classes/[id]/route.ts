@@ -443,13 +443,16 @@ export async function GET(
     const programsResult =
       await pool.query(
         `
-        SELECT DISTINCT
-          lp.id,
-          lp.name
-        FROM lms_programs lp
-        INNER JOIN lms_lecturer_programs llp
-          ON llp.program_id = lp.id
-        WHERE llp.lecturer_id = $1
+        SELECT DISTINCT p.id, p.name
+        FROM lms_programs p
+        WHERE EXISTS (
+          SELECT 1 FROM lms_lecturer_programs llp
+          WHERE llp.program_id = p.id AND llp.lecturer_id = $1
+        ) OR EXISTS (
+          SELECT 1 FROM lms_lecturer_units lu
+          INNER JOIN lms_units u ON u.id = lu.unit_id
+          WHERE lu.lecturer_id = $1 AND u.program_id = p.id
+        )
         ORDER BY lp.name ASC
         `,
         [lecturerId]
@@ -467,9 +470,13 @@ export async function GET(
           lu.name,
           lu.code
         FROM lms_units lu
-        INNER JOIN lms_lecturer_programs llp
-          ON llp.program_id = lu.program_id
-        WHERE llp.lecturer_id = $1
+        WHERE EXISTS (
+          SELECT 1 FROM lms_lecturer_units llu
+          WHERE llu.lecturer_id = $1 AND llu.unit_id = lu.id
+        ) OR EXISTS (
+          SELECT 1 FROM lms_lecturer_programs llp
+          WHERE llp.lecturer_id = $1 AND llp.program_id = lu.program_id
+        )
         ORDER BY
           lu.program_id ASC,
           lu.name ASC
@@ -788,14 +795,19 @@ export async function PATCH(
       await client.query(
         `
         SELECT 1
-        FROM lms_lecturer_programs
-        WHERE lecturer_id = $1
-          AND program_id = $2
+        FROM lms_units u
+        WHERE u.program_id = $2
+          AND ($3::integer IS NULL OR u.id = $3)
+          AND (
+            EXISTS (SELECT 1 FROM lms_lecturer_units lu WHERE lu.lecturer_id = $1 AND lu.unit_id = u.id)
+            OR EXISTS (SELECT 1 FROM lms_lecturer_programs lp WHERE lp.lecturer_id = $1 AND lp.program_id = u.program_id)
+          )
         LIMIT 1
         `,
         [
           lecturerId,
           programId,
+          unitId,
         ]
       );
 
@@ -829,14 +841,19 @@ export async function PATCH(
           program_id,
           name,
           code
-        FROM lms_units
-        WHERE id = $1
-          AND program_id = $2
+        FROM lms_units u
+        WHERE u.id = $1
+          AND u.program_id = $2
+          AND (
+            EXISTS (SELECT 1 FROM lms_lecturer_units lu WHERE lu.lecturer_id = $3 AND lu.unit_id = u.id)
+            OR EXISTS (SELECT 1 FROM lms_lecturer_programs lp WHERE lp.lecturer_id = $3 AND lp.program_id = u.program_id)
+          )
         LIMIT 1
         `,
         [
           unitId,
           programId,
+          lecturerId,
         ]
       );
 

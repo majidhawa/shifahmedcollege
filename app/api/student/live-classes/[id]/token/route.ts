@@ -137,10 +137,10 @@ async function getStudentLiveClass(
         ON u.id = lc.unit_id
 
       INNER JOIN lms_enrollments e
-        ON e.program_id = lc.program_id
-       AND e.application_id = $2
+        ON e.application_id = $2
 
       WHERE lc.id = $1
+        AND public.lms_student_can_access_unit(e.application_id, e.program_id, u.id)
 
         AND e.enrollment_status NOT IN (
           'cancelled',

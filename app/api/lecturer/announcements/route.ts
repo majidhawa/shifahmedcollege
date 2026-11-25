@@ -265,8 +265,8 @@ export async function GET(request: NextRequest) {
         u.program_id,
         p.name AS program_name
       FROM lms_units u
-      INNER JOIN lms_lecturer_programs lp
-        ON lp.program_id = u.program_id
+      INNER JOIN lms_lecturer_units lp
+        ON lp.unit_id = u.id
       INNER JOIN lms_programs p
         ON p.id = u.program_id
       WHERE lp.lecturer_id = $1
@@ -415,8 +415,8 @@ export async function POST(request: NextRequest) {
           u.id,
           u.program_id
         FROM lms_units u
-        INNER JOIN lms_lecturer_programs lp
-          ON lp.program_id = u.program_id
+        INNER JOIN lms_lecturer_units lp
+          ON lp.unit_id = u.id
         WHERE u.id = $1
           AND lp.lecturer_id = $2
         LIMIT 1
@@ -699,8 +699,8 @@ export async function PUT(request: NextRequest) {
           u.id,
           u.program_id
         FROM lms_units u
-        INNER JOIN lms_lecturer_programs lp
-          ON lp.program_id = u.program_id
+        INNER JOIN lms_lecturer_units lp
+          ON lp.unit_id = u.id
         WHERE u.id = $1
           AND lp.lecturer_id = $2
         LIMIT 1

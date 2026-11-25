@@ -112,12 +112,12 @@ export async function GET(
         INNER JOIN lms_programs p
           ON p.id = u.program_id
 
-        INNER JOIN lms_lecturer_programs lp
-          ON lp.program_id = p.id
-
         WHERE
           u.id = $1
-          AND lp.lecturer_id = $2
+          AND (
+            EXISTS (SELECT 1 FROM lms_lecturer_units lu WHERE lu.unit_id = u.id AND lu.lecturer_id = $2)
+            OR EXISTS (SELECT 1 FROM lms_lecturer_programs lp WHERE lp.program_id = p.id AND lp.lecturer_id = $2)
+          )
 
         LIMIT 1
       `,

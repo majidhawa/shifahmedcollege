@@ -77,6 +77,11 @@ const navigation = [
     href: '/admin/dashboard/lms',
     icon: Notebook,
   },
+   {
+    name: 'Manage Lecturers',
+    href: '/admin/dashboard/lecturer-assignments',
+    icon: Users,
+  },
     {
     name: 'Announcements',
     href: '/admin/dashboard/announcements',

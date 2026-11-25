@@ -242,11 +242,12 @@ export async function GET(
         INNER JOIN lms_programs p
           ON p.id = e.program_id
 
-        INNER JOIN lms_lecturer_programs lp
-          ON lp.program_id = e.program_id
+        INNER JOIN lms_lecturer_students ls
+          ON ls.application_id = e.application_id
+         AND ls.program_id = e.program_id
+         AND ls.lecturer_id = $2
 
         WHERE e.id = $1
-          AND lp.lecturer_id = $2
 
         LIMIT 1
       `,

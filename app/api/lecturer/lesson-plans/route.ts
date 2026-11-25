@@ -148,13 +148,13 @@ export async function GET(_request: NextRequest) {
             '[]'::json
           ) AS units
 
-        FROM lms_lecturer_programs lpr
+        FROM lms_units u
 
         INNER JOIN lms_programs p
-          ON p.id = lpr.program_id
+          ON p.id = u.program_id
 
-        LEFT JOIN lms_units u
-          ON u.program_id = p.id
+        INNER JOIN lms_lecturer_units lpr
+          ON lpr.unit_id = u.id
 
         WHERE lpr.lecturer_id = $1
 
@@ -208,11 +208,17 @@ export async function GET(_request: NextRequest) {
         INNER JOIN lms_schemes_of_work s
           ON s.id = se.scheme_id
 
-        INNER JOIN lms_lecturer_programs lp
-          ON lp.program_id = s.program_id
-         AND lp.lecturer_id = s.lecturer_id
-
         WHERE s.lecturer_id = $1
+          AND (
+            (s.unit_id IS NOT NULL AND EXISTS (
+              SELECT 1 FROM lms_lecturer_units lu
+              WHERE lu.lecturer_id = $1 AND lu.unit_id = s.unit_id
+            ))
+            OR (s.unit_id IS NULL AND EXISTS (
+              SELECT 1 FROM lms_lecturer_programs lp
+              WHERE lp.lecturer_id = $1 AND lp.program_id = s.program_id
+            ))
+          )
 
         ORDER BY
           s.program_id,
@@ -348,8 +354,8 @@ export async function GET(_request: NextRequest) {
         INNER JOIN lms_units u
           ON u.id = lp.unit_id
 
-        INNER JOIN lms_lecturer_programs lpr
-          ON lpr.program_id = lp.program_id
+        INNER JOIN lms_lecturer_units lpr
+          ON lpr.unit_id = lp.unit_id
          AND lpr.lecturer_id = $1
 
         LEFT JOIN lms_scheme_of_work_entries se
@@ -804,8 +810,8 @@ export async function POST(request: NextRequest) {
           INNER JOIN lms_units u
             ON u.id = t.unit_id
 
-          INNER JOIN lms_lecturer_programs lp
-            ON lp.program_id = u.program_id
+          INNER JOIN lms_lecturer_units lp
+            ON lp.unit_id = u.id
            AND lp.lecturer_id = $2
 
           WHERE t.id = $1

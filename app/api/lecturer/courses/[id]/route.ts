@@ -41,13 +41,22 @@ export async function GET(request: Request, context: RouteContext) {
           p.duration,
           p.level,
           p.status,
-          lp.assigned_at,
-          lp.updated_at AS assignment_updated_at
-        FROM lms_lecturer_programs lp
-        INNER JOIN lms_programs p
-          ON p.id = lp.program_id
-        WHERE lp.lecturer_id = $1
-          AND p.id = $2
+          COALESCE(
+            (SELECT lp.assigned_at FROM lms_lecturer_programs lp WHERE lp.lecturer_id = $1 AND lp.program_id = p.id ORDER BY lp.id DESC LIMIT 1),
+            (SELECT MIN(lu.assigned_at) FROM lms_lecturer_units lu INNER JOIN lms_units u ON u.id = lu.unit_id WHERE lu.lecturer_id = $1 AND u.program_id = p.id),
+            CURRENT_TIMESTAMP
+          ) AS assigned_at,
+          COALESCE(
+            (SELECT lp.updated_at FROM lms_lecturer_programs lp WHERE lp.lecturer_id = $1 AND lp.program_id = p.id ORDER BY lp.id DESC LIMIT 1),
+            (SELECT MAX(lu.updated_at) FROM lms_lecturer_units lu INNER JOIN lms_units u ON u.id = lu.unit_id WHERE lu.lecturer_id = $1 AND u.program_id = p.id),
+            CURRENT_TIMESTAMP
+          ) AS assignment_updated_at
+        FROM lms_programs p
+        WHERE p.id = $2
+          AND (
+            EXISTS (SELECT 1 FROM lms_lecturer_programs lp WHERE lp.lecturer_id = $1 AND lp.program_id = p.id)
+            OR EXISTS (SELECT 1 FROM lms_lecturer_units lu INNER JOIN lms_units u ON u.id = lu.unit_id WHERE lu.lecturer_id = $1 AND u.program_id = p.id)
+          )
         LIMIT 1
       `,
       [lecturer.id, programId]
@@ -83,6 +92,10 @@ export async function GET(request: Request, context: RouteContext) {
         LEFT JOIN lms_topics t
           ON t.unit_id = u.id
         WHERE u.program_id = $1
+          AND EXISTS (
+            SELECT 1 FROM lms_lecturer_units lu
+            WHERE lu.lecturer_id = $2 AND lu.unit_id = u.id
+          )
         GROUP BY
           u.id,
           u.program_id,
@@ -98,7 +111,7 @@ export async function GET(request: Request, context: RouteContext) {
           u.term_number ASC NULLS LAST,
           u.name ASC
       `,
-      [programId]
+      [programId, lecturer.id]
     );
 
     return NextResponse.json({

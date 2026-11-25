@@ -70,10 +70,15 @@ async function getPageData(
 
         FROM lms_programs p
 
-        INNER JOIN lms_lecturer_programs lp
-          ON lp.program_id = p.id
-
-        WHERE lp.lecturer_id = $1
+        WHERE EXISTS (
+          SELECT 1 FROM lms_lecturer_programs lp
+          WHERE lp.program_id = p.id AND lp.lecturer_id = $1
+        )
+        OR EXISTS (
+          SELECT 1 FROM lms_lecturer_units lu
+          INNER JOIN lms_units u ON u.id = lu.unit_id
+          WHERE lu.lecturer_id = $1 AND u.program_id = p.id
+        )
 
         ORDER BY p.name ASC
       `,
@@ -129,8 +134,8 @@ async function getPageData(
         INNER JOIN lms_units u
           ON u.id = t.unit_id
 
-        INNER JOIN lms_lecturer_programs lp
-          ON lp.program_id = u.program_id
+        INNER JOIN lms_lecturer_units lp
+          ON lp.unit_id = u.id
 
         WHERE lp.lecturer_id = $1
 
@@ -163,8 +168,8 @@ async function getPageData(
         INNER JOIN lms_units u
           ON u.id = t.unit_id
 
-        INNER JOIN lms_lecturer_programs lp
-          ON lp.program_id = u.program_id
+        INNER JOIN lms_lecturer_units lp
+          ON lp.unit_id = u.id
 
         WHERE lp.lecturer_id = $1
 

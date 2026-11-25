@@ -51,6 +51,14 @@ type Lecturer = {
   email: string;
 };
 
+type UnitOption = {
+  id: number;
+  program_id: number;
+  name: string;
+  code?: string | null;
+  program_name: string;
+};
+
 type LecturerProgram = {
   id: number;
   lecturer_id: number;
@@ -99,6 +107,9 @@ type LecturerAssignment = {
   lecturer_id: number;
   application_id: number;
   program_id: number;
+  unit_id?: number | null;
+  unit_name?: string | null;
+  unit_program_name?: string | null;
 
   assigned_at?: string;
   updated_at?: string;
@@ -117,6 +128,7 @@ type ApiResponse = {
 
   students?: Student[];
   programs?: Program[];
+  units?: UnitOption[];
   lecturers?: Lecturer[];
 
   lecturerPrograms?: LecturerProgram[];
@@ -136,6 +148,8 @@ export default function AdminAssignStudentsPage() {
 
   const [programs, setPrograms] =
     useState<Program[]>([]);
+
+  const [units, setUnits] = useState<UnitOption[]>([]);
 
   const [lecturers, setLecturers] =
     useState<Lecturer[]>([]);
@@ -176,6 +190,9 @@ export default function AdminAssignStudentsPage() {
   const [selectedProgram, setSelectedProgram] =
     useState('');
 
+  const [assignmentType, setAssignmentType] = useState<'program' | 'unit'>('program');
+  const [selectedUnit, setSelectedUnit] = useState('');
+
   const [showAssignModal, setShowAssignModal] =
     useState(false);
 
@@ -213,6 +230,8 @@ export default function AdminAssignStudentsPage() {
       setPrograms(
         data.programs || []
       );
+
+      setUnits(data.units || []);
 
       setLecturers(
         data.lecturers || []
@@ -279,15 +298,16 @@ export default function AdminAssignStudentsPage() {
      CURRENT LECTURER ASSIGNMENT
   ===================================================== */
 
-  const getStudentLecturer = (
+  const getStudentLecturers = (
     applicationId: number
-  ): LecturerAssignment | undefined => {
-    return lecturerAssignments.find(
-      (item) =>
-        Number(item.application_id) ===
-        Number(applicationId)
+  ): LecturerAssignment[] => {
+    return lecturerAssignments.filter(
+      (item) => Number(item.application_id) === Number(applicationId)
     );
   };
+
+  const getStudentLecturer = (applicationId: number): LecturerAssignment | undefined =>
+    getStudentLecturers(applicationId)[0];
 
   /* =====================================================
      FILTER STUDENTS
@@ -370,6 +390,8 @@ export default function AdminAssignStudentsPage() {
       );
 
     setSelectedStudent(student);
+    setAssignmentType('program');
+    setSelectedUnit('');
 
     /*
      * Existing lecturer
@@ -450,6 +472,8 @@ export default function AdminAssignStudentsPage() {
   ===================================================== */
 
   useEffect(() => {
+    if (assignmentType === 'unit') return;
+
     if (!selectedLecturer) {
       setSelectedProgram('');
       return;
@@ -480,6 +504,7 @@ export default function AdminAssignStudentsPage() {
     selectedLecturer,
     authorizedPrograms,
     selectedProgram,
+    assignmentType,
   ]);
 
   /* =====================================================
@@ -502,27 +527,20 @@ export default function AdminAssignStudentsPage() {
     }
 
     if (!selectedProgram) {
-      setError(
-        'Please select an authorized LMS program.'
-      );
+      setError("Please select the student’s LMS programme.");
       return;
     }
 
-    /*
-     * Make sure lecturer is actually
-     * authorized for selected program.
-     */
-    const lecturerIsAuthorized =
-      authorizedPrograms.some(
-        (program) =>
-          String(program.id) ===
-          selectedProgram
+    if (assignmentType === 'program') {
+      const lecturerIsAuthorized = authorizedPrograms.some(
+        (program) => String(program.id) === selectedProgram
       );
-
-    if (!lecturerIsAuthorized) {
-      setError(
-        'The selected lecturer is not authorized for this LMS program.'
-      );
+      if (!lecturerIsAuthorized) {
+        setError('The selected lecturer is not authorized for this LMS programme.');
+        return;
+      }
+    } else if (!selectedUnit) {
+      setError('Please select the unit to assign.');
       return;
     }
 
@@ -558,9 +576,9 @@ export default function AdminAssignStudentsPage() {
               ),
 
             lecturerId:
-              Number(
-                selectedLecturer
-              ),
+              Number(selectedLecturer),
+            assignmentType,
+            unitId: assignmentType === 'unit' ? Number(selectedUnit) : null,
           }),
         }
       );
@@ -616,8 +634,9 @@ export default function AdminAssignStudentsPage() {
   ===================================================== */
 
   const removeLecturer = async (
-    applicationId: number
+    assignment: LecturerAssignment
   ) => {
+    const applicationId = Number(assignment.application_id);
     if (
       !window.confirm(
         'Remove the lecturer assignment for this student?'
@@ -645,6 +664,9 @@ export default function AdminAssignStudentsPage() {
               Number(applicationId),
 
             type: 'lecturer',
+            lecturerId: assignment.lecturer_id,
+            programId: assignment.program_id,
+            unitId: assignment.unit_id ?? null,
           }),
         }
       );
@@ -694,12 +716,7 @@ export default function AdminAssignStudentsPage() {
     ).length;
 
   const lecturerAssignedStudents =
-    students.filter(
-      (student) =>
-        !!getStudentLecturer(
-          student.application_id
-        )
-    ).length;
+    students.filter((student) => getStudentLecturers(student.application_id).length > 0).length;
 
   /* =====================================================
      RENDER
@@ -978,10 +995,9 @@ export default function AdminAssignStudentsPage() {
                           student.application_id
                         );
 
-                      const lecturer =
-                        getStudentLecturer(
-                          student.application_id
-                        );
+                      const lecturersForStudent =
+                        getStudentLecturers(student.application_id);
+                      const lecturer = lecturersForStudent[0];
 
                       return (
                         <tr
@@ -1094,28 +1110,21 @@ export default function AdminAssignStudentsPage() {
 
                           <td className="px-5 py-4">
 
-                            {lecturer ? (
-                              <div>
-
-                                <p className="text-sm font-medium text-slate-700">
-                                  {
-                                    lecturer.lecturer_name ||
-                                    'Lecturer assigned'
-                                  }
-                                </p>
-
-                                <p className="text-xs text-slate-500">
-                                  {
-                                    lecturer.lecturer_email ||
-                                    ''
-                                  }
-                                </p>
-
+                            {lecturersForStudent.length > 0 ? (
+                              <div className="space-y-2">
+                                {lecturersForStudent.map((assignment) => (
+                                  <div key={assignment.id}>
+                                    <p className="text-sm font-medium text-slate-700">{assignment.lecturer_name || 'Lecturer assigned'}</p>
+                                    <p className="text-xs text-slate-500">
+                                      {assignment.unit_name
+                                        ? `Unit: ${assignment.unit_name} (${assignment.unit_program_name || 'Cross-program unit'})`
+                                        : assignment.program_name || 'Programme-wide'}
+                                    </p>
+                                  </div>
+                                ))}
                               </div>
                             ) : (
-                              <span className="text-sm text-slate-400">
-                                Not assigned
-                              </span>
+                              <span className="text-sm text-slate-400">Not assigned</span>
                             )}
 
                           </td>
@@ -1140,18 +1149,16 @@ export default function AdminAssignStudentsPage() {
                                   : 'Assign'}
                               </button>
 
-                              {lecturer && (
+                              {lecturersForStudent.map((assignment) => (
                                 <button
-                                  onClick={() =>
-                                    removeLecturer(
-                                      student.application_id
-                                    )
-                                  }
-                                  className="rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-600 transition hover:bg-red-50"
+                                  key={`remove-${assignment.id}`}
+                                  onClick={() => removeLecturer(assignment)}
+                                  title={`Remove ${assignment.lecturer_name || 'lecturer'} assignment`}
+                                  className="rounded-lg border border-red-200 px-2 py-2 text-[11px] font-semibold text-red-600 transition hover:bg-red-50"
                                 >
-                                  Remove Lecturer
+                                  Remove {assignment.unit_name ? 'Unit' : 'Lecturer'}
                                 </button>
-                              )}
+                              ))}
 
                             </div>
 
@@ -1280,6 +1287,29 @@ export default function AdminAssignStudentsPage() {
 
                   </div>
 
+                  {/* ASSIGNMENT TYPE */}
+                  <div>
+                    <label className="mb-2 block text-sm font-semibold text-slate-700">Assignment Type</label>
+                    <select
+                      value={assignmentType}
+                      onChange={(event) => {
+                        const next = event.target.value as 'program' | 'unit';
+                        setAssignmentType(next);
+                        setSelectedUnit('');
+                        if (next === 'program') setSelectedProgram('');
+                        else if (selectedStudent) {
+                          const current = getStudentEnrollment(selectedStudent.application_id);
+                          setSelectedProgram(current ? String(current.program_id) : '');
+                        }
+                      }}
+                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-brand-green focus:ring-2 focus:ring-brand-green/20"
+                    >
+                      <option value="program">Assign lecturer to the student’s programme</option>
+                      <option value="unit">Assign lecturer to a specific unit</option>
+                    </select>
+                    <p className="mt-1 text-xs text-slate-500">Unit assignments can link a lecturer to a unit from another programme without changing the student’s enrolled programme.</p>
+                  </div>
+
                   {/* LECTURER */}
 
                   <div>
@@ -1368,7 +1398,7 @@ export default function AdminAssignStudentsPage() {
                   <div>
 
                     <label className="mb-2 block text-sm font-semibold text-slate-700">
-                      Authorized LMS Program
+                      {assignmentType === 'unit' ? 'Student’s Enrolled LMS Programme' : 'Authorized LMS Programme'}
                     </label>
 
                     <select
@@ -1382,45 +1412,21 @@ export default function AdminAssignStudentsPage() {
                           event.target.value
                         )
                       }
-                      disabled={
-                        !selectedLecturer ||
-                        authorizedPrograms.length ===
-                          0
-                      }
+                      disabled={(assignmentType === 'program' && (!selectedLecturer || authorizedPrograms.length === 0)) || (assignmentType === 'unit' && !!(selectedStudent && getStudentEnrollment(selectedStudent.application_id)))}
                       className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-brand-green focus:ring-2 focus:ring-brand-green/20 disabled:cursor-not-allowed disabled:bg-slate-100"
                     >
 
                       <option value="">
-                        {!selectedLecturer
-                          ? 'Select a lecturer first'
-                          : authorizedPrograms.length ===
-                              0
-                          ? 'No authorized programs'
-                          : 'Select authorized program'}
+                        {assignmentType === 'unit' ? 'Select student programme' : !selectedLecturer ? 'Select a lecturer first' : authorizedPrograms.length === 0 ? 'No authorized programmes' : 'Select authorized programme'}
                       </option>
 
-                      {authorizedPrograms.map(
-                        (
-                          program
-                        ) => (
-                          <option
-                            key={
-                              program.id
-                            }
-                            value={
-                              program.id
-                            }
-                          >
-                            {
-                              program.name
-                            }
-                          </option>
-                        )
-                      )}
+                      {(assignmentType === 'unit' ? programs : authorizedPrograms).map((program) => (
+                        <option key={program.id} value={program.id}>{program.name}</option>
+                      ))}
 
                     </select>
 
-                    {selectedLecturer &&
+                    {assignmentType === 'program' && selectedLecturer &&
                       authorizedPrograms.length >
                         0 && (
                         <div className="mt-2 rounded-lg bg-brand-green/5 p-3">
@@ -1454,7 +1460,7 @@ export default function AdminAssignStudentsPage() {
                         </div>
                       )}
 
-                    {selectedLecturer &&
+                    {assignmentType === 'program' && selectedLecturer &&
                       authorizedPrograms.length ===
                         0 && (
                         <div className="mt-2 rounded-lg bg-amber-50 p-3 text-xs text-amber-700">
@@ -1469,6 +1475,24 @@ export default function AdminAssignStudentsPage() {
                       )}
 
                   </div>
+
+                  {assignmentType === 'unit' && (
+                    <div>
+                      <label className="mb-2 block text-sm font-semibold text-slate-700">Unit to Assign</label>
+                      <select
+                        value={selectedUnit}
+                        onChange={(event) => setSelectedUnit(event.target.value)}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-brand-green focus:ring-2 focus:ring-brand-green/20"
+                      >
+                        <option value="">Select unit from any programme</option>
+                        {units.map((unit) => (
+                          <option key={unit.id} value={unit.id}>
+                            {unit.program_name} — {unit.code ? `${unit.code} · ` : ''}{unit.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
 
                 </div>
 
@@ -1495,7 +1519,8 @@ export default function AdminAssignStudentsPage() {
                     disabled={
                       saving ||
                       !selectedLecturer ||
-                      !selectedProgram
+                      !selectedProgram ||
+                      (assignmentType === 'unit' && !selectedUnit)
                     }
                     className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-brand-green px-4 py-3 text-sm font-semibold text-white transition hover:bg-brand-green/90 disabled:cursor-not-allowed disabled:opacity-50"
                   >

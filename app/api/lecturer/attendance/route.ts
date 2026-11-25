@@ -193,12 +193,16 @@ export async function GET(
             p.level,
             p.status
 
-          FROM lms_lecturer_programs lp
+          FROM lms_programs p
 
-          INNER JOIN lms_programs p
-            ON p.id = lp.program_id
-
-          WHERE lp.lecturer_id = $1
+          WHERE EXISTS (
+            SELECT 1 FROM lms_lecturer_programs lp
+            WHERE lp.lecturer_id = $1 AND lp.program_id = p.id
+          ) OR EXISTS (
+            SELECT 1 FROM lms_lecturer_units lu
+            INNER JOIN lms_units u ON u.id = lu.unit_id
+            WHERE lu.lecturer_id = $1 AND u.program_id = p.id
+          )
 
           ORDER BY p.name ASC
         `,
@@ -258,8 +262,8 @@ export async function GET(
       INNER JOIN lms_programs p
         ON p.id = u.program_id
 
-      INNER JOIN lms_lecturer_programs lp
-        ON lp.program_id = u.program_id
+      INNER JOIN lms_lecturer_units lp
+        ON lp.unit_id = u.id
 
       WHERE lp.lecturer_id = $1
     `;
@@ -338,8 +342,10 @@ export async function GET(
       INNER JOIN lms_programs p
         ON p.id = e.program_id
 
-      INNER JOIN lms_lecturer_programs lp
-        ON lp.program_id = e.program_id
+      INNER JOIN lms_lecturer_students ls
+        ON ls.application_id = e.application_id
+       AND ls.program_id = e.program_id
+       AND ls.lecturer_id = $1
 
       INNER JOIN admissions a
         ON a.application_id = e.application_id
@@ -347,9 +353,7 @@ export async function GET(
       LEFT JOIN applications app
         ON app.id = e.application_id
 
-      WHERE lp.lecturer_id = $1
-
-        AND (
+      WHERE (
           e.enrollment_status IS NULL
           OR LOWER(e.enrollment_status)
              NOT IN (
@@ -371,6 +375,13 @@ export async function GET(
       studentsParams.push(
         Number(programId)
       );
+    }
+
+    if (unitId) {
+      studentsParams.push(Number(unitId));
+      studentsQuery += `
+        AND (ls.unit_id IS NULL OR ls.unit_id = $${studentsParams.length})
+      `;
     }
 
     studentsQuery += `
@@ -904,24 +915,29 @@ export async function POST(
     const programResult =
       await pool.query(
         `
-          SELECT
-            p.id,
-            p.name,
-            p.code
-
-          FROM lms_lecturer_programs lp
-
-          INNER JOIN lms_programs p
-            ON p.id = lp.program_id
-
-          WHERE lp.lecturer_id = $1
-            AND p.id = $2
-
+          SELECT p.id, p.name, p.code
+          FROM lms_programs p
+          WHERE p.id = $2
+            AND (
+              ($3::integer IS NULL AND EXISTS (
+                SELECT 1 FROM lms_lecturer_programs lp
+                WHERE lp.lecturer_id = $1 AND lp.program_id = p.id
+              ))
+              OR ($3::integer IS NOT NULL AND EXISTS (
+                SELECT 1 FROM lms_units u
+                WHERE u.id = $3 AND u.program_id = p.id
+                  AND (
+                    EXISTS (SELECT 1 FROM lms_lecturer_units lu WHERE lu.lecturer_id = $1 AND lu.unit_id = u.id)
+                    OR EXISTS (SELECT 1 FROM lms_lecturer_programs lp WHERE lp.lecturer_id = $1 AND lp.program_id = u.program_id)
+                  )
+              ))
+            )
           LIMIT 1
         `,
         [
           lecturer.id,
           programId,
+          unitId,
         ]
       );
 

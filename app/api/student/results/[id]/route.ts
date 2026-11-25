@@ -420,7 +420,7 @@ export async function GET(
                 SELECT 1
                 FROM lms_enrollments e
                 WHERE e.application_id = $2
-                  AND e.program_id = p.id
+                  AND public.lms_student_can_access_unit(e.application_id, e.program_id, u.id)
                   AND (
                     e.enrollment_status IS NULL
                     OR LOWER(
@@ -1078,7 +1078,7 @@ export async function GET(
               SELECT 1
               FROM lms_enrollments e
               WHERE e.application_id = $2
-                AND e.program_id = p.id
+                AND public.lms_student_can_access_unit(e.application_id, e.program_id, u.id)
                 AND (
                   e.enrollment_status IS NULL
                   OR LOWER(

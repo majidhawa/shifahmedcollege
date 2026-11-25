@@ -222,14 +222,19 @@ async function verifyAssignment(
     `
       SELECT 1
 
-      FROM lms_lecturer_programs lp
-
-      INNER JOIN lms_units u
-        ON u.program_id = lp.program_id
-
-      WHERE lp.lecturer_id = $1
-        AND lp.program_id = $2
+      FROM lms_units u
+      WHERE u.program_id = $2
         AND u.id = $3
+        AND (
+          EXISTS (
+            SELECT 1 FROM lms_lecturer_units lu
+            WHERE lu.lecturer_id = $1 AND lu.unit_id = u.id
+          )
+          OR EXISTS (
+            SELECT 1 FROM lms_lecturer_programs lp
+            WHERE lp.lecturer_id = $1 AND lp.program_id = u.program_id
+          )
+        )
 
       LIMIT 1
     `,

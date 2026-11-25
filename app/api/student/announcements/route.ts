@@ -125,16 +125,9 @@ const ANNOUNCEMENT_TARGETING_SQL = `  (
       AND EXISTS (
         SELECT 1
         FROM lms_enrollments le
-        INNER JOIN lms_unit_enrollments lue
-          ON lue.enrollment_id = le.id
         WHERE le.application_id = $1
           AND le.enrollment_status = 'active'
-          AND lue.unit_id = a.unit_id
-          AND lue.status = 'active'
-          AND (
-            a.program_id IS NULL
-            OR le.program_id = a.program_id
-          )
+          AND public.lms_student_can_access_unit(le.application_id, le.program_id, a.unit_id)
       )
     )
   )`;

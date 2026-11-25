@@ -38,8 +38,8 @@ async function verifyDocumentAccess(
       INNER JOIN lms_units u
         ON u.id = t.unit_id
 
-      INNER JOIN lms_lecturer_programs lp
-        ON lp.program_id = u.program_id
+      INNER JOIN lms_lecturer_units lp
+        ON lp.unit_id = u.id
 
       WHERE d.id = $1
         AND d.lesson_id = $2

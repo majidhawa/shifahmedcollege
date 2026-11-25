@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 
 import pool from '@/lib/db';
 import { getStudentSession } from '@/lib/student-auth';
+import PaymentClient from './PaymentClient';
 
 import {
   FileText,
@@ -23,15 +24,18 @@ import {
   CalendarDays,
 } from 'lucide-react';
 
-import PaymentClient from './PaymentClient';
-
 export const dynamic = 'force-dynamic';
 
 /* =========================================================
    TYPES
 ========================================================= */
 
-type Component = 'TUITION' | 'ADMIN' | 'PROGRAMME';
+type Component =
+  | 'TUITION'
+  | 'ADMIN'
+  | 'PROGRAMME'
+  | 'UNIFORM'
+  | 'SCRUB';
 
 type FeePayment = {
   id: number;
@@ -95,6 +99,8 @@ type StudentRow = {
   tuition_paid: number | string;
   admin_paid: number | string;
   programme_paid: number | string;
+  uniform_paid: number | string;
+  scrub_paid: number | string;
   course_payments_total: number | string;
   total_paid: number | string;
   balance: number | string;
@@ -175,15 +181,31 @@ function paymentComponentLabel(
   component: string | null,
   term: number | null,
 ) {
-  if (component === 'ADMIN') return 'Administrative Charge';
+  switch (component) {
+    case 'ADMIN':
+      return 'Administrative Charges';
 
-  if (component === 'PROGRAMME') return 'Programme Tuition';
+    case 'PROGRAMME':
+      return 'Programme Tuition';
 
-  if (component === 'TUITION') {
-    return term ? `Term ${term} Tuition` : 'Unallocated Tuition';
+    case 'UNIFORM':
+      return 'School Uniform';
+
+    case 'SCRUB':
+      return 'Medical Scrub';
+
+    case 'TUITION':
+      return term
+        ? `Term ${term} Tuition`
+        : 'Unallocated Tuition';
+
+    default:
+      return 'Course Fee Payment';
   }
+}
 
-  return 'Course Fee Payment';
+function calculateBalance(required: number, paid: number) {
+  return Math.max(required - paid, 0);
 }
 
 /* =========================================================
@@ -200,23 +222,26 @@ export default async function StudentPaymentPage() {
   }
 
   /* =========================================================
-     STUDENT DETAILS AND COURSE FEE STRUCTURE
+     STUDENT DETAILS AND FEE ACCOUNT
 
-     PER_TERM:
-       Tuition x total terms + admin charge once.
+     FEE CATEGORIES:
 
-     ONE_TIME:
-       Tuition once + admin charge once.
+     1. Application Fee
+     2. School Uniform
+     3. Medical Scrub
+     4. Administrative Charges
+     5. Programme Tuition
 
-     Additional items:
-       Application fee + uniform + scrub.
+     UNIFORM AND SCRUB:
 
-     PAYMENT RULES:
-       - Application fee is credited only when app.payment_status
-         is marked as paid.
-       - Uniform and scrub are included in total fees.
-       - Uniform and scrub are NOT automatically counted as paid.
-       - Only actual recorded course payments are counted.
+     These are optional fee allocations.
+     They only appear when the administrator has allocated
+     an amount greater than zero to the student's fee account.
+
+     PAYMENT RECORDS:
+
+     All payments are retrieved from student_fee_payments.
+     Payments are grouped by their actual payment_component.
   ========================================================= */
 
   const result = await pool.query(
@@ -262,11 +287,6 @@ export default async function StudentPaymentPage() {
         1500
       ) AS fee_application_fee,
 
-      /*
-       * Only credit the application fee when the application
-       * payment status confirms that it has been paid.
-       */
-
       CASE
         WHEN LOWER(TRIM(COALESCE(app.payment_status, ''))) = 'paid'
         THEN COALESCE(
@@ -278,7 +298,7 @@ export default async function StudentPaymentPage() {
         ELSE 0
       END AS application_fee_paid,
 
-      /* OPTIONAL FEE ITEMS */
+      /* OPTIONAL FEE ALLOCATIONS */
 
       COALESCE(fa.uniform_fee, 0) AS uniform_fee,
       COALESCE(fa.scrub_fee, 0) AS scrub_fee,
@@ -311,23 +331,17 @@ export default async function StudentPaymentPage() {
         + COALESCE(fa.scrub_fee, 0)
       ) AS total_fee,
 
-      /* RECORDED COURSE PAYMENTS */
+      /* PAYMENT TOTALS BY CATEGORY */
 
       COALESCE(paid.tuition_paid, 0) AS tuition_paid,
       COALESCE(paid.admin_paid, 0) AS admin_paid,
       COALESCE(paid.programme_paid, 0) AS programme_paid,
+      COALESCE(paid.uniform_paid, 0) AS uniform_paid,
+      COALESCE(paid.scrub_paid, 0) AS scrub_paid,
 
       COALESCE(paid.total_paid, 0) AS course_payments_total,
 
-      /*
-       * TOTAL PAID
-       *
-       * 1. Actual recorded course payments.
-       * 2. Verified application fee payment.
-       *
-       * Uniform and scrub are NOT automatically credited
-       * as paid. They remain part of the outstanding fees.
-       */
+      /* TOTAL PAID INCLUDING VERIFIED APPLICATION FEE */
 
       (
         COALESCE(paid.total_paid, 0)
@@ -344,7 +358,10 @@ export default async function StudentPaymentPage() {
           END
       ) AS total_paid,
 
-      COALESCE(paid.unallocated_tuition, 0) AS unallocated_tuition,
+      COALESCE(
+        paid.unallocated_tuition,
+        0
+      ) AS unallocated_tuition,
 
       /* OUTSTANDING BALANCE */
 
@@ -394,16 +411,27 @@ export default async function StudentPaymentPage() {
 
       /* ACADEMIC PROGRESS */
 
-      COALESCE(fa.academic_current_term, 1) AS academic_current_term,
-      COALESCE(fa.academic_completed_terms, 0) AS academic_completed_terms,
-      COALESCE(fa.academic_progress_percent, 0) AS academic_progress_percent,
-      COALESCE(fa.academic_status, 'IN_PROGRESS') AS academic_status,
+      COALESCE(fa.academic_current_term, 1)
+        AS academic_current_term,
+
+      COALESCE(fa.academic_completed_terms, 0)
+        AS academic_completed_terms,
+
+      COALESCE(fa.academic_progress_percent, 0)
+        AS academic_progress_percent,
+
+      COALESCE(fa.academic_status, 'IN_PROGRESS')
+        AS academic_status,
+
       fa.course_start_date,
       fa.expected_completion_date,
 
       /* TERM PAYMENT DETAILS */
 
-      COALESCE(term_data.term_payments, '[]'::json) AS term_payments,
+      COALESCE(
+        term_data.term_payments,
+        '[]'::json
+      ) AS term_payments,
 
       (fee.id IS NOT NULL) AS fee_configured
 
@@ -416,8 +444,11 @@ export default async function StudentPaymentPage() {
         a.intake,
         a.admission_status,
         a.student_name
+
       FROM admissions a
+
       WHERE a.application_id = app.id
+
       ORDER BY a.id DESC
       LIMIT 1
     ) admission ON TRUE
@@ -427,59 +458,111 @@ export default async function StudentPaymentPage() {
 
     LEFT JOIN LATERAL (
       SELECT cfs.*
+
       FROM course_fee_structures cfs
+
       CROSS JOIN LATERAL
         unnest(cfs.course_aliases) AS aliases(alias)
+
       WHERE
         cfs.academic_year = $3
+
         AND LOWER(
-          COALESCE(NULLIF(admission.course, ''), app.course, '')
+          COALESCE(
+            NULLIF(admission.course, ''),
+            app.course,
+            ''
+          )
         ) LIKE '%' || LOWER(aliases.alias) || '%'
+
       ORDER BY LENGTH(aliases.alias) DESC
+
       LIMIT 1
     ) fee ON TRUE
 
+    /* PAYMENT TOTALS */
+
     LEFT JOIN LATERAL (
       SELECT
-        COALESCE(SUM(amount_paid) FILTER (
-          WHERE payment_component = 'TUITION'
-        ), 0) AS tuition_paid,
 
-        COALESCE(SUM(amount_paid) FILTER (
-          WHERE payment_component = 'ADMIN'
-        ), 0) AS admin_paid,
+        COALESCE(
+          SUM(amount_paid) FILTER (
+            WHERE payment_component = 'TUITION'
+          ),
+          0
+        ) AS tuition_paid,
 
-        COALESCE(SUM(amount_paid) FILTER (
-          WHERE payment_component = 'PROGRAMME'
-        ), 0) AS programme_paid,
+        COALESCE(
+          SUM(amount_paid) FILTER (
+            WHERE payment_component = 'ADMIN'
+          ),
+          0
+        ) AS admin_paid,
 
-        COALESCE(SUM(amount_paid), 0) AS total_paid,
+        COALESCE(
+          SUM(amount_paid) FILTER (
+            WHERE payment_component = 'PROGRAMME'
+          ),
+          0
+        ) AS programme_paid,
 
-        COALESCE(SUM(amount_paid) FILTER (
-          WHERE payment_component = 'TUITION'
-            AND term_number IS NULL
-        ), 0) AS unallocated_tuition
+        COALESCE(
+          SUM(amount_paid) FILTER (
+            WHERE payment_component = 'UNIFORM'
+          ),
+          0
+        ) AS uniform_paid,
+
+        COALESCE(
+          SUM(amount_paid) FILTER (
+            WHERE payment_component = 'SCRUB'
+          ),
+          0
+        ) AS scrub_paid,
+
+        COALESCE(
+          SUM(amount_paid),
+          0
+        ) AS total_paid,
+
+        COALESCE(
+          SUM(amount_paid) FILTER (
+            WHERE
+              payment_component = 'TUITION'
+              AND term_number IS NULL
+          ),
+          0
+        ) AS unallocated_tuition
 
       FROM student_fee_payments
+
       WHERE application_id = app.id
     ) paid ON TRUE
 
+    /* TERM PAYMENTS */
+
     LEFT JOIN LATERAL (
-      SELECT json_agg(
-        json_build_object(
-          'term_number', term_number,
-          'amount_paid', amount_paid
-        ) ORDER BY term_number
-      ) AS term_payments
+      SELECT
+        json_agg(
+          json_build_object(
+            'term_number', term_number,
+            'amount_paid', amount_paid
+          )
+          ORDER BY term_number
+        ) AS term_payments
+
       FROM (
         SELECT
           term_number,
           SUM(amount_paid) AS amount_paid
+
         FROM student_fee_payments
+
         WHERE
           application_id = app.id
           AND payment_component = 'TUITION'
           AND term_number IS NOT NULL
+
         GROUP BY term_number
       ) grouped_terms
     ) term_data ON TRUE
@@ -530,7 +613,10 @@ export default async function StudentPaymentPage() {
      APPLICATION PAYMENT STATUS
   ========================================================= */
 
-  const paymentStatus = String(student.payment_status || 'Pending');
+  const paymentStatus = String(
+    student.payment_status || 'Pending',
+  );
+
   const paymentStatusLower = paymentStatus.trim().toLowerCase();
 
   const isPaid = paymentStatusLower === 'paid';
@@ -565,7 +651,7 @@ export default async function StudentPaymentPage() {
   }
 
   /* =========================================================
-     COURSE FEES
+     FEE ACCOUNT CALCULATIONS
   ========================================================= */
 
   const hasFeeAccount = Boolean(student.fee_configured);
@@ -591,35 +677,50 @@ export default async function StudentPaymentPage() {
     ? Number(student.application_fee_paid || 0)
     : 0;
 
-  const applicationFeeBalance = Math.max(
-    feeApplicationFee - applicationFeePaid,
-    0,
+  const applicationFeeBalance = calculateBalance(
+    feeApplicationFee,
+    applicationFeePaid,
+  );
+
+  /* SCHOOL UNIFORM */
+
+  const uniformFee = Number(student.uniform_fee || 0);
+  const uniformPaid = Number(student.uniform_paid || 0);
+
+  const uniformBalance = calculateBalance(
+    uniformFee,
+    uniformPaid,
+  );
+
+  /* MEDICAL SCRUB */
+
+  const scrubFee = Number(student.scrub_fee || 0);
+  const scrubPaid = Number(student.scrub_paid || 0);
+
+  const scrubBalance = calculateBalance(
+    scrubFee,
+    scrubPaid,
+  );
+
+  /* ADMINISTRATIVE CHARGES */
+
+  const adminBalance = calculateBalance(
+    adminCharge,
+    adminPaid,
   );
 
   /* =========================================================
-     UNIFORM AND SCRUB
+     PROGRAMME TUITION
 
-     Uniform and scrub are included in the total fees.
+     PER_TERM:
+       Tuition fee multiplied by total academic terms.
 
-     They are NOT automatically credited as paid.
-     They remain outstanding until the corresponding
-     payment is recorded by the accounts office.
-
-     They do not create separate payment history records
-     unless an actual payment is recorded.
-  ========================================================= */
-
-  const uniformFee = Number(student.uniform_fee || 0);
-  const scrubFee = Number(student.scrub_fee || 0);
-
-  const uniformPaid = 0;
-  const scrubPaid = 0;
-
-  /* =========================================================
-     BILLING TYPE
+     ONE_TIME:
+       Tuition charged once for the whole programme.
   ========================================================= */
 
   const isTermBased = student.billing_type === 'PER_TERM';
+
   const totalTerms = Number(student.total_terms || 0);
 
   const termPayments = (
@@ -627,6 +728,23 @@ export default async function StudentPaymentPage() {
       ? student.term_payments
       : []
   ) as TermPayment[];
+
+  const tuitionTotal = isTermBased
+    ? tuitionFee * totalTerms
+    : tuitionFee;
+
+  const programmeTuitionPaid = isTermBased
+    ? tuitionPaid
+    : programmePaid;
+
+  const tuitionBalance = calculateBalance(
+    tuitionTotal,
+    programmeTuitionPaid,
+  );
+
+  /* =========================================================
+     ACCOUNT STATUS AND PROGRESS
+  ========================================================= */
 
   const feesCleared =
     hasFeeAccount &&
@@ -638,63 +756,11 @@ export default async function StudentPaymentPage() {
       ? Math.min((totalPaid / totalFees) * 100, 100)
       : 0;
 
-  const tuitionTotal = isTermBased
-    ? tuitionFee * totalTerms
-    : tuitionFee;
-
-  const tuitionBalance = Math.max(
-    tuitionTotal - tuitionPaid,
-    0,
-  );
-
-  /* =========================================================
-     COMBINED FEE CALCULATIONS
-
-     ONE-TIME PROGRAMMES:
-       Tuition + selected uniform + selected scrub + admin.
-
-     TERM-BASED PROGRAMMES:
-       Tuition is displayed separately.
-       Admin + selected uniform + selected scrub are combined.
-
-     Uniform and scrub are billed but not automatically
-     credited as paid.
-  ========================================================= */
-
-  const oneTimeProgrammeTotal =
-    tuitionTotal +
-    uniformFee +
-    scrubFee +
-    adminCharge;
-
-  const oneTimeProgrammePaid =
-    programmePaid +
-    uniformPaid +
-    scrubPaid +
-    adminPaid;
-
-  const oneTimeProgrammeBalance = Math.max(
-    oneTimeProgrammeTotal - oneTimeProgrammePaid,
-    0,
-  );
-
-  const termAdditionalFeesTotal =
-    adminCharge +
-    uniformFee +
-    scrubFee;
-
-  const termAdditionalFeesPaid =
-    adminPaid +
-    uniformPaid +
-    scrubPaid;
-
-  const termAdditionalFeesBalance = Math.max(
-    termAdditionalFeesTotal - termAdditionalFeesPaid,
-    0,
-  );
-
   const academicProgress = Math.min(
-    Math.max(Number(student.academic_progress_percent || 0), 0),
+    Math.max(
+      Number(student.academic_progress_percent || 0),
+      0,
+    ),
     100,
   );
 
@@ -709,9 +775,7 @@ export default async function StudentPaymentPage() {
   /* =========================================================
      PAYMENT HISTORY
 
-     Only actual records from student_fee_payments are displayed.
-     Uniform and scrub charges do not create payment history
-     entries unless an actual payment is recorded.
+     Includes all five course payment components.
   ========================================================= */
 
   const paymentsResult = await pool.query(
@@ -743,7 +807,9 @@ export default async function StudentPaymentPage() {
     paymentsResult.rows as FeePayment[];
 
   /* =========================================================
-     CLIENT PAYMENT DATA
+     APPLICATION PAYMENT CLIENT DATA
+
+     Existing application M-Pesa payment component retained.
   ========================================================= */
 
   const paymentData = {
@@ -797,8 +863,8 @@ export default async function StudentPaymentPage() {
 
               <p className="mt-2 max-w-2xl text-sm leading-6 text-gray-500">
                 View your approved fee structure, application fee,
-                selected fee items, term payments, outstanding balances,
-                academic progress and payment receipts.
+                school uniform, medical scrub, administrative charges,
+                programme tuition, payment history and receipts.
               </p>
             </div>
 
@@ -885,7 +951,7 @@ export default async function StudentPaymentPage() {
                   <FeeSummaryCard
                     label="Total Fees"
                     amount={formatKES(totalFees)}
-                    description="Application fee, tuition, administration and selected fee items"
+                    description="Application fee, tuition, administration and allocated additional items"
                     icon={<WalletCards size={22} />}
                     color="green"
                   />
@@ -893,7 +959,7 @@ export default async function StudentPaymentPage() {
                   <FeeSummaryCard
                     label="Total Amount Paid"
                     amount={formatKES(totalPaid)}
-                    description="Actual recorded course payments and verified application fee"
+                    description="Verified application fee and all recorded course payments"
                     icon={<CheckCircle2 size={22} />}
                     color="blue"
                   />
@@ -915,7 +981,7 @@ export default async function StudentPaymentPage() {
                   />
                 </div>
 
-                {/* FEE PAYMENT PROGRESS */}
+                {/* PAYMENT PROGRESS */}
 
                 <div className="mt-5 rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
                   <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
@@ -925,8 +991,8 @@ export default async function StudentPaymentPage() {
                       </h4>
 
                       <p className="mt-1 text-xs text-gray-500">
-                        Percentage of total fees covered by actual recorded
-                        payments and verified application fee
+                        Percentage of total fees covered by verified
+                        and recorded payments
                       </p>
                     </div>
 
@@ -948,7 +1014,9 @@ export default async function StudentPaymentPage() {
                   </div>
                 </div>
 
-                {/* FEE BREAKDOWN */}
+                {/* =================================================
+                    FIVE-CATEGORY FEE BREAKDOWN
+                ================================================= */}
 
                 <div className="mt-5 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
                   <div className="border-b border-gray-100 p-5">
@@ -957,78 +1025,108 @@ export default async function StudentPaymentPage() {
                     </h4>
 
                     <p className="mt-1 text-xs text-gray-500">
-                      Your application fee, tuition, administrative charges
-                      and selected additional items.
+                      Your fee account is divided into five categories.
+                      Optional items appear only when allocated by the
+                      accounts office.
                     </p>
                   </div>
 
                   <div className="divide-y divide-gray-100">
 
-                    {/* APPLICATION FEE */}
+                    {/* 1. APPLICATION FEE */}
 
                     <FeeBreakdownRow
+                      number="01"
                       title="Application Fee"
+                      description="Application processing and admission"
                       amount={formatKES(feeApplicationFee)}
                       paid={formatKES(applicationFeePaid)}
                       balance={formatKES(applicationFeeBalance)}
                     />
 
-                    {/* ONE-TIME PROGRAMMES */}
+                    {/* 2. SCHOOL UNIFORM */}
 
-                    {!isTermBased ? (
+                    {uniformFee > 0 && (
                       <FeeBreakdownRow
-                        title="Programme Tuition + Selected Uniform/Scrub + Administrative Charges (once)"
-                        amount={formatKES(oneTimeProgrammeTotal)}
-                        paid={formatKES(oneTimeProgrammePaid)}
-                        balance={formatKES(oneTimeProgrammeBalance)}
-                        paidNote={
-                          uniformFee > 0 || scrubFee > 0
-                            ? 'Uniform and scrub are included in the fees but are not automatically credited as paid'
-                            : undefined
-                        }
+                        number="02"
+                        title="School Uniform"
+                        description="Uniform fee allocated to your student account"
+                        amount={formatKES(uniformFee)}
+                        paid={formatKES(uniformPaid)}
+                        balance={formatKES(uniformBalance)}
                       />
-                    ) : (
-                      <>
-                        {/* TERM-BASED TUITION */}
-
-                        <FeeBreakdownRow
-                          title={`Programme Tuition (${totalTerms} academic terms)`}
-                          amount={formatKES(tuitionTotal)}
-                          paid={formatKES(tuitionPaid)}
-                          balance={formatKES(tuitionBalance)}
-                        />
-
-                        {/* ADMIN + SELECTED UNIFORM/SCRUB */}
-
-                        <FeeBreakdownRow
-                          title="Administrative Charges (once) + Selected Uniform/Scrub"
-                          amount={formatKES(termAdditionalFeesTotal)}
-                          paid={formatKES(termAdditionalFeesPaid)}
-                          balance={formatKES(termAdditionalFeesBalance)}
-                          paidNote={
-                            uniformFee > 0 || scrubFee > 0
-                              ? 'Uniform and scrub are included in the fees but are not automatically credited as paid'
-                              : undefined
-                          }
-                        />
-                      </>
                     )}
+
+                    {/* 3. MEDICAL SCRUB */}
+
+                    {scrubFee > 0 && (
+                      <FeeBreakdownRow
+                        number="03"
+                        title="Medical Scrub"
+                        description="Medical scrub fee allocated to your student account"
+                        amount={formatKES(scrubFee)}
+                        paid={formatKES(scrubPaid)}
+                        balance={formatKES(scrubBalance)}
+                      />
+                    )}
+
+                    {/* 4. ADMINISTRATIVE CHARGES */}
+
+                    <FeeBreakdownRow
+                      number="04"
+                      title="Administrative Charges"
+                      description="One-time administrative charge"
+                      amount={formatKES(adminCharge)}
+                      paid={formatKES(adminPaid)}
+                      balance={formatKES(adminBalance)}
+                    />
+
+                    {/* 5. PROGRAMME TUITION */}
+
+                    <FeeBreakdownRow
+                      number="05"
+                      title="Programme Tuition"
+                      description={
+                        isTermBased
+                          ? `${totalTerms} academic terms`
+                          : 'One-time programme tuition'
+                      }
+                      amount={formatKES(tuitionTotal)}
+                      paid={formatKES(programmeTuitionPaid)}
+                      balance={formatKES(tuitionBalance)}
+                    />
                   </div>
 
+                  {/* OPTIONAL ITEM NOTICE */}
+
                   {(uniformFee > 0 || scrubFee > 0) && (
-                    <div className="border-t border-amber-100 bg-amber-50 p-4">
-                      <p className="text-xs leading-5 text-amber-800">
-                        <strong>Selected fee items:</strong>{' '}
+                    <div className="border-t border-blue-100 bg-blue-50 p-4">
+                      <p className="text-xs leading-5 text-blue-800">
+                        <strong>Additional fee allocations:</strong>{' '}
+                        {[
+                          uniformFee > 0 ? 'School Uniform' : null,
+                          scrubFee > 0 ? 'Medical Scrub' : null,
+                        ]
+                          .filter(Boolean)
+                          .join(' and ')}{' '}
                         {uniformFee > 0 && scrubFee > 0
-                          ? 'Your school uniform and purple medical scrub'
-                          : uniformFee > 0
-                            ? 'Your school uniform'
-                            : 'Your purple medical scrub'}{' '}
-                        have been included in your total fees. These charges
-                        remain outstanding until payment is recorded by the
-                        college accounts office. They are not automatically
-                        counted as paid and do not create separate M-Pesa
-                        transactions.
+                          ? 'have'
+                          : 'has'}{' '}
+                        been allocated to your student fee account by
+                        the college. Payments are credited only when
+                        recorded under the corresponding payment category
+                        by the accounts office.
+                      </p>
+                    </div>
+                  )}
+
+                  {!uniformFee && !scrubFee && (
+                    <div className="border-t border-gray-100 bg-gray-50 p-4">
+                      <p className="text-xs leading-5 text-gray-600">
+                        No school uniform or medical scrub fee has
+                        currently been allocated to your account.
+                        If you require either item, please contact
+                        the accounts office.
                       </p>
                     </div>
                   )}
@@ -1051,7 +1149,8 @@ export default async function StudentPaymentPage() {
                           </h4>
 
                           <p className="mt-1 text-xs text-gray-500">
-                            Tuition allocation and payment status for each term
+                            Tuition allocation and payment status
+                            for each academic term
                           </p>
                         </div>
                       </div>
@@ -1070,17 +1169,18 @@ export default async function StudentPaymentPage() {
                             )?.amount_paid || 0,
                           );
 
-                          const termBalance = Math.max(
-                            tuitionFee - paid,
-                            0,
+                          const termBalance = calculateBalance(
+                            tuitionFee,
+                            paid,
                           );
 
-                          const percentage = tuitionFee > 0
-                            ? Math.min(
-                                (paid / tuitionFee) * 100,
-                                100,
-                              )
-                            : 0;
+                          const percentage =
+                            tuitionFee > 0
+                              ? Math.min(
+                                  (paid / tuitionFee) * 100,
+                                  100,
+                                )
+                              : 0;
 
                           const isTermPaid =
                             termBalance <= 0 && tuitionFee > 0;
@@ -1114,7 +1214,9 @@ export default async function StudentPaymentPage() {
                               <div className="mt-3 h-2 overflow-hidden rounded-full bg-gray-100">
                                 <div
                                   className="h-full rounded-full bg-[#0f4f3f]"
-                                  style={{ width: `${percentage}%` }}
+                                  style={{
+                                    width: `${percentage}%`,
+                                  }}
                                 />
                               </div>
 
@@ -1258,9 +1360,9 @@ export default async function StudentPaymentPage() {
               </div>
 
               <p className="mt-5 rounded-xl bg-blue-50 p-4 text-xs leading-6 text-blue-800">
-                Academic progress is updated by the college. Paying your
-                course fees does not automatically mark academic terms or
-                course requirements as completed.
+                Academic progress is updated by the college. Paying
+                your course fees does not automatically mark academic
+                terms or course requirements as completed.
               </p>
             </div>
           </section>
@@ -1304,8 +1406,8 @@ export default async function StudentPaymentPage() {
                 </h4>
 
                 <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-gray-500">
-                  Your course fee payments will appear here once recorded
-                  by the college accounts office.
+                  Your course fee payments will appear here once
+                  recorded by the college accounts office.
                 </p>
               </div>
             ) : (
@@ -1316,13 +1418,33 @@ export default async function StudentPaymentPage() {
                   <table className="w-full text-left text-sm">
                     <thead className="bg-[#f8faf9] text-xs uppercase tracking-wider text-gray-500">
                       <tr>
-                        <th className="px-5 py-4 font-semibold">Date Paid</th>
-                        <th className="px-5 py-4 font-semibold">Receipt</th>
-                        <th className="px-5 py-4 font-semibold">Reference Code</th>
-                        <th className="px-5 py-4 font-semibold">Category</th>
-                        <th className="px-5 py-4 font-semibold">Method</th>
-                        <th className="px-5 py-4 text-right font-semibold">Amount</th>
-                        <th className="px-5 py-4 text-center font-semibold">Receipt</th>
+                        <th className="px-5 py-4 font-semibold">
+                          Date Paid
+                        </th>
+
+                        <th className="px-5 py-4 font-semibold">
+                          Receipt
+                        </th>
+
+                        <th className="px-5 py-4 font-semibold">
+                          Reference Code
+                        </th>
+
+                        <th className="px-5 py-4 font-semibold">
+                          Category
+                        </th>
+
+                        <th className="px-5 py-4 font-semibold">
+                          Method
+                        </th>
+
+                        <th className="px-5 py-4 text-right font-semibold">
+                          Amount
+                        </th>
+
+                        <th className="px-5 py-4 text-center font-semibold">
+                          Receipt
+                        </th>
                       </tr>
                     </thead>
 
@@ -1469,7 +1591,7 @@ export default async function StudentPaymentPage() {
           </section>
 
           {/* =====================================================
-              APPLICATION FEE
+              APPLICATION FEE PAYMENT
           ===================================================== */}
 
           <section className="mb-7">
@@ -1594,7 +1716,10 @@ export default async function StudentPaymentPage() {
                 value={student.admission_status || 'Not available'}
               />
 
-              <InfoItem label="Date Submitted" value={applicationDate} />
+              <InfoItem
+                label="Date Submitted"
+                value={applicationDate}
+              />
 
               <InfoItem
                 label="Registered Phone"
@@ -1631,25 +1756,24 @@ export default async function StudentPaymentPage() {
                 </p>
 
                 <p className="mt-1 text-sm leading-6 text-gray-600">
-                  Your total fee balance includes the application fee,
-                  approved course tuition, administrative charges and any
-                  additional items selected on your student fee account,
-                  such as the SMTC school uniform or purple medical scrub.
-                  Uniform and scrub charges are included in your total fees
-                  but are not automatically credited as paid. They remain
-                  outstanding until the corresponding payment is recorded
-                  by the college accounts office. For one-time programmes,
-                  tuition, selected uniform/scrub and administrative
-                  charges are combined into one fee breakdown item. For
-                  term-based programmes, tuition is tracked separately
-                  for each academic term, while administrative charges
-                  and selected uniform/scrub are combined into one
-                  additional-fees item. Administrative charges are payable
-                  once. Academic progress is maintained independently of
-                  payment progress. Always retain your payment confirmation
-                  messages and official receipts. Contact the accounts
-                  office if a payment is missing or your balance appears
-                  incorrect.
+                  Your student fee account has five categories:
+                  Application Fee, School Uniform, Medical Scrub,
+                  Administrative Charges and Programme Tuition.
+                  School Uniform and Medical Scrub are optional
+                  allocations and appear only when the accounts
+                  office has selected and allocated them to your
+                  account. Administrative charges are payable once.
+                  Programme tuition is charged per academic term
+                  for term-based programmes and once for one-time
+                  programmes. Payments are credited to their
+                  respective categories when recorded by the
+                  accounts office. Application fee payment is
+                  verified separately. Academic progress is
+                  maintained independently of payment progress.
+                  Always retain your payment confirmation messages
+                  and official receipts. Contact the accounts
+                  office if a payment is missing or your balance
+                  appears incorrect.
                 </p>
               </div>
             </div>
@@ -1762,24 +1886,38 @@ function FeeSummaryCard({
 ========================================================= */
 
 function FeeBreakdownRow({
+  number,
   title,
+  description,
   amount,
   paid,
   balance,
-  paidNote,
 }: {
+  number: string;
   title: string;
+  description: string;
   amount: string;
   paid: string;
   balance: string;
-  paidNote?: string;
 }) {
   return (
     <div className="grid gap-3 p-5 sm:grid-cols-4 sm:items-center">
       <div className="sm:col-span-1">
-        <p className="text-sm font-bold text-[#0c1f1a]">
-          {title}
-        </p>
+        <div className="flex items-start gap-3">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#0f4f3f]/10 text-xs font-bold text-[#0f4f3f]">
+            {number}
+          </span>
+
+          <div>
+            <p className="text-sm font-bold text-[#0c1f1a]">
+              {title}
+            </p>
+
+            <p className="mt-1 text-xs leading-5 text-gray-500">
+              {description}
+            </p>
+          </div>
+        </div>
       </div>
 
       <div>
@@ -1796,12 +1934,6 @@ function FeeBreakdownRow({
         <p className="mt-1 text-sm font-semibold text-emerald-700">
           {paid}
         </p>
-
-        {paidNote && (
-          <p className="mt-1 text-[11px] text-amber-700">
-            {paidNote}
-          </p>
-        )}
       </div>
 
       <div>

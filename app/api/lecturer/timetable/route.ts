@@ -334,12 +334,16 @@ export async function GET(request: Request) {
           p.name,
           p.code
 
-        FROM lms_lecturer_programs lp
+        FROM lms_programs p
 
-        INNER JOIN lms_programs p
-          ON p.id = lp.program_id
-
-        WHERE lp.lecturer_id = $1
+        WHERE EXISTS (
+          SELECT 1 FROM lms_lecturer_programs lp
+          WHERE lp.lecturer_id = $1 AND lp.program_id = p.id
+        ) OR EXISTS (
+          SELECT 1 FROM lms_lecturer_units lu
+          INNER JOIN lms_units u ON u.id = lu.unit_id
+          WHERE lu.lecturer_id = $1 AND u.program_id = p.id
+        )
 
         ORDER BY p.name ASC
       `,
@@ -360,8 +364,8 @@ export async function GET(request: Request) {
 
         FROM lms_units u
 
-        INNER JOIN lms_lecturer_programs lp
-          ON lp.program_id = u.program_id
+        INNER JOIN lms_lecturer_units lp
+          ON lp.unit_id = u.id
 
         WHERE lp.lecturer_id = $1
 
@@ -717,23 +721,26 @@ export async function POST(request: Request) {
     const programAccess =
       await pool.query(
         `
-          SELECT
-            p.id,
-            p.name,
-            p.code
-
-          FROM lms_lecturer_programs lp
-
-          INNER JOIN lms_programs p
-            ON p.id = lp.program_id
-
-          WHERE
-            lp.lecturer_id = $1
-            AND lp.program_id = $2
-
+          SELECT p.id, p.name, p.code
+          FROM lms_programs p
+          WHERE p.id = $2
+            AND (
+              ($3::integer IS NULL AND EXISTS (
+                SELECT 1 FROM lms_lecturer_programs lp
+                WHERE lp.lecturer_id = $1 AND lp.program_id = p.id
+              ))
+              OR ($3::integer IS NOT NULL AND EXISTS (
+                SELECT 1 FROM lms_units u
+                WHERE u.id = $3 AND u.program_id = p.id
+                  AND (
+                    EXISTS (SELECT 1 FROM lms_lecturer_units lu WHERE lu.lecturer_id = $1 AND lu.unit_id = u.id)
+                    OR EXISTS (SELECT 1 FROM lms_lecturer_programs lp WHERE lp.lecturer_id = $1 AND lp.program_id = u.program_id)
+                  )
+              ))
+            )
           LIMIT 1
         `,
-        [lecturerId, programId]
+        [lecturerId, programId, unitId]
       );
 
     if (programAccess.rows.length === 0) {
@@ -760,15 +767,16 @@ export async function POST(request: Request) {
           `
             SELECT id
 
-            FROM lms_units
-
-            WHERE
-              id = $1
-              AND program_id = $2
-
+            FROM lms_units u
+            WHERE u.id = $1
+              AND u.program_id = $2
+              AND (
+                EXISTS (SELECT 1 FROM lms_lecturer_units lu WHERE lu.lecturer_id = $3 AND lu.unit_id = u.id)
+                OR EXISTS (SELECT 1 FROM lms_lecturer_programs lp WHERE lp.lecturer_id = $3 AND lp.program_id = u.program_id)
+              )
             LIMIT 1
           `,
-          [unitId, programId]
+          [unitId, programId, lecturerId]
         );
 
       if (unitAccess.rows.length === 0) {
@@ -1207,16 +1215,26 @@ export async function PATCH(request: Request) {
     const programAccess =
       await pool.query(
         `
-          SELECT id
-          FROM lms_lecturer_programs
-
-          WHERE
-            lecturer_id = $1
-            AND program_id = $2
-
+          SELECT p.id
+          FROM lms_programs p
+          WHERE p.id = $2
+            AND (
+              ($3::integer IS NULL AND EXISTS (
+                SELECT 1 FROM lms_lecturer_programs lp
+                WHERE lp.lecturer_id = $1 AND lp.program_id = p.id
+              ))
+              OR ($3::integer IS NOT NULL AND EXISTS (
+                SELECT 1 FROM lms_units u
+                WHERE u.id = $3 AND u.program_id = p.id
+                  AND (
+                    EXISTS (SELECT 1 FROM lms_lecturer_units lu WHERE lu.lecturer_id = $1 AND lu.unit_id = u.id)
+                    OR EXISTS (SELECT 1 FROM lms_lecturer_programs lp WHERE lp.lecturer_id = $1 AND lp.program_id = u.program_id)
+                  )
+              ))
+            )
           LIMIT 1
         `,
-        [lecturerId, programId]
+        [lecturerId, programId, unitId]
       );
 
     if (programAccess.rows.length === 0) {
@@ -1239,15 +1257,16 @@ export async function PATCH(request: Request) {
         await pool.query(
           `
             SELECT id
-            FROM lms_units
-
-            WHERE
-              id = $1
-              AND program_id = $2
-
+            FROM lms_units u
+            WHERE u.id = $1
+              AND u.program_id = $2
+              AND (
+                EXISTS (SELECT 1 FROM lms_lecturer_units lu WHERE lu.lecturer_id = $3 AND lu.unit_id = u.id)
+                OR EXISTS (SELECT 1 FROM lms_lecturer_programs lp WHERE lp.lecturer_id = $3 AND lp.program_id = u.program_id)
+              )
             LIMIT 1
           `,
-          [unitId, programId]
+          [unitId, programId, lecturerId]
         );
 
       if (unitAccess.rows.length === 0) {

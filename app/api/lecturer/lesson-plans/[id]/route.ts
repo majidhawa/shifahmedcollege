@@ -1100,8 +1100,8 @@ export async function PUT(
           INNER JOIN lms_units u
             ON u.id = t.unit_id
 
-          INNER JOIN lms_lecturer_programs lp
-            ON lp.program_id = u.program_id
+          INNER JOIN lms_lecturer_units lp
+            ON lp.unit_id = u.id
            AND lp.lecturer_id = $2
 
           WHERE t.id = $1

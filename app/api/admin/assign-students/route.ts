@@ -121,6 +121,23 @@ export async function GET() {
     `);
 
     /* =====================================================
+       2B. LMS UNITS
+       Admin may assign a lecturer to a unit from any program.
+    ===================================================== */
+
+    const unitsResult = await client.query(`
+      SELECT
+        u.id,
+        u.program_id,
+        u.code,
+        u.name,
+        p.name AS program_name
+      FROM lms_units u
+      INNER JOIN lms_programs p ON p.id = u.program_id
+      ORDER BY LOWER(p.name) ASC, LOWER(u.name) ASC
+    `);
+
+    /* =====================================================
        3. LECTURERS
 
        Only lecturers who have at least one authorized
@@ -139,8 +156,8 @@ export async function GET() {
 
       FROM users u
 
-      INNER JOIN lms_lecturer_programs lp
-        ON lp.lecturer_id = u.id
+      WHERE u.role = 'lecturer'
+        AND u.active = TRUE
 
       GROUP BY
         u.id,
@@ -258,6 +275,7 @@ export async function GET() {
         ls.lecturer_id,
         ls.application_id,
         ls.program_id,
+        ls.unit_id,
 
         ls.assigned_at,
         ls.updated_at,
@@ -266,6 +284,9 @@ export async function GET() {
         u.email AS lecturer_email,
 
         p.name AS program_name,
+        unit.name AS unit_name,
+        unit.program_id AS unit_program_id,
+        unit_program.name AS unit_program_name,
 
         TRIM(
           CONCAT_WS(
@@ -286,6 +307,12 @@ export async function GET() {
       LEFT JOIN lms_programs p
         ON p.id = ls.program_id
 
+      LEFT JOIN lms_units unit
+        ON unit.id = ls.unit_id
+
+      LEFT JOIN lms_programs unit_program
+        ON unit_program.id = unit.program_id
+
       LEFT JOIN applications a
         ON a.id = ls.application_id
 
@@ -303,6 +330,7 @@ export async function GET() {
       students: studentsResult.rows,
 
       programs: programsResult.rows,
+      units: unitsResult.rows,
 
       lecturers: lecturersResult.rows,
 
@@ -360,6 +388,14 @@ export async function POST(request: Request) {
       body.programId
     );
 
+    const assignmentType =
+      body.assignmentType === 'unit' ? 'unit' : 'program';
+
+    const unitId =
+      body.unitId === null || body.unitId === undefined || body.unitId === ''
+        ? null
+        : Number(body.unitId);
+
     const lecturerId =
       body.lecturerId === null ||
       body.lecturerId === undefined ||
@@ -414,6 +450,22 @@ export async function POST(request: Request) {
         {
           status: 400,
         }
+      );
+    }
+
+    if (assignmentType === 'unit' && (
+      unitId === null || !Number.isInteger(unitId) || unitId <= 0
+    )) {
+      return NextResponse.json(
+        { success: false, error: 'A valid unit is required for a unit-level assignment.' },
+        { status: 400 }
+      );
+    }
+
+    if (assignmentType === 'unit' && lecturerId === null) {
+      return NextResponse.json(
+        { success: false, error: 'A lecturer is required for a unit-level assignment.' },
+        { status: 400 }
       );
     }
 
@@ -600,43 +652,38 @@ export async function POST(request: Request) {
       lecturer =
         lecturerResult.rows[0];
 
-      /* ===================================================
-         VERIFY LECTURER IS AUTHORIZED FOR PROGRAM
-      =================================================== */
-
-      const authorizationResult =
-        await client.query(
-          `
-            SELECT
-              id
-
-            FROM lms_lecturer_programs
-
-            WHERE lecturer_id = $1
-              AND program_id = $2
-
-            LIMIT 1
-          `,
-          [
-            lecturerId,
-            programId,
-          ]
+      if (assignmentType === 'program') {
+        const authorizationResult = await client.query(
+          `SELECT id FROM lms_lecturer_programs
+           WHERE lecturer_id = $1 AND program_id = $2 LIMIT 1`,
+          [lecturerId, programId]
         );
 
-      if (
-        authorizationResult.rowCount === 0
-      ) {
-        await client.query('ROLLBACK');
-
-        return NextResponse.json(
-          {
-            success: false,
-            error:
-              'The selected lecturer is not authorized for this program.',
-          },
-          {
-            status: 400,
-          }
+        if (authorizationResult.rowCount === 0) {
+          await client.query('ROLLBACK');
+          return NextResponse.json(
+            { success: false, error: 'The selected lecturer is not authorized for this program. Assign the lecturer to the unit instead, or authorize the programme first.' },
+            { status: 400 }
+          );
+        }
+      } else {
+        const unitResult = await client.query(
+          `SELECT id, program_id, name FROM lms_units WHERE id = $1 LIMIT 1`,
+          [unitId]
+        );
+        if (unitResult.rowCount === 0) {
+          await client.query('ROLLBACK');
+          return NextResponse.json(
+            { success: false, error: 'The selected unit was not found.' },
+            { status: 404 }
+          );
+        }
+        await client.query(
+          `INSERT INTO lms_lecturer_units (lecturer_id, unit_id, direct_access)
+           VALUES ($1, $2, TRUE)
+           ON CONFLICT (lecturer_id, unit_id)
+           DO UPDATE SET direct_access = TRUE, updated_at = CURRENT_TIMESTAMP`,
+          [lecturerId, unitId]
         );
       }
     }
@@ -673,6 +720,20 @@ export async function POST(request: Request) {
 
     let enrollmentId: number;
 
+    if (assignmentType === 'unit' && existingEnrollment.rowCount && existingEnrollment.rowCount > 0) {
+      const currentEnrollment = await client.query(
+        `SELECT program_id FROM lms_enrollments WHERE id = $1 LIMIT 1`,
+        [existingEnrollment.rows[0].id]
+      );
+      if (Number(currentEnrollment.rows[0]?.program_id) !== programId) {
+        await client.query('ROLLBACK');
+        return NextResponse.json(
+          { success: false, error: 'For a unit-level assignment, select the student’s existing LMS programme. Unit assignment must not change the student’s programme enrolment.' },
+          { status: 400 }
+        );
+      }
+    }
+
     /* =====================================================
        7. UPDATE EXISTING ENROLLMENT
     ===================================================== */
@@ -703,18 +764,18 @@ export async function POST(request: Request) {
 
             enrollment_status = 'active',
 
-            lecturer_id = $5,
+            lecturer_id = CASE WHEN $5::boolean THEN $6 ELSE lecturer_id END,
 
-            updated_at =
-              CURRENT_TIMESTAMP
+            updated_at = CURRENT_TIMESTAMP
 
-          WHERE id = $6
+          WHERE id = $7
         `,
         [
           programId,
           termId,
           studentNumber,
           yearOfStudy,
+          assignmentType === 'program',
           lecturerId,
           enrollmentId,
         ]
@@ -763,7 +824,7 @@ export async function POST(request: Request) {
             termId,
             studentNumber,
             yearOfStudy,
-            lecturerId,
+            assignmentType === 'program' ? lecturerId : null,
           ]
         );
 
@@ -773,66 +834,32 @@ export async function POST(request: Request) {
 
     /* =====================================================
        9. LECTURER-STUDENT ASSIGNMENT
+
+       Do not delete other lecturer assignments. A student may
+       have several lecturers and several unit-specific assignments.
     ===================================================== */
 
     if (lecturerId !== null) {
-      /* ===================================================
-         REMOVE PREVIOUS ASSIGNMENT
-      =================================================== */
-
-      await client.query(
-        `
-          DELETE FROM lms_lecturer_students
-
-          WHERE application_id = $1
-        `,
-        [applicationId]
+      const assignedUnitId = assignmentType === 'unit' ? unitId : null;
+      const existingAssignment = await client.query(
+        `SELECT id FROM lms_lecturer_students
+         WHERE lecturer_id = $1
+           AND application_id = $2
+           AND program_id = $3
+           AND unit_id IS NOT DISTINCT FROM $4::integer
+         LIMIT 1`,
+        [lecturerId, applicationId, programId, assignedUnitId]
       );
 
-      /* ===================================================
-         CREATE CURRENT ASSIGNMENT
-      =================================================== */
-
-      await client.query(
-        `
-          INSERT INTO lms_lecturer_students (
-            lecturer_id,
-            application_id,
-            program_id,
-            assigned_at,
-            updated_at
-          )
-
-          VALUES (
-            $1,
-            $2,
-            $3,
-            CURRENT_TIMESTAMP,
-            CURRENT_TIMESTAMP
-          )
-        `,
-        [
-          lecturerId,
-          applicationId,
-          programId,
-        ]
-      );
-    } else {
-      /* ===================================================
-         NO LECTURER
-
-         Remove lecturer assignment but keep LMS
-         enrollment.
-      =================================================== */
-
-      await client.query(
-        `
-          DELETE FROM lms_lecturer_students
-
-          WHERE application_id = $1
-        `,
-        [applicationId]
-      );
+      if (existingAssignment.rowCount === 0) {
+        await client.query(
+          `INSERT INTO lms_lecturer_students (
+             lecturer_id, application_id, program_id, unit_id,
+             assigned_at, updated_at
+           ) VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+          [lecturerId, applicationId, programId, assignedUnitId]
+        );
+      }
     }
 
     /* =====================================================
@@ -939,26 +966,73 @@ export async function DELETE(
     ===================================================== */
 
     if (type === 'lecturer') {
+      const lecturerId = body.lecturerId ? Number(body.lecturerId) : null;
+      const unitId = body.unitId === null || body.unitId === undefined || body.unitId === '' ? null : Number(body.unitId);
+      const programId = body.programId ? Number(body.programId) : null;
+      const unitIdWasProvided = Object.prototype.hasOwnProperty.call(body, 'unitId');
+
+      if (lecturerId && Number.isInteger(lecturerId)) {
+        if (unitIdWasProvided && unitId === null) {
+          await client.query(
+            `DELETE FROM lms_lecturer_students
+             WHERE application_id = $1 AND lecturer_id = $2
+               AND unit_id IS NULL
+               AND ($3::integer IS NULL OR program_id = $3)`,
+            [applicationId, lecturerId, programId]
+          );
+        } else if (unitIdWasProvided && unitId !== null && Number.isInteger(unitId)) {
+          await client.query(
+            `DELETE FROM lms_lecturer_students
+             WHERE application_id = $1 AND lecturer_id = $2
+               AND unit_id = $3
+               AND ($4::integer IS NULL OR program_id = $4)`,
+            [applicationId, lecturerId, unitId, programId]
+          );
+        } else {
+          await client.query(
+            `DELETE FROM lms_lecturer_students WHERE application_id = $1 AND lecturer_id = $2`,
+            [applicationId, lecturerId]
+          );
+        }
+      } else {
+        await client.query(
+          `DELETE FROM lms_lecturer_students WHERE application_id = $1`,
+          [applicationId]
+        );
+      }
+
+      if (lecturerId && unitIdWasProvided && unitId !== null && Number.isInteger(unitId)) {
+        await client.query(
+          `UPDATE lms_lecturer_units lu
+           SET direct_access = FALSE, updated_at = CURRENT_TIMESTAMP
+           WHERE lu.lecturer_id = $1 AND lu.unit_id = $2
+             AND NOT EXISTS (
+               SELECT 1 FROM lms_lecturer_students ls
+               WHERE ls.lecturer_id = $1 AND ls.unit_id = $2
+             )`,
+          [lecturerId, unitId]
+        );
+        await client.query(
+          `DELETE FROM lms_lecturer_units
+           WHERE lecturer_id = $1 AND unit_id = $2
+             AND program_access = FALSE AND direct_access = FALSE`,
+          [lecturerId, unitId]
+        );
+      }
+
       await client.query(
-        `
-          DELETE FROM lms_lecturer_students
-
-          WHERE application_id = $1
-        `,
-        [applicationId]
-      );
-
-      await client.query(
-        `
-          UPDATE lms_enrollments
-
-          SET
-            lecturer_id = NULL,
-            updated_at = CURRENT_TIMESTAMP
-
-          WHERE application_id = $1
-        `,
-        [applicationId]
+        `UPDATE lms_enrollments e
+         SET lecturer_id = NULL, updated_at = CURRENT_TIMESTAMP
+         WHERE e.application_id = $1
+           AND ($2::integer IS NULL OR e.lecturer_id = $2)
+           AND NOT EXISTS (
+             SELECT 1 FROM lms_lecturer_students ls
+             WHERE ls.application_id = e.application_id
+               AND ls.program_id = e.program_id
+               AND ls.lecturer_id = e.lecturer_id
+               AND ls.unit_id IS NULL
+           )`,
+        [applicationId, lecturerId]
       );
 
       await client.query('COMMIT');
@@ -976,23 +1050,20 @@ export async function DELETE(
     ===================================================== */
 
     if (type === 'program') {
-      await client.query(
-        `
-          DELETE FROM lms_lecturer_students
-
-          WHERE application_id = $1
-        `,
-        [applicationId]
-      );
-
-      await client.query(
-        `
-          DELETE FROM lms_enrollments
-
-          WHERE application_id = $1
-        `,
-        [applicationId]
-      );
+      const programId = body.programId ? Number(body.programId) : null;
+      if (programId && Number.isInteger(programId)) {
+        await client.query(
+          `DELETE FROM lms_lecturer_students WHERE application_id = $1 AND program_id = $2`,
+          [applicationId, programId]
+        );
+        await client.query(
+          `DELETE FROM lms_enrollments WHERE application_id = $1 AND program_id = $2`,
+          [applicationId, programId]
+        );
+      } else {
+        await client.query(`DELETE FROM lms_lecturer_students WHERE application_id = $1`, [applicationId]);
+        await client.query(`DELETE FROM lms_enrollments WHERE application_id = $1`, [applicationId]);
+      }
 
       await client.query('COMMIT');
 

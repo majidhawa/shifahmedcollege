@@ -319,8 +319,8 @@ export async function GET() {
           INNER JOIN lms_programs p
             ON p.id = u.program_id
 
-          INNER JOIN lms_lecturer_programs lp
-            ON lp.program_id = p.id
+          INNER JOIN lms_lecturer_units lp
+            ON lp.unit_id = u.id
             AND lp.lecturer_id = $1
 
           LEFT JOIN lms_quiz_questions qq
@@ -1107,13 +1107,13 @@ export async function POST(
 
           FROM lms_programs p
 
-          INNER JOIN lms_lecturer_programs lp
-            ON lp.program_id = p.id
-            AND lp.lecturer_id = $1
-
           INNER JOIN lms_units u
             ON u.program_id = p.id
             AND u.id = $2
+
+          INNER JOIN lms_lecturer_units lp
+            ON lp.unit_id = u.id
+            AND lp.lecturer_id = $1
 
           INNER JOIN lms_topics t
             ON t.unit_id = u.id

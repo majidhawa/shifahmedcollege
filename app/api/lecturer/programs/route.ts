@@ -93,16 +93,19 @@ export async function GET() {
           u.term_number,
           u.status AS unit_status
 
-        FROM lms_lecturer_programs lp
+        FROM lms_units u
+        INNER JOIN lms_programs p ON p.id = u.program_id
 
-        INNER JOIN lms_programs p
-          ON p.id = lp.program_id
-
-        LEFT JOIN lms_units u
-          ON u.program_id = p.id
-          AND u.status = 'active'
-
-        WHERE lp.lecturer_id = $1
+        WHERE (
+          EXISTS (
+            SELECT 1 FROM lms_lecturer_units lu
+            WHERE lu.lecturer_id = $1 AND lu.unit_id = u.id
+          )
+          OR EXISTS (
+            SELECT 1 FROM lms_lecturer_programs lp
+            WHERE lp.lecturer_id = $1 AND lp.program_id = u.program_id
+          )
+        )
           AND p.status = 'active'
 
         ORDER BY

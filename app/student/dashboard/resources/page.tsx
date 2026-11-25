@@ -275,7 +275,7 @@ export default async function StudentResourcesPage() {
       INNER JOIN lms_units u
         ON u.id = t.unit_id
 
-      WHERE u.program_id = $1
+      WHERE public.lms_student_can_access_unit($1, $2, u.id)
 
         AND LOWER(
           COALESCE(
@@ -306,7 +306,7 @@ export default async function StudentResourcesPage() {
         l.id ASC,
         d.id ASC
     `,
-    [programId]
+    [applicationId, programId]
   );
 
   /* =======================================================
@@ -384,7 +384,7 @@ export default async function StudentResourcesPage() {
       INNER JOIN lms_units u
         ON u.id = t.unit_id
 
-      WHERE u.program_id = $1
+      WHERE public.lms_student_can_access_unit($1, $2, u.id)
 
         AND LOWER(
           COALESCE(
@@ -416,7 +416,7 @@ export default async function StudentResourcesPage() {
         v.order_number ASC NULLS LAST,
         v.id ASC
     `,
-    [programId]
+    [applicationId, programId]
   );
 
   /* =======================================================

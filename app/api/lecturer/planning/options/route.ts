@@ -55,14 +55,14 @@ export async function GET() {
           u.code AS unit_code,
           u.name AS unit_name
 
-        FROM lms_programs p
+        FROM lms_units u
 
-        INNER JOIN lms_lecturer_programs lp
-          ON lp.program_id = p.id
-         AND lp.lecturer_id = $1
+        INNER JOIN lms_programs p
+          ON p.id = u.program_id
 
-        INNER JOIN lms_units u
-          ON u.program_id = p.id
+        INNER JOIN lms_lecturer_units lu
+          ON lu.unit_id = u.id
+         AND lu.lecturer_id = $1
 
         ORDER BY
           p.name ASC,
@@ -128,11 +128,17 @@ export async function GET() {
           INNER JOIN lms_schemes_of_work s
             ON s.id = e.scheme_id
 
-          INNER JOIN lms_lecturer_programs lp
-            ON lp.program_id = s.program_id
-           AND lp.lecturer_id = $1
-
           WHERE s.lecturer_id = $1
+            AND (
+              (s.unit_id IS NOT NULL AND EXISTS (
+                SELECT 1 FROM lms_lecturer_units lu
+                WHERE lu.lecturer_id = $1 AND lu.unit_id = s.unit_id
+              ))
+              OR (s.unit_id IS NULL AND EXISTS (
+                SELECT 1 FROM lms_lecturer_programs lp
+                WHERE lp.lecturer_id = $1 AND lp.program_id = s.program_id
+              ))
+            )
 
           ORDER BY
             s.academic_year DESC,

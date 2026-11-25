@@ -199,8 +199,7 @@ export default async function StudentCoursesPage() {
 
           COUNT(
             DISTINCT CASE
-              WHEN ue.id IS NOT NULL
-               AND ue.status NOT IN ('cancelled', 'dropped')
+              WHEN public.lms_student_can_access_unit($1, e.program_id, u.id)
               THEN u.id
             END
           )::int AS assigned_units,
@@ -215,7 +214,15 @@ export default async function StudentCoursesPage() {
           ON p.id = e.program_id
 
         LEFT JOIN lms_units u
-          ON u.program_id = p.id
+          ON (
+            (u.program_id = p.id AND public.lms_student_can_access_unit($1, e.program_id, u.id))
+            OR EXISTS (
+              SELECT 1 FROM lms_lecturer_students ls
+              WHERE ls.application_id = e.application_id
+                AND ls.program_id = e.program_id
+                AND ls.unit_id = u.id
+            )
+          )
 
         LEFT JOIN lms_unit_enrollments ue
           ON ue.enrollment_id = e.id

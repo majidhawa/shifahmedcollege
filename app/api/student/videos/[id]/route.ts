@@ -101,9 +101,10 @@ export async function GET(
           ON u.id = t.unit_id
 
         INNER JOIN lms_enrollments e
-          ON e.program_id = u.program_id
+          ON e.application_id = $2
 
         WHERE v.id = $1
+          AND public.lms_student_can_access_unit(e.application_id, e.program_id, u.id)
 
           AND e.application_id = $2
 

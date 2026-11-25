@@ -421,9 +421,10 @@ export async function GET(request: Request) {
           ON p.id = u.program_id
 
         INNER JOIN lms_enrollments e
-          ON e.program_id = p.id
+          ON e.application_id = $2
 
         WHERE e.id = $1
+          AND public.lms_student_can_access_unit($2, e.program_id, u.id)
 
           AND LOWER(
             COALESCE(
@@ -457,7 +458,7 @@ export async function GET(request: Request) {
           a.created_at DESC,
           a.id DESC
       `,
-      [enrollmentId]
+      [enrollmentId, applicationId]
     );
 
     /* =======================================================

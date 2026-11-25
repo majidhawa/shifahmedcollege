@@ -227,8 +227,8 @@ async function getSubmission(
       INNER JOIN lms_programs p
         ON p.id = u.program_id
 
-      INNER JOIN lms_lecturer_programs lp
-        ON lp.program_id = p.id
+      INNER JOIN lms_lecturer_units lp
+          ON lp.unit_id = u.id
 
       INNER JOIN lms_assignment_submissions s
         ON s.assignment_id = a.id

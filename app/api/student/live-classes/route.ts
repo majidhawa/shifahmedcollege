@@ -99,8 +99,8 @@ export async function GET() {
           SELECT 1
           FROM lms_enrollments e
           WHERE
-            e.program_id = lc.program_id
-            AND e.application_id = $1
+            e.application_id = $1
+            AND public.lms_student_can_access_unit(e.application_id, e.program_id, u.id)
             AND e.enrollment_status NOT IN (
               'cancelled',
               'dropped'

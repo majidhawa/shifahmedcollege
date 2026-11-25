@@ -307,7 +307,7 @@ export async function GET(request: NextRequest) {
           ON lp.enrollment_id = $1
           AND lp.lesson_id = l.id
 
-        WHERE u.program_id = $2
+        WHERE public.lms_student_can_access_unit($3, $2, u.id)
 
           AND u.status = 'active'
 
@@ -325,6 +325,7 @@ export async function GET(request: NextRequest) {
       [
         enrollmentId,
         selectedProgramId,
+        applicationId,
       ]
     );
 
@@ -872,6 +873,7 @@ export async function POST(
             ON l.topic_id = t.id
 
           WHERE e.application_id = $1
+            AND public.lms_student_can_access_unit(e.application_id, e.program_id, u.id)
 
             AND e.enrollment_status NOT IN (
               'cancelled',

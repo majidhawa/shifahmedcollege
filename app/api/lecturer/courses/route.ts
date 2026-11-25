@@ -97,7 +97,11 @@ export async function GET() {
     const coursesResult = await pool.query(
       `
         SELECT
-          lp.id AS assignment_id,
+          (
+            SELECT lp.id FROM lms_lecturer_programs lp
+            WHERE lp.lecturer_id = $1 AND lp.program_id = p.id
+            ORDER BY lp.id DESC LIMIT 1
+          ) AS assignment_id,
 
           p.id,
           p.name,
@@ -107,15 +111,36 @@ export async function GET() {
           p.level,
           p.status,
 
-          lp.assigned_at,
-          lp.updated_at AS assignment_updated_at
+          COALESCE(
+            (SELECT lp.assigned_at FROM lms_lecturer_programs lp
+             WHERE lp.lecturer_id = $1 AND lp.program_id = p.id
+             ORDER BY lp.id DESC LIMIT 1),
+            (SELECT MIN(lu.assigned_at) FROM lms_lecturer_units lu
+             INNER JOIN lms_units u ON u.id = lu.unit_id
+             WHERE lu.lecturer_id = $1 AND u.program_id = p.id),
+            CURRENT_TIMESTAMP
+          ) AS assigned_at,
+          COALESCE(
+            (SELECT lp.updated_at FROM lms_lecturer_programs lp
+             WHERE lp.lecturer_id = $1 AND lp.program_id = p.id
+             ORDER BY lp.id DESC LIMIT 1),
+            (SELECT MAX(lu.updated_at) FROM lms_lecturer_units lu
+             INNER JOIN lms_units u ON u.id = lu.unit_id
+             WHERE lu.lecturer_id = $1 AND u.program_id = p.id),
+            CURRENT_TIMESTAMP
+          ) AS assignment_updated_at
 
-        FROM lms_lecturer_programs lp
+        FROM lms_programs p
 
-        INNER JOIN lms_programs p
-          ON p.id = lp.program_id
-
-        WHERE lp.lecturer_id = $1
+        WHERE EXISTS (
+          SELECT 1 FROM lms_lecturer_programs lp
+          WHERE lp.lecturer_id = $1 AND lp.program_id = p.id
+        )
+        OR EXISTS (
+          SELECT 1 FROM lms_lecturer_units lu
+          INNER JOIN lms_units u ON u.id = lu.unit_id
+          WHERE lu.lecturer_id = $1 AND u.program_id = p.id
+        )
 
         ORDER BY p.name ASC
       `,

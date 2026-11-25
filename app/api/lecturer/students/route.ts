@@ -143,13 +143,14 @@ export async function GET() {
           p.code AS program_code,
           p.level AS program_level
 
-        FROM lms_lecturer_programs lp
-
-        INNER JOIN lms_programs p
-          ON p.id = lp.program_id
+        FROM lms_lecturer_students ls
 
         INNER JOIN lms_enrollments e
-          ON e.program_id = p.id
+          ON e.application_id = ls.application_id
+         AND e.program_id = ls.program_id
+
+        INNER JOIN lms_programs p
+          ON p.id = e.program_id
 
         INNER JOIN applications app
           ON app.id = e.application_id
@@ -157,7 +158,7 @@ export async function GET() {
         INNER JOIN admissions a
           ON a.application_id = e.application_id
 
-        WHERE lp.lecturer_id = $1
+        WHERE ls.lecturer_id = $1
 
         ORDER BY a.student_name ASC
       `,

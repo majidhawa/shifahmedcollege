@@ -175,6 +175,7 @@ export async function GET(
           ON e.program_id = u.program_id
 
         WHERE d.id = $1
+          AND public.lms_student_can_access_unit(e.application_id, e.program_id, u.id)
 
           AND e.application_id = $2
 

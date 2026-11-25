@@ -148,19 +148,11 @@ export async function GET(request: Request) {
               p.status AS program_status,
 
               (
-                SELECT
-                  u2.name
-                FROM lms_lecturer_programs lp2
-
-                INNER JOIN users u2
-                  ON u2.id = lp2.lecturer_id
-
-                WHERE lp2.program_id = p.id
-
-                ORDER BY
-                  lp2.lecturer_id ASC
-
-                LIMIT 1
+                SELECT STRING_AGG(DISTINCT u2.name, ', ' ORDER BY u2.name)
+                FROM lms_lecturer_students ls2
+                INNER JOIN users u2 ON u2.id = ls2.lecturer_id
+                WHERE ls2.application_id = e.application_id
+                  AND ls2.program_id = e.program_id
               ) AS lecturer_name
 
             FROM lms_enrollments e
@@ -221,19 +213,11 @@ export async function GET(request: Request) {
                 p.status AS program_status,
 
                 (
-                  SELECT
-                    u2.name
-                  FROM lms_lecturer_programs lp2
-
-                  INNER JOIN users u2
-                    ON u2.id = lp2.lecturer_id
-
-                  WHERE lp2.program_id = p.id
-
-                  ORDER BY
-                    lp2.lecturer_id ASC
-
-                  LIMIT 1
+                  SELECT STRING_AGG(DISTINCT u2.name, ', ' ORDER BY u2.name)
+                  FROM lms_lecturer_students ls2
+                  INNER JOIN users u2 ON u2.id = ls2.lecturer_id
+                  WHERE ls2.application_id = e.application_id
+                    AND ls2.program_id = e.program_id
                 ) AS lecturer_name
 
               FROM lms_enrollments e
@@ -289,19 +273,11 @@ export async function GET(request: Request) {
               p.status AS program_status,
 
               (
-                SELECT
-                  u2.name
-                FROM lms_lecturer_programs lp2
-
-                INNER JOIN users u2
-                  ON u2.id = lp2.lecturer_id
-
-                WHERE lp2.program_id = p.id
-
-                ORDER BY
-                  lp2.lecturer_id ASC
-
-                LIMIT 1
+                SELECT STRING_AGG(DISTINCT u2.name, ', ' ORDER BY u2.name)
+                FROM lms_lecturer_students ls2
+                INNER JOIN users u2 ON u2.id = ls2.lecturer_id
+                WHERE ls2.application_id = e.application_id
+                  AND ls2.program_id = e.program_id
               ) AS lecturer_name
 
             FROM lms_enrollments e
@@ -506,6 +482,7 @@ export async function GET(request: Request) {
 
             ue.id AS unit_enrollment_id,
             ue.status AS unit_enrollment_status,
+            TRUE AS is_assigned,
 
             COUNT(DISTINCT t.id)::int
               AS topic_count,
@@ -551,7 +528,7 @@ export async function GET(request: Request) {
              )
            ) = 'active'
 
-          WHERE u.program_id = $2
+          WHERE public.lms_student_can_access_unit($3, $2, u.id)
 
           GROUP BY
             u.id,
@@ -567,6 +544,7 @@ export async function GET(request: Request) {
         [
           enrollmentId,
           selectedProgramId,
+          applicationId,
         ]
       );
 
@@ -608,7 +586,7 @@ export async function GET(request: Request) {
              )
            ) = 'active'
 
-          WHERE u.program_id = $1
+          WHERE public.lms_student_can_access_unit($1, $2, u.id)
 
             AND LOWER(
               COALESCE(
@@ -631,6 +609,7 @@ export async function GET(request: Request) {
             t.id ASC
         `,
         [
+          applicationId,
           selectedProgramId,
         ]
       );
@@ -663,7 +642,7 @@ export async function GET(request: Request) {
           INNER JOIN lms_units u
             ON u.id = t.unit_id
 
-          WHERE u.program_id = $1
+          WHERE public.lms_student_can_access_unit($1, $2, u.id)
 
             AND LOWER(
               COALESCE(
@@ -687,6 +666,7 @@ export async function GET(request: Request) {
             l.id ASC
         `,
         [
+          applicationId,
           selectedProgramId,
         ]
       );
@@ -735,7 +715,7 @@ export async function GET(request: Request) {
           INNER JOIN lms_units u
             ON u.id = t.unit_id
 
-          WHERE u.program_id = $1
+          WHERE public.lms_student_can_access_unit($1, $2, u.id)
 
             AND LOWER(
               COALESCE(
@@ -764,6 +744,7 @@ export async function GET(request: Request) {
             d.id ASC
         `,
         [
+          applicationId,
           selectedProgramId,
         ]
       );
@@ -817,7 +798,7 @@ export async function GET(request: Request) {
           INNER JOIN lms_units u
             ON u.id = t.unit_id
 
-          WHERE u.program_id = $1
+          WHERE public.lms_student_can_access_unit($1, $2, u.id)
 
             AND LOWER(
               COALESCE(
@@ -846,6 +827,7 @@ export async function GET(request: Request) {
             v.id ASC
         `,
         [
+          applicationId,
           selectedProgramId,
         ]
       );
@@ -1203,22 +1185,7 @@ export async function GET(request: Request) {
              through lms_unit_enrollments.
           ================================================= */
 
-          const normalizedUnitStatus =
-            unitEnrollmentStatus
-              ? String(
-                  unitEnrollmentStatus
-                ).toLowerCase()
-              : null;
-
-          const isAssigned =
-            unitEnrollmentId !== null &&
-            normalizedUnitStatus !== null &&
-            ![
-              'cancelled',
-              'dropped',
-            ].includes(
-              normalizedUnitStatus
-            );
+          const isAssigned = unit.is_assigned === true;
 
           const topics =
             topicsByUnit.get(
@@ -1257,8 +1224,7 @@ export async function GET(request: Request) {
               unitEnrollmentId,
 
             enrollmentStatus:
-              unitEnrollmentStatus ||
-              'not_assigned',
+              unitEnrollmentStatus || (isAssigned ? 'active' : 'not_assigned'),
 
             assigned:
               isAssigned,

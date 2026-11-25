@@ -291,32 +291,13 @@ llc.students_can_join_before_lecturer,
 
     AND EXISTS (
       SELECT 1
-      FROM lms_unit_enrollments lue
-
-      INNER JOIN lms_enrollments le
-        ON le.id = lue.enrollment_id
-
+      FROM lms_enrollments le
       WHERE le.application_id = $2
-        AND le.program_id = llc.program_id
-        AND lue.unit_id = llc.unit_id
-
+        AND public.lms_student_can_access_unit(le.application_id, le.program_id, llc.unit_id)
         AND COALESCE(
           LOWER(TRIM(le.enrollment_status)),
           'active'
-        ) NOT IN (
-          'cancelled',
-          'dropped',
-          'inactive'
-        )
-
-        AND COALESCE(
-          LOWER(TRIM(lue.status)),
-          'active'
-        ) NOT IN (
-          'cancelled',
-          'dropped',
-          'inactive'
-        )
+        ) NOT IN ('cancelled', 'dropped', 'inactive')
     )
 
   LIMIT 1
