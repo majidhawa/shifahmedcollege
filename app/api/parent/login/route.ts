@@ -1,10 +1,9 @@
+
 import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 
 import pool from '@/lib/db';
-import {
-  createParentSession,
-} from '@/lib/parent-auth';
+import { createParentSession } from '@/lib/parent-auth';
 
 export const runtime = 'nodejs';
 
@@ -12,9 +11,7 @@ export const runtime = 'nodejs';
    POST /api/parent/login
 ========================================================= */
 
-export async function POST(
-  request: Request
-) {
+export async function POST(request: Request) {
   try {
     /* =====================================================
        READ REQUEST
@@ -28,8 +25,7 @@ export async function POST(
       return NextResponse.json(
         {
           success: false,
-          message:
-            'Invalid request body.',
+          message: 'Invalid request body.',
         },
         { status: 400 }
       );
@@ -45,15 +41,11 @@ export async function POST(
       rememberMe?: unknown;
     };
 
-    const identifier = String(
-      data.identifier || ''
-    )
+    const identifier = String(data.identifier || '')
       .trim()
       .toLowerCase();
 
-    const password = String(
-      data.password || ''
-    );
+    const password = String(data.password || '');
 
     /* =====================================================
        VALIDATION
@@ -74,18 +66,55 @@ export async function POST(
       return NextResponse.json(
         {
           success: false,
-          message:
-            'Please enter your password.',
+          message: 'Please enter your password.',
         },
         { status: 400 }
       );
     }
 
     /* =====================================================
+       NORMALIZE PHONE NUMBER
+
+       Supports:
+       0712345678
+       254712345678
+       +254712345678
+    ===================================================== */
+
+    const normalizedIdentifier = identifier.replace(/\s+/g, '');
+
+    const phoneDigits = normalizedIdentifier.replace(/\D/g, '');
+
+    const phoneVariants = new Set<string>();
+
+    if (phoneDigits) {
+      phoneVariants.add(phoneDigits);
+
+      if (phoneDigits.startsWith('0')) {
+        phoneVariants.add(
+          `254${phoneDigits.substring(1)}`
+        );
+      }
+
+      if (phoneDigits.startsWith('254')) {
+        phoneVariants.add(
+          `0${phoneDigits.substring(3)}`
+        );
+      }
+    }
+
+    const phoneValues = Array.from(phoneVariants);
+
+    /* =====================================================
        FIND PARENT
-       
-       IMPORTANT:
-       users table uses "active", NOT "status".
+
+       Email is OPTIONAL.
+
+       Login can use:
+       - Email address
+       - Phone number
+
+       users table uses active, NOT status.
     ===================================================== */
 
     const result = await pool.query(
@@ -103,27 +132,33 @@ export async function POST(
           role = 'parent'
           AND active = true
           AND (
-            LOWER(email) = LOWER($1)
-            OR phone = $1
+            LOWER(TRIM(COALESCE(email, ''))) = $1
+            OR REGEXP_REPLACE(
+              COALESCE(phone, ''),
+              '[^0-9]',
+              '',
+              'g'
+            ) = ANY($2::text[])
           )
         LIMIT 1
       `,
-      [identifier]
+      [
+        normalizedIdentifier,
+        phoneValues,
+      ]
     );
 
     if (result.rows.length === 0) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            'Invalid email/phone or password.',
+          message: 'Invalid email/phone or password.',
         },
         { status: 401 }
       );
     }
 
-    const parent =
-      result.rows[0];
+    const parent = result.rows[0];
 
     /* =====================================================
        VERIFY PASSWORD
@@ -140,18 +175,16 @@ export async function POST(
       );
     }
 
-    const passwordValid =
-      await bcrypt.compare(
-        password,
-        parent.password_hash
-      );
+    const passwordValid = await bcrypt.compare(
+      password,
+      parent.password_hash
+    );
 
     if (!passwordValid) {
       return NextResponse.json(
         {
           success: false,
-          message:
-            'Invalid email/phone or password.',
+          message: 'Invalid email/phone or password.',
         },
         { status: 401 }
       );
@@ -164,49 +197,46 @@ export async function POST(
        references users.id.
     ===================================================== */
 
-    const studentsResult =
-      await pool.query(
-        `
-          SELECT
-            ps.id,
-            ps.parent_id,
-            ps.application_id,
-            ps.relationship,
-            ps.is_primary,
+    const studentsResult = await pool.query(
+      `
+        SELECT
+          ps.id,
+          ps.parent_id,
+          ps.application_id,
+          ps.relationship,
+          ps.is_primary,
 
-            a.application_number,
+          a.application_number,
 
-            a.first_name,
-            a.middle_name,
-            a.surname,
+          a.first_name,
+          a.middle_name,
+          a.surname,
 
-            a.mobile,
-            a.email,
+          a.mobile,
+          a.email,
 
-            a.course,
-            a.intake,
+          a.course,
+          a.intake,
 
-            a.application_status,
-            a.payment_status
+          a.application_status,
+          a.payment_status
 
-          FROM parent_students ps
+        FROM parent_students ps
 
-          INNER JOIN applications a
-            ON a.id = ps.application_id
+        INNER JOIN applications a
+          ON a.id = ps.application_id
 
-          WHERE
-            ps.parent_id = $1
+        WHERE
+          ps.parent_id = $1
 
-          ORDER BY
-            ps.is_primary DESC,
-            a.created_at DESC
-        `,
-        [parent.id]
-      );
+        ORDER BY
+          ps.is_primary DESC,
+          a.created_at DESC
+      `,
+      [parent.id]
+    );
 
-    if (
-      studentsResult.rows.length === 0
-    ) {
+    if (studentsResult.rows.length === 0) {
       return NextResponse.json(
         {
           success: false,
@@ -220,13 +250,13 @@ export async function POST(
     /* =====================================================
        CREATE SESSION
 
-       We use parent.id as the source of truth.
-       No parent phone is stored in the session.
+       Parent ID is the source of truth.
+       Email is OPTIONAL.
     ===================================================== */
 
     await createParentSession(
-      parent.id,
-      parent.email
+      Number(parent.id),
+      parent.email || null
     );
 
     /* =====================================================
@@ -236,31 +266,25 @@ export async function POST(
     return NextResponse.json({
       success: true,
 
-      message:
-        'Parent login successful.',
+      message: 'Parent login successful.',
 
       parent: {
         id: parent.id,
         name: parent.name,
-        email: parent.email,
+        email: parent.email || null,
         phone: parent.phone,
         role: parent.role,
       },
 
-      students:
-        studentsResult.rows,
+      students: studentsResult.rows,
     });
   } catch (error) {
-    console.error(
-      'PARENT LOGIN ERROR:',
-      error
-    );
+    console.error('PARENT LOGIN ERROR:', error);
 
     return NextResponse.json(
       {
         success: false,
-        message:
-          'Unable to login. Please try again.',
+        message: 'Unable to login. Please try again.',
       },
       { status: 500 }
     );

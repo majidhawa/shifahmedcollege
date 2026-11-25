@@ -1,3 +1,4 @@
+
 import crypto from 'crypto';
 import { cookies } from 'next/headers';
 
@@ -27,11 +28,11 @@ function getSessionSecret(): string {
   return secret;
 }
 
+const SESSION_SECRET = getSessionSecret();
+
 /* =========================================================
    SESSION CONFIGURATION
 ========================================================= */
-
-const SESSION_SECRET = getSessionSecret();
 
 const SESSION_DURATION_MS =
   7 * 24 * 60 * 60 * 1000;
@@ -41,11 +42,14 @@ const SESSION_MAX_AGE =
 
 /* =========================================================
    TYPES
+
+   Email is OPTIONAL.
+   Parent ID is the primary identity.
 ========================================================= */
 
 export type ParentSession = {
   parentId: number;
-  email: string;
+  email?: string;
   issuedAt: number;
 };
 
@@ -62,10 +66,7 @@ function encodeSession(
   ).toString('base64url');
 
   const signature = crypto
-    .createHmac(
-      'sha256',
-      SESSION_SECRET
-    )
+    .createHmac('sha256', SESSION_SECRET)
     .update(payload)
     .digest('base64url');
 
@@ -93,10 +94,7 @@ function decodeSession(
     }
 
     const expectedSignature = crypto
-      .createHmac(
-        'sha256',
-        SESSION_SECRET
-      )
+      .createHmac('sha256', SESSION_SECRET)
       .update(payload)
       .digest('base64url');
 
@@ -134,6 +132,7 @@ function decodeSession(
     const session =
       JSON.parse(decoded) as ParentSession;
 
+    // Parent ID is mandatory.
     if (
       typeof session.parentId !== 'number' ||
       !Number.isInteger(session.parentId) ||
@@ -142,9 +141,10 @@ function decodeSession(
       return null;
     }
 
+    // Email is optional, but must be a string if present.
     if (
-      typeof session.email !== 'string' ||
-      !session.email.trim()
+      session.email !== undefined &&
+      typeof session.email !== 'string'
     ) {
       return null;
     }
@@ -174,32 +174,31 @@ function decodeSession(
 
 /* =========================================================
    CREATE PARENT SESSION
+
+   Email is optional.
+   Parent ID is the source of truth.
 ========================================================= */
 
 export async function createParentSession(
   parentId: number,
-  email: string
+  email?: string | null
 ): Promise<void> {
   if (
     !Number.isInteger(parentId) ||
     parentId <= 0
   ) {
-    throw new Error(
-      'Invalid parent ID.'
-    );
+    throw new Error('Invalid parent ID.');
   }
 
-  if (!email || !email.trim()) {
-    throw new Error(
-      'Parent email is required.'
-    );
-  }
+  const normalizedEmail = String(email || '')
+    .trim()
+    .toLowerCase();
 
   const session: ParentSession = {
     parentId,
-    email: email
-      .trim()
-      .toLowerCase(),
+    ...(normalizedEmail
+      ? { email: normalizedEmail }
+      : {}),
     issuedAt: Date.now(),
   };
 
@@ -214,8 +213,7 @@ export async function createParentSession(
       httpOnly: true,
 
       secure:
-        process.env.NODE_ENV ===
-        'production',
+        process.env.NODE_ENV === 'production',
 
       sameSite: 'lax',
 
@@ -243,9 +241,7 @@ export async function getParentSession(): Promise<
     return null;
   }
 
-  return decodeSession(
-    cookie.value
-  );
+  return decodeSession(cookie.value);
 }
 
 /* =========================================================
@@ -255,9 +251,7 @@ export async function getParentSession(): Promise<
 export async function clearParentSession(): Promise<void> {
   const cookieStore = await cookies();
 
-  cookieStore.delete(
-    PARENT_SESSION_COOKIE
-  );
+  cookieStore.delete(PARENT_SESSION_COOKIE);
 }
 
 /* =========================================================
@@ -265,13 +259,10 @@ export async function clearParentSession(): Promise<void> {
 ========================================================= */
 
 export async function requireParentSession(): Promise<ParentSession> {
-  const session =
-    await getParentSession();
+  const session = await getParentSession();
 
   if (!session) {
-    throw new Error(
-      'UNAUTHORIZED_PARENT'
-    );
+    throw new Error('UNAUTHORIZED_PARENT');
   }
 
   return session;
@@ -282,8 +273,7 @@ export async function requireParentSession(): Promise<ParentSession> {
 ========================================================= */
 
 export async function isParentAuthenticated(): Promise<boolean> {
-  const session =
-    await getParentSession();
+  const session = await getParentSession();
 
   return session !== null;
 }
